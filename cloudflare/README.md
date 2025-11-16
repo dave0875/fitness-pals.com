@@ -1,36 +1,19 @@
-# Cloudflare Tunnel for Run Trainer
+# Cloudflare Tunnel (containerized)
 
-## Install cloudflared
-```bash
-brew install cloudflared # macOS
-# or
-sudo apt-get install cloudflared
-```
+The tunnel now runs as a service defined in `compose.yml` (`cloudflared`) using a **tunnel token**. No local `cloudflared` install or config file is required on the host.
 
-## Authenticate and create tunnel
-```bash
-cloudflared tunnel login
-cloudflared tunnel create runtrainer
-```
+## Steps
+1. In Cloudflare Zero Trust, create a tunnel and copy its token.
+2. Add the token to your `.env`:
+   ```
+   CLOUDFLARE_TUNNEL_TOKEN=xxxxxxxx
+   ```
+3. Bring up the stack:
+   ```
+   docker compose up -d cloudflared
+   ```
+   The container runs `cloudflared tunnel run` with the provided token.
 
-## Example config
-Place at `~/.cloudflared/config.yml`:
-```yaml
-tunnel: runtrainer
-credentials-file: ~/.cloudflared/runtrainer.json
-ingress:
-  - hostname: api.runtrainer.local
-    service: http://localhost:8000
-  - hostname: app.runtrainer.local
-    service: http://localhost:3000
-  - service: http_status:404
-```
-
-## Run the tunnel
-```bash
-cloudflared tunnel run runtrainer
-```
-
-## Production notes
-- Create DNS CNAMEs for `api.yourdomain.com` and `app.yourdomain.com` pointing to the Cloudflare tunnel.
-- Update the `hostname` entries in the config to match your real subdomains.
+## Notes
+- The tunnel currently depends on `grafana` and `training-agent` in `compose.yml`; adjust ingress rules in Cloudflare’s dashboard to map to those services/ports.
+- DNS: point your desired hostnames (e.g., `app.example.com`, `api.example.com`) to the tunnel via Cloudflare DNS as usual.
