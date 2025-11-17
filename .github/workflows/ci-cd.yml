@@ -40,19 +40,21 @@ jobs:
     env:
       COMPOSE_FILE: compose.yml
       ENV_FILE: .env
+      SECRET_ENV_PATH: /home/dbarker/fitness-pals.com-secrets/.env
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show environment target
-        run: echo "Deploying to DEV via self-hosted runner $(hostname)"
-
-      - name: Ensure .env exists
+      - name: Copy env from secrets path
         run: |
-          if [ ! -f "$ENV_FILE" ]; then
-            echo "$ENV_FILE not found on runner host; add it with your dev secrets." >&2
+          if [ ! -f "$SECRET_ENV_PATH" ]; then
+            echo "Expected env at $SECRET_ENV_PATH; not found." >&2
             exit 1
           fi
+          cp "$SECRET_ENV_PATH" "$ENV_FILE"
+
+      - name: Show environment target
+        run: echo "Deploying to DEV via self-hosted runner $(hostname)"
 
       - name: Pull and restart training-agent
         run: |
@@ -69,19 +71,21 @@ jobs:
     env:
       COMPOSE_FILE: compose.yml
       ENV_FILE: .env
+      SECRET_ENV_PATH: /home/dbarker/fitness-pals.com-secrets/.env
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show environment target
-        run: echo "Deploying to PROD via self-hosted runner $(hostname)"
-
-      - name: Ensure .env exists
+      - name: Copy env from secrets path
         run: |
-          if [ ! -f "$ENV_FILE" ]; then
-            echo "$ENV_FILE not found on runner host; add it with your prod secrets." >&2
+          if [ ! -f "$SECRET_ENV_PATH" ]; then
+            echo "Expected env at $SECRET_ENV_PATH; not found." >&2
             exit 1
           fi
+          cp "$SECRET_ENV_PATH" "$ENV_FILE"
+
+      - name: Show environment target
+        run: echo "Deploying to PROD via self-hosted runner $(hostname)"
 
       - name: Pull and restart training-agent
         run: |
