@@ -889,6 +889,11 @@ async def oauth_google_token(request: Request):
     if not data:
         data = dict(request.query_params)
 
+    logger.info(
+        "Incoming token request",
+        extra={"data_keys": list(data.keys()), "query_keys": list(request.query_params.keys())},
+    )
+
     code = data.get("code")
     grant_type = data.get("grant_type", "authorization_code")
     code_verifier = data.get("code_verifier")
