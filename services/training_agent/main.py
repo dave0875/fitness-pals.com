@@ -879,11 +879,14 @@ async def oauth_google_token(request: Request):
     data: dict = {}
     try:
         form = await request.form()
+        logger.info("Form returned:", extra={"form": form})
         data = dict(form)
-    except Exception:
+    except Exception as err:
+        logger.warning("Form parse failed", extra={"error": str(err)})
         try:
             data = await request.json()
-        except Exception:
+        except Exception as err2:
+            logger.warning("JSON parse failed", extra={"error": str(err2)})
             data = {}
     # query fallback for transparency
     if not data:
@@ -901,20 +904,38 @@ async def oauth_google_token(request: Request):
     code = data.get("code") or request.query_params.get("code")
     grant_type = data.get("grant_type", "authorization_code")
     code_verifier = data.get("code_verifier")
+    refresh_token = data.get("refresh_token")
 
-    if not code:
-        logger.info("Token request missing code", extra={"data": data})
-        return JSONResponse(status_code=400, content={"error": "invalid_request", "error_description": "code is required"})
-
-    payload = {
-        "code": code,
-        "client_id": GOOGLE_CLIENT_ID,
-        "client_secret": GOOGLE_CLIENT_SECRET,
-        "redirect_uri": GOOGLE_REDIRECT_URI,
-        "grant_type": grant_type,
-    }
-    if code_verifier:
-        payload["code_verifier"] = code_verifier
+    # Support refresh_token grant
+    if grant_type == "refresh_token":
+        if not refresh_token:
+            logger.info("Refresh token request missing refresh_token", extra={"data": data})
+            return JSONResponse(
+                status_code=400,
+                content={"error": "invalid_request", "error_description": "refresh_token is required"},
+            )
+        payload = {
+            "refresh_token": refresh_token,
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "grant_type": "refresh_token",
+        }
+    else:
+        if not code:
+            logger.info("Token request missing code", extra={"data": data})
+            return JSONResponse(
+                status_code=400,
+                content={"error": "invalid_request", "error_description": "code is required"},
+            )
+        payload = {
+            "code": code,
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "redirect_uri": GOOGLE_REDIRECT_URI,
+            "grant_type": "authorization_code",
+        }
+        if code_verifier:
+            payload["code_verifier"] = code_verifier
 
     try:
         safe_payload = dict(payload)
