@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import html
+import logging
 import os
 from typing import List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Header
 from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.responses import HTMLResponse
-from influxdb import InfluxDBClient
-from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
+from influxdb import InfluxDBClient
 import requests
 
 app = FastAPI(title="Garmin Training API", version="0.1.0")
@@ -17,6 +18,20 @@ app = FastAPI(title="Garmin Training API", version="0.1.0")
 
 ActionParam = dict[str, object]
 ActionSpec = dict[str, object]
+
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_CLIENT_ID = os.environ.get("RUNTRAINER_GOOGLE_CLIENT_ID") or os.environ.get("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.environ.get("RUNTRAINER_GOOGLE_CLIENT_SECRET") or os.environ.get("GOOGLE_CLIENT_SECRET")
+GOOGLE_REDIRECT_URI = (
+    os.environ.get("RUNTRAINER_GOOGLE_REDIRECT_URI")
+    or os.environ.get("GOOGLE_REDIRECT_URI")
+    or "https://chat.openai.com/aip/g-11e1b5846d447ba53af301061856b1a079cb91b9/oauth/callback"
+)
+DEFAULT_SCOPE = "openid email profile"
+
+logger = logging.getLogger("training_agent.oauth")
+logging.basicConfig(level=logging.INFO)
 
 
 RUN_TYPE_LABELS = {
@@ -791,7 +806,7 @@ def get_influx_client() -> InfluxDBClient:
 
 
 def require_google_auth(authorization: Optional[str] = Header(None, alias="Authorization")) -> dict:
-    client_id = os.environ.get("RUNTRAINER_GOOGLE_CLIENT_ID")
+    client_id = GOOGLE_CLIENT_ID
     if not client_id:
         raise HTTPException(status_code=500, detail="Server missing RUNTRAINER_GOOGLE_CLIENT_ID env")
     if not authorization or not authorization.lower().startswith("bearer "):
@@ -812,23 +827,19 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 @app.get("/oauth/google/auth")
 def oauth_google_auth(
     state: Optional[str] = None,
-    redirect_uri: Optional[str] = None,
-    scope: Optional[str] = "openid profile email",
+    scope: Optional[str] = DEFAULT_SCOPE,
     response_type: str = "code",
     access_type: str = "offline",
     prompt: str = "consent",
     code_challenge: Optional[str] = None,
     code_challenge_method: Optional[str] = None,
 ):
-    client_id = os.environ.get("RUNTRAINER_GOOGLE_CLIENT_ID")
-    if not client_id:
-        raise HTTPException(status_code=500, detail="Server missing RUNTRAINER_GOOGLE_CLIENT_ID env")
-    if not redirect_uri:
-        raise HTTPException(status_code=400, detail="redirect_uri is required")
+    if not GOOGLE_CLIENT_ID or not GOOGLE_REDIRECT_URI:
+        raise HTTPException(status_code=500, detail="Server missing Google OAuth env")
 
     params = {
-        "client_id": client_id,
-        "redirect_uri": redirect_uri,
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": GOOGLE_REDIRECT_URI,
         "response_type": response_type,
         "scope": scope,
         "access_type": access_type,
@@ -847,25 +858,22 @@ def oauth_google_auth(
 
 @app.post("/oauth/google/token")
 async def oauth_google_token(request: Request):
-    client_id = os.environ.get("RUNTRAINER_GOOGLE_CLIENT_ID")
-    client_secret = os.environ.get("RUNTRAINER_GOOGLE_CLIENT_SECRET")
-    if not client_id or not client_secret:
-        raise HTTPException(status_code=500, detail="Server missing Google client credentials")
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not GOOGLE_REDIRECT_URI:
+        raise HTTPException(status_code=500, detail="Server missing Google client credentials/env")
 
     form = await request.form()
     code = form.get("code")
-    redirect_uri = form.get("redirect_uri")
     grant_type = form.get("grant_type", "authorization_code")
     code_verifier = form.get("code_verifier")
 
-    if not code or not redirect_uri:
-        raise HTTPException(status_code=400, detail="code and redirect_uri are required")
+    if not code:
+        raise HTTPException(status_code=400, detail="code is required")
 
     payload = {
         "code": code,
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "redirect_uri": redirect_uri,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "redirect_uri": GOOGLE_REDIRECT_URI,
         "grant_type": grant_type,
     }
     if code_verifier:
