@@ -901,6 +901,10 @@ async def oauth_google_token(request: Request):
         payload["code_verifier"] = code_verifier
 
     try:
+        safe_payload = dict(payload)
+        if "client_secret" in safe_payload:
+            safe_payload["client_secret"] = "***REDACTED***"
+        logger.info("Posting token request to Google", extra={"payload": safe_payload})
         resp = requests.post(
             GOOGLE_TOKEN_URL,
             data=payload,
