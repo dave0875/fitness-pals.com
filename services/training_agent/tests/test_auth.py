@@ -1,5 +1,6 @@
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 import services.training_agent.main as main
 
@@ -119,8 +120,6 @@ def test_access_token_tokeninfo_raises(monkeypatch):
 def test_require_google_auth_success(monkeypatch):
     monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "client-id")
     monkeypatch.setattr(main, "GOOGLE_CLIENT_ID", "client-id")
-    monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "client-id")
-    monkeypatch.setattr(main, "GOOGLE_CLIENT_ID", "client-id")
     def fake_verify(token, audience):
         assert token == "goodtoken"
         assert audience == "client-id"
@@ -157,3 +156,15 @@ def test_require_google_auth_missing_client_id(monkeypatch):
         main.require_google_auth(authorization="Bearer sometoken")
     assert excinfo.value.status_code == 500
     assert "missing RUNTRAINER_GOOGLE_CLIENT_ID" in excinfo.value.detail
+
+
+def test_health_and_metrics_emit_prometheus():
+    client = TestClient(main.app)
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    metrics = client.get("/metrics")
+    assert metrics.status_code == 200
+    assert metrics.headers["content-type"].startswith("text/plain")
+    body = metrics.text
+    assert 'training_agent_requests_total{method="GET",path="/health",status="200"}' in body
+    assert 'training_agent_request_latency_seconds_count{method="GET",path="/health",status="200"}' in body
