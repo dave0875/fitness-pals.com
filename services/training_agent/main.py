@@ -19,8 +19,16 @@ app = FastAPI(title="Garmin Training API", version="0.1.0")
 ActionParam = dict[str, object]
 ActionSpec = dict[str, object]
 
-GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_AUTH_URL = (
+    os.environ.get("RUNTRAINER_GOOGLE_AUTH_URL")
+    or os.environ.get("GOOGLE_AUTH_URL")
+    or "https://accounts.google.com/o/oauth2/v2/auth"
+)
+GOOGLE_TOKEN_URL = (
+    os.environ.get("RUNTRAINER_GOOGLE_TOKEN_URL")
+    or os.environ.get("GOOGLE_TOKEN_URL")
+    or "https://oauth2.googleapis.com/token"
+)
 GOOGLE_CLIENT_ID = os.environ.get("RUNTRAINER_GOOGLE_CLIENT_ID") or os.environ.get("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.environ.get("RUNTRAINER_GOOGLE_CLIENT_SECRET") or os.environ.get("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = (
@@ -28,7 +36,7 @@ GOOGLE_REDIRECT_URI = (
     or os.environ.get("GOOGLE_REDIRECT_URI")
     or "https://chat.openai.com/aip/g-11e1b5846d447ba53af301061856b1a079cb91b9/oauth/callback"
 )
-DEFAULT_SCOPE = "openid email profile"
+DEFAULT_SCOPE = os.environ.get("RUNTRAINER_GOOGLE_SCOPE") or "openid email profile"
 
 logger = logging.getLogger("training_agent.oauth")
 logging.basicConfig(level=logging.INFO)
