@@ -59,7 +59,7 @@ jobs:
       - name: Pull and restart training-agent
         run: |
           docker compose --env-file "$ENV_FILE" pull training-agent
-          docker compose --env-file "$ENV_FILE" up -d --no-deps training-agent
+          docker compose --env-file "$ENV_FILE" up -d --no-deps --no-recreate training-agent
 
   deploy-prod:
     name: Deploy to Prod
@@ -90,4 +90,4 @@ jobs:
       - name: Pull and restart training-agent
         run: |
           docker compose --env-file "$ENV_FILE" pull training-agent
-          docker compose --env-file "$ENV_FILE" up -d --no-deps training-agent
+          docker compose --env-file "$ENV_FILE" up -d --no-deps --no-recreate training-agent
