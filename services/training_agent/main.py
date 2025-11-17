@@ -114,6 +114,93 @@ def first_non_null(*values):
     return None
 
 
+def get_elevation_stats(client: InfluxDBClient, activity_id: int) -> dict[str, Optional[float]]:
+    """Return ascent, descent, min, and max elevation for an activity."""
+    stats = {"ascent": None, "descent": None, "min": None, "max": None}
+    try:
+        base = list(
+            client.query(
+                f'SELECT MIN("Altitude") AS min_alt, MAX("Altitude") AS max_alt '
+                f'FROM "ActivityGPS" WHERE "Activity_ID" = {int(activity_id)}'
+            ).get_points()
+        )
+        if base:
+            stats["min"] = base[0].get("min_alt")
+            stats["max"] = base[0].get("max_alt")
+
+        ascent_q = (
+            "SELECT SUM(\"alt_diff\") AS gain FROM ("
+            'SELECT DIFFERENCE("Altitude") AS alt_diff FROM "ActivityGPS" '
+            f'WHERE "Activity_ID" = {int(activity_id)}'
+            ") WHERE alt_diff > 0"
+        )
+        ascent = list(client.query(ascent_q).get_points())
+        if ascent:
+            stats["ascent"] = ascent[0].get("gain")
+
+        descent_q = (
+            "SELECT SUM(\"alt_diff\") AS loss FROM ("
+            'SELECT DIFFERENCE("Altitude") AS alt_diff FROM "ActivityGPS" '
+            f'WHERE "Activity_ID" = {int(activity_id)}'
+            ") WHERE alt_diff < 0"
+        )
+        descent = list(client.query(descent_q).get_points())
+        if descent:
+            loss = descent[0].get("loss")
+            stats["descent"] = abs(loss) if loss is not None else None
+    except Exception:
+        return stats
+    return stats
+
+
+def get_temperature_stats(client: InfluxDBClient, activity_id: int) -> dict[str, Optional[float]]:
+    """Return avg/min/max temperature for an activity if available."""
+    stats = {"avg": None, "min": None, "max": None}
+    try:
+        temps = list(
+            client.query(
+                f'SELECT MEAN("Temperature") AS avg_temp, MIN("Temperature") AS min_temp, '
+                f'MAX("Temperature") AS max_temp FROM "ActivityGPS" WHERE "Activity_ID" = {int(activity_id)}'
+            ).get_points()
+        )
+        if temps:
+            row = temps[0]
+            stats["avg"] = row.get("avg_temp")
+            stats["min"] = row.get("min_temp")
+            stats["max"] = row.get("max_temp")
+        if stats["avg"] is None:
+            lap = list(
+                client.query(
+                    f'SELECT MEAN("Avg_Temperature") AS avg_temp FROM "ActivityLap" WHERE "Activity_ID" = {int(activity_id)}'
+                ).get_points()
+            )
+            if lap:
+                stats["avg"] = lap[0].get("avg_temp")
+    except Exception:
+        return stats
+    return stats
+
+
+def get_max_cadence(client: InfluxDBClient, activity_id: int) -> Optional[float]:
+    try:
+        gps = list(
+            client.query(
+                f'SELECT MAX("Cadence") AS max_cadence FROM "ActivityGPS" WHERE "Activity_ID" = {int(activity_id)}'
+            ).get_points()
+        )
+        if gps and gps[0].get("max_cadence") is not None:
+            return gps[0].get("max_cadence")
+        lap = list(
+            client.query(
+                f'SELECT MAX("Avg_Cadence") AS max_cadence FROM "ActivityLap" WHERE "Activity_ID" = {int(activity_id)}'
+            ).get_points()
+        )
+        if lap:
+            return lap[0].get("max_cadence")
+    except Exception:
+        return None
+    return None
+
 def get_elevation_gain(client: InfluxDBClient, activity_id: int) -> Optional[float]:
     """Return total positive elevation gain for an activity, if available."""
     try:
@@ -908,6 +995,13 @@ def training_log(limit: int = 20, days: int = 42):
             get_elevation_gain(client, int(entry["activity_id"])),
             row.get("totalElevationGain"),
         )
+        # Enrich elevation details
+        elev = get_elevation_stats(client, int(entry["activity_id"]))
+        entry["elevation_gain_m"] = first_non_null(entry.get("elevation_gain_m"), elev.get("ascent"))
+        entry["elevation_loss_m"] = elev.get("descent")
+        entry["elevation_min_m"] = elev.get("min")
+        entry["elevation_max_m"] = elev.get("max")
+        # Running dynamics
         entry["stride_length"] = first_non_null(row.get("strideLength"), entry.get("stride_length"))
         entry["vertical_oscillation"] = first_non_null(
             row.get("verticalOscillation"), entry.get("vertical_oscillation")
@@ -921,6 +1015,17 @@ def training_log(limit: int = 20, days: int = 42):
         entry["stance_time_percent"] = first_non_null(
             row.get("stanceTimePercent"), entry.get("stance_time_percent")
         )
+        entry["max_cadence"] = get_max_cadence(client, int(entry["activity_id"]))
+        # Temperature
+        temps = get_temperature_stats(client, int(entry["activity_id"]))
+        entry["avg_temperature"] = temps.get("avg")
+        entry["min_temperature"] = temps.get("min")
+        entry["max_temperature"] = temps.get("max")
+        # Pace (sec per km/mile if speed present)
+        speed_mps = row.get("averageSpeed")
+        if speed_mps and speed_mps > 0:
+            entry["avg_pace_sec_per_km"] = 1000.0 / speed_mps
+            entry["avg_pace_sec_per_mile"] = 1609.34 / speed_mps
         # Drop raw or duplicate fields to avoid null duplicates
         for k in (
             "averageRunCadence",
