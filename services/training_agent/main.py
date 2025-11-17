@@ -891,10 +891,14 @@ async def oauth_google_token(request: Request):
 
     logger.info(
         "Incoming token request",
-        extra={"data_keys": list(data.keys()), "query_keys": list(request.query_params.keys())},
+        extra={
+            "data": data,
+            "data_keys": list(data.keys()),
+            "query_keys": list(request.query_params.keys()),
+        },
     )
 
-    code = data.get("code")
+    code = data.get("code") or request.query_params.get("code")
     grant_type = data.get("grant_type", "authorization_code")
     code_verifier = data.get("code_verifier")
 
@@ -923,11 +927,15 @@ async def oauth_google_token(request: Request):
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=10,
         )
+        logger.info(
+            "Token response from Google",
+            extra={"status_code": resp.status_code, "response_body": resp.text},
+        )
         return JSONResponse(status_code=resp.status_code, content=resp.json())
-    except requests.RequestException as err:
+    except Exception as err:
         logger.error("Token exchange failed", exc_info=err)
         return JSONResponse(
-            status_code=502,
+            status_code=502 if isinstance(err, requests.RequestException) else 500,
             content={"error": "token_exchange_failed", "error_description": str(err)},
         )
 
