@@ -75,6 +75,8 @@ services:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
       - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_PREFERENCES_UNIT=imperial
+      - GF_PREFERENCES_TIMEZONE=America/New_York
       - GF_PLUGINS_PREINSTALL=marcusolsson-hourly-heatmap-panel
       - GF_DATE_FORMATS_FULL_DATE=MMM Do, YYYY - hh:mm:ss a
       - GF_DATE_FORMATS_INTERVAL_SECOND=hh:mm:ss a
