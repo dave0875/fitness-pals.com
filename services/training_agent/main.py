@@ -40,6 +40,12 @@ DEFAULT_SCOPE = os.environ.get("RUNTRAINER_GOOGLE_SCOPE") or "openid email profi
 
 logger = logging.getLogger("training_agent.oauth")
 logging.basicConfig(level=logging.INFO)
+logger.setLevel(logging.INFO)
+logger.propagate = True
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
+    logger.addHandler(handler)
 
 
 RUN_TYPE_LABELS = {
@@ -888,6 +894,7 @@ async def oauth_google_token(request: Request):
     code_verifier = data.get("code_verifier")
 
     if not code:
+        logger.info("Token request missing code", extra={"data": data})
         return JSONResponse(status_code=400, content={"error": "invalid_request", "error_description": "code is required"})
 
     payload = {
