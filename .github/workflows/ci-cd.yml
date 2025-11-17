@@ -80,10 +80,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Make workspace writable by deploy user
-        run: |
-          sudo chown -R "$RUN_AS_USER":"$RUN_AS_USER" "$GITHUB_WORKSPACE"
-
       - name: Copy env from secrets path
         run: |
           if [ ! -f "$SECRET_ENV_PATH" ]; then
@@ -97,5 +93,5 @@ jobs:
 
       - name: Pull and restart training-agent
         run: |
-          sudo -u "$RUN_AS_USER" docker compose --env-file "$ENV_FILE" pull training-agent
-          sudo -u "$RUN_AS_USER" docker compose --env-file "$ENV_FILE" up -d --no-deps --no-recreate training-agent
+          docker compose --env-file "$ENV_FILE" pull training-agent
+          docker compose --env-file "$ENV_FILE" up -d --no-deps --no-recreate training-agent
