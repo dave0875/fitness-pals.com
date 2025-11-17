@@ -4,7 +4,7 @@ import html
 import os
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Security, Header
+from fastapi import Depends, FastAPI, HTTPException, Request, Header
 from fastapi.responses import HTMLResponse
 from influxdb import InfluxDBClient
 from google.oauth2 import id_token
@@ -788,14 +788,6 @@ def get_influx_client() -> InfluxDBClient:
     )
 
 
-def require_api_key(header: Optional[str] = Security(api_key_header)) -> None:
-    expected = os.environ.get("TRAINING_API_KEY")
-    if not expected:
-        raise HTTPException(status_code=500, detail="Server missing TRAINING_API_KEY env")
-    if header != expected:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-
-
 def require_google_auth(authorization: Optional[str] = Header(None, alias="Authorization")) -> dict:
     client_id = os.environ.get("RUNTRAINER_GOOGLE_CLIENT_ID")
     if not client_id:
@@ -1129,7 +1121,7 @@ def sleep_metrics(days: int = 7):
     return payload
 
 
-@app.get("/stress-battery", dependencies=[Depends(require_api_key)])
+@app.get("/stress-battery", dependencies=[Depends(require_google_auth)])
 def stress_battery(days: int = 7):
     client = get_influx_client()
     window = max(days, 1)
@@ -1152,7 +1144,7 @@ def stress_battery(days: int = 7):
     }
 
 
-@app.get("/lactate-threshold", dependencies=[Depends(require_api_key)])
+@app.get("/lactate-threshold", dependencies=[Depends(require_google_auth)])
 def lactate_threshold():
     client = get_influx_client()
     query = (
@@ -1163,7 +1155,7 @@ def lactate_threshold():
     return result[0] if result else {"heart_rate": None, "pace": None}
 
 
-@app.get("/race-predictions", dependencies=[Depends(require_api_key)])
+@app.get("/race-predictions", dependencies=[Depends(require_google_auth)])
 def race_predictions(days: int = 30):
     client = get_influx_client()
     window = max(days, 1)
@@ -1178,7 +1170,7 @@ def race_predictions(days: int = 30):
     return payload
 
 
-@app.get("/race-schedule", dependencies=[Depends(require_api_key)])
+@app.get("/race-schedule", dependencies=[Depends(require_google_auth)])
 def race_schedule(limit: int = 5, days: int = 365):
     client = get_influx_client()
     window = max(days, 1)
