@@ -26,4 +26,6 @@ jobs:
         env:
           PYTHONPATH: .
         run: |
-          pytest -q services/training_agent/tests
+          pytest -vv --maxfail=1 --disable-warnings \
+            --cov=services/training_agent --cov-report=term-missing \
+            services/training_agent/tests
