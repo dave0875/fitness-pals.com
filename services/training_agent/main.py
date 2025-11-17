@@ -819,6 +819,47 @@ def get_influx_client() -> InfluxDBClient:
     )
 
 
+def verify_google_bearer(token: str, audience: str) -> dict:
+    """
+    Accept either a Google ID token (JWT) or an OAuth access token issued for the same client.
+    - ID tokens are verified locally via google.oauth2.id_token.
+    - Access tokens are verified by calling Google's tokeninfo endpoint.
+    """
+    request_obj = google_requests.Request()
+
+    # First try ID token validation (JWT signed by Google).
+    try:
+        claims = id_token.verify_oauth2_token(token, request_obj, audience=audience)
+        claims["_token_type"] = "id_token"
+        return claims
+    except Exception as err:
+        logger.info("Bearer did not validate as ID token; will try access token path", extra={"error": str(err)})
+
+    # Fallback: access token introspection via tokeninfo endpoint.
+    try:
+        resp = requests.get("https://oauth2.googleapis.com/tokeninfo", params={"access_token": token}, timeout=5)
+        if resp.status_code != 200:
+            logger.warning(
+                "tokeninfo request failed",
+                extra={"status_code": resp.status_code, "body": resp.text[:200]},
+            )
+            raise HTTPException(status_code=401, detail="Invalid Google token")
+        data = resp.json()
+        if data.get("aud") != audience:
+            logger.warning(
+                "Access token audience mismatch",
+                extra={"expected": audience, "got": data.get("aud")},
+            )
+            raise HTTPException(status_code=401, detail="Invalid Google token")
+        data["_token_type"] = "access_token"
+        return data
+    except HTTPException:
+        raise
+    except Exception as err:
+        logger.error("Access token validation failed", extra={"error": str(err)})
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+
+
 def require_google_auth(authorization: Optional[str] = Header(None, alias="Authorization")) -> dict:
     client_id = GOOGLE_CLIENT_ID
     if not client_id:
@@ -826,11 +867,7 @@ def require_google_auth(authorization: Optional[str] = Header(None, alias="Autho
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
     token = authorization.split(" ", 1)[1].strip()
-    try:
-        claims = id_token.verify_oauth2_token(token, google_requests.Request(), audience=client_id)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid Google ID token")
-    return claims
+    return verify_google_bearer(token, client_id)
 
 
 # --- OAuth proxy endpoints for GPT Actions (Google OAuth) ---
@@ -879,7 +916,6 @@ async def oauth_google_token(request: Request):
     data: dict = {}
     try:
         form = await request.form()
-        logger.info("Form returned:", extra={"form": form})
         data = dict(form)
     except Exception as err:
         logger.warning("Form parse failed", extra={"error": str(err)})
