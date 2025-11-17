@@ -3,17 +3,36 @@ from __future__ import annotations
 import html
 import logging
 import os
+import time
 from typing import List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Header
 from fastapi.responses import RedirectResponse, JSONResponse
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from influxdb import InfluxDBClient
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 import requests
 
 app = FastAPI(title="Garmin Training API", version="0.1.0")
+
+
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    """Capture request latency and counts for observability."""
+    start = time.perf_counter()
+    response = await call_next(request)
+    elapsed = time.perf_counter() - start
+    route_template = getattr(request.scope.get("route"), "path", request.url.path)
+    labels = {
+        "method": request.method,
+        "path": route_template,
+        "status": str(response.status_code),
+    }
+    REQUEST_COUNTER.labels(**labels).inc()
+    REQUEST_LATENCY.labels(**labels).observe(elapsed)
+    return response
 
 
 ActionParam = dict[str, object]
@@ -39,6 +58,17 @@ GOOGLE_REDIRECT_URI = (
 DEFAULT_SCOPE = os.environ.get("RUNTRAINER_GOOGLE_SCOPE") or "openid email profile"
 TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
 GOOGLE_REQUEST_TIMEOUT = 5
+METRICS_NAMESPACE = "training_agent"
+REQUEST_COUNTER = Counter(
+    f"{METRICS_NAMESPACE}_requests_total",
+    "HTTP requests processed",
+    ["method", "path", "status"],
+)
+REQUEST_LATENCY = Histogram(
+    f"{METRICS_NAMESPACE}_request_latency_seconds",
+    "HTTP request latency in seconds",
+    ["method", "path", "status"],
+)
 
 logger = logging.getLogger("training_agent.oauth")
 logging.basicConfig(level=logging.INFO)
@@ -1004,6 +1034,13 @@ async def oauth_google_token(request: Request):
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+@app.get("/metrics")
+def metrics():
+    """Prometheus metrics endpoint."""
+    payload = generate_latest()
+    return Response(content=payload, media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/weekly-summary", dependencies=[Depends(require_google_auth)])
