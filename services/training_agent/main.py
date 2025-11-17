@@ -37,6 +37,8 @@ GOOGLE_REDIRECT_URI = (
     or "https://chat.openai.com/aip/g-11e1b5846d447ba53af301061856b1a079cb91b9/oauth/callback"
 )
 DEFAULT_SCOPE = os.environ.get("RUNTRAINER_GOOGLE_SCOPE") or "openid email profile"
+TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
+GOOGLE_REQUEST_TIMEOUT = 5
 
 logger = logging.getLogger("training_agent.oauth")
 logging.basicConfig(level=logging.INFO)
@@ -837,7 +839,7 @@ def verify_google_bearer(token: str, audience: str) -> dict:
 
     # Fallback: access token introspection via tokeninfo endpoint.
     try:
-        resp = requests.get("https://oauth2.googleapis.com/tokeninfo", params={"access_token": token}, timeout=5)
+        resp = requests.get(TOKENINFO_URL, params={"access_token": token}, timeout=GOOGLE_REQUEST_TIMEOUT)
         if resp.status_code != 200:
             logger.warning(
                 "tokeninfo request failed",
@@ -867,6 +869,8 @@ def require_google_auth(authorization: Optional[str] = Header(None, alias="Autho
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
     token = authorization.split(" ", 1)[1].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing bearer token")
     return verify_google_bearer(token, client_id)
 
 
