@@ -861,7 +861,7 @@ async def oauth_google_token(request: Request):
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not GOOGLE_REDIRECT_URI:
         raise HTTPException(status_code=500, detail="Server missing Google client credentials/env")
 
-    # Accept both form-encoded and JSON bodies
+    # Accept form, JSON, or query fallback
     data: dict = {}
     try:
         form = await request.form()
@@ -871,13 +871,16 @@ async def oauth_google_token(request: Request):
             data = await request.json()
         except Exception:
             data = {}
+    # query fallback for transparency
+    if not data:
+        data = dict(request.query_params)
 
     code = data.get("code")
     grant_type = data.get("grant_type", "authorization_code")
     code_verifier = data.get("code_verifier")
 
     if not code:
-        return JSONResponse(status_code=400, content={"error": "invalid_request", "message": "code is required"})
+        return JSONResponse(status_code=400, content={"error": "invalid_request", "error_description": "code is required"})
 
     payload = {
         "code": code,
@@ -889,8 +892,20 @@ async def oauth_google_token(request: Request):
     if code_verifier:
         payload["code_verifier"] = code_verifier
 
-    resp = requests.post(GOOGLE_TOKEN_URL, data=payload, headers={"Content-Type": "application/x-www-form-urlencoded"})
-    return JSONResponse(status_code=resp.status_code, content=resp.json())
+    try:
+        resp = requests.post(
+            GOOGLE_TOKEN_URL,
+            data=payload,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=10,
+        )
+        return JSONResponse(status_code=resp.status_code, content=resp.json())
+    except requests.RequestException as err:
+        logger.error("Token exchange failed", exc_info=err)
+        return JSONResponse(
+            status_code=502,
+            content={"error": "token_exchange_failed", "error_description": str(err)},
+        )
 
 
 @app.get("/health")
