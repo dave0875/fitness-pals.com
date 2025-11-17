@@ -64,6 +64,15 @@ def get_average_cadence(client: InfluxDBClient, row: dict) -> Optional[float]:
     if not activity_id:
         return None
     try:
+        # Try lap-level cadence first (aggregated across laps), then fall back to GPS.
+        lap_query = (
+            'SELECT MEAN("Avg_Cadence") AS cadence FROM "ActivityLap" '
+            f'WHERE "Activity_ID" = {int(activity_id)}'
+        )
+        lap_points = list(client.query(lap_query).get_points())
+        lap_cadence = lap_points[0].get("cadence") if lap_points else None
+        if lap_cadence is not None:
+            return lap_cadence
         return fetch_cadence_from_gps(client, int(activity_id))
     except (ValueError, TypeError):
         return None
@@ -791,7 +800,7 @@ def training_log(limit: int = 20, days: int = 42):
     window = max(days, 1)
     query = (
         'SELECT "distance","elapsedDuration","movingDuration","averageSpeed","averageHR","calories",'
-        '"activityType","totalElevationGain","trainingEffectLabel","averageRunCadence","avgRunCadence",'
+        '"activityType","totalElevationGain","trainingEffectLabel","activityId","Activity_ID","averageRunCadence","avgRunCadence",'
         '"averageCadence","avgCadence","strideLength","verticalOscillation","groundContactTime",'
         '"groundContactBalance","stanceTimePercent" '
         f'FROM "ActivitySummary" WHERE time >= now() - {window}d '
