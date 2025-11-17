@@ -861,13 +861,23 @@ async def oauth_google_token(request: Request):
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not GOOGLE_REDIRECT_URI:
         raise HTTPException(status_code=500, detail="Server missing Google client credentials/env")
 
-    form = await request.form()
-    code = form.get("code")
-    grant_type = form.get("grant_type", "authorization_code")
-    code_verifier = form.get("code_verifier")
+    # Accept both form-encoded and JSON bodies
+    data: dict = {}
+    try:
+        form = await request.form()
+        data = dict(form)
+    except Exception:
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+
+    code = data.get("code")
+    grant_type = data.get("grant_type", "authorization_code")
+    code_verifier = data.get("code_verifier")
 
     if not code:
-        raise HTTPException(status_code=400, detail="code is required")
+        return JSONResponse(status_code=400, content={"error": "invalid_request", "message": "code is required"})
 
     payload = {
         "code": code,
