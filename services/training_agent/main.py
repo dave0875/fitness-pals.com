@@ -804,11 +804,16 @@ def training_log(limit: int = 20, days: int = 42):
         '"averageCadence","avgCadence","strideLength","verticalOscillation","groundContactTime",'
         '"groundContactBalance","stanceTimePercent" '
         f'FROM "ActivitySummary" WHERE time >= now() - {window}d '
-        "ORDER BY time DESC LIMIT {}".format(int(limit))
+        "ORDER BY time DESC LIMIT {}".format(int(limit * 2))
     )
     result = list(client.query(query).get_points())
-    enriched = []
+    deduped = []
+    seen_ids = set()
     for row in result:
+        activity_id = row.get("Activity_ID") or row.get("activityId")
+        if activity_id in seen_ids:
+            continue
+        seen_ids.add(activity_id)
         run_type = row.get("activityType")
         entry = dict(row)
         entry["run_label"] = RUN_TYPE_LABELS.get(run_type, run_type)
@@ -818,8 +823,10 @@ def training_log(limit: int = 20, days: int = 42):
         entry["ground_contact_time"] = row.get("groundContactTime")
         entry["ground_contact_balance"] = row.get("groundContactBalance")
         entry["stance_time_percent"] = row.get("stanceTimePercent")
-        enriched.append(entry)
-    return {"window_days": window, "entries": enriched}
+        deduped.append(entry)
+        if len(deduped) >= limit:
+            break
+    return {"window_days": window, "entries": deduped}
 
 
 @app.get("/training-load", dependencies=[Depends(require_api_key)])
