@@ -1,0 +1,93 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r services/training_agent/requirements-dev.txt
+
+      - name: Run tests with coverage
+        env:
+          PYTHONPATH: .
+        run: |
+          pytest -vv --maxfail=1 --disable-warnings \
+            --cov=services/training_agent --cov-report=term-missing \
+            services/training_agent/tests
+
+  deploy-dev:
+    name: Deploy to Dev
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, dev]
+    env:
+      COMPOSE_FILE: compose.yml
+      ENV_FILE: .env
+      SECRET_ENV_PATH: /home/dbarker/fitness-pals.com-secrets/.env
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy env from secrets path
+        run: |
+          if [ ! -f "$SECRET_ENV_PATH" ]; then
+            echo "Expected env at $SECRET_ENV_PATH; not found." >&2
+            exit 1
+          fi
+          cp "$SECRET_ENV_PATH" "$ENV_FILE"
+
+      - name: Show environment target
+        run: echo "Deploying to DEV via self-hosted runner $(hostname)"
+
+      - name: Pull and restart training-agent
+        run: |
+          docker compose --env-file "$ENV_FILE" pull training-agent
+          docker compose --env-file "$ENV_FILE" up -d training-agent
+
+  deploy-prod:
+    name: Deploy to Prod
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, prod]
+    environment:
+      name: production
+    env:
+      COMPOSE_FILE: compose.yml
+      ENV_FILE: .env
+      SECRET_ENV_PATH: /home/dbarker/fitness-pals.com-secrets/.env
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy env from secrets path
+        run: |
+          if [ ! -f "$SECRET_ENV_PATH" ]; then
+            echo "Expected env at $SECRET_ENV_PATH; not found." >&2
+            exit 1
+          fi
+          cp "$SECRET_ENV_PATH" "$ENV_FILE"
+
+      - name: Show environment target
+        run: echo "Deploying to PROD via self-hosted runner $(hostname)"
+
+      - name: Pull and restart training-agent
+        run: |
+          docker compose --env-file "$ENV_FILE" pull training-agent
+          docker compose --env-file "$ENV_FILE" up -d training-agent

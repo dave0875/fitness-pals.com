@@ -1,0 +1,9 @@
+# Cloudflare Tunnel for fitness-pals.com (production-style)
+tunnel: runtrainer
+credentials-file: /etc/cloudflared/runtrainer.json
+ingress:
+  - hostname: api.fitness-pals.com
+    service: http://localhost:8000
+  - hostname: app.fitness-pals.com
+    service: http://localhost:3000
+  - service: http_status:404
