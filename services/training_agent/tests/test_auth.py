@@ -119,6 +119,8 @@ def test_access_token_tokeninfo_raises(monkeypatch):
 def test_require_google_auth_success(monkeypatch):
     monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "client-id")
     monkeypatch.setattr(main, "GOOGLE_CLIENT_ID", "client-id")
+    monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "client-id")
+    monkeypatch.setattr(main, "GOOGLE_CLIENT_ID", "client-id")
     def fake_verify(token, audience):
         assert token == "goodtoken"
         assert audience == "client-id"
@@ -137,3 +139,21 @@ def test_require_google_auth_missing_or_bad_header(monkeypatch, header):
         main.require_google_auth(authorization=header)
     assert excinfo.value.status_code == 401
     assert "Missing bearer token" in excinfo.value.detail
+
+
+def test_require_google_auth_empty_token(monkeypatch):
+    monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "client-id")
+    monkeypatch.setattr(main, "GOOGLE_CLIENT_ID", "client-id")
+    with pytest.raises(HTTPException) as excinfo:
+        main.require_google_auth(authorization="Bearer   ")
+    assert excinfo.value.status_code == 401
+    assert "Missing bearer token" in excinfo.value.detail
+
+
+def test_require_google_auth_missing_client_id(monkeypatch):
+    monkeypatch.delenv("RUNTRAINER_GOOGLE_CLIENT_ID", raising=False)
+    monkeypatch.setattr(main, "GOOGLE_CLIENT_ID", None)
+    with pytest.raises(HTTPException) as excinfo:
+        main.require_google_auth(authorization="Bearer sometoken")
+    assert excinfo.value.status_code == 500
+    assert "missing RUNTRAINER_GOOGLE_CLIENT_ID" in excinfo.value.detail
