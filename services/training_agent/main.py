@@ -807,15 +807,36 @@ def training_log(limit: int = 20, days: int = 42):
         "ORDER BY time DESC LIMIT {}".format(int(limit * 2))
     )
     result = list(client.query(query).get_points())
-    deduped = []
-    seen_ids = set()
+    # Prefer richer rows per activity_id (non-null activityType/distance/HR)
+    def score(row: dict) -> int:
+        s = 0
+        if row.get("activityType"):
+            s += 2
+            if row.get("activityType") != "No Activity":
+                s += 1
+        for key in ("distance", "averageSpeed", "averageHR", "calories"):
+            if row.get(key) is not None:
+                s += 1
+        return s
+
+    best_by_id: dict[str, dict] = {}
     for row in result:
         activity_id = row.get("Activity_ID") or row.get("activityId")
-        if activity_id in seen_ids:
+        if activity_id is None:
             continue
-        seen_ids.add(activity_id)
+        row_score = score(row)
+        existing = best_by_id.get(str(activity_id))
+        if existing is None or row_score > score(existing):
+            best_by_id[str(activity_id)] = row
+
+    deduped = []
+    # Sort by time descending
+    for row in sorted(best_by_id.values(), key=lambda r: r.get("time", ""), reverse=True):
+        if len(deduped) >= limit:
+            break
         run_type = row.get("activityType")
         entry = dict(row)
+        entry["activity_id"] = row.get("Activity_ID") or row.get("activityId")
         entry["run_label"] = RUN_TYPE_LABELS.get(run_type, run_type)
         entry["average_cadence"] = get_average_cadence(client, row)
         entry["stride_length"] = row.get("strideLength")
@@ -823,9 +844,17 @@ def training_log(limit: int = 20, days: int = 42):
         entry["ground_contact_time"] = row.get("groundContactTime")
         entry["ground_contact_balance"] = row.get("groundContactBalance")
         entry["stance_time_percent"] = row.get("stanceTimePercent")
+        # Drop raw cadence fields to avoid confusion
+        for k in (
+            "averageRunCadence",
+            "avgRunCadence",
+            "averageCadence",
+            "avgCadence",
+            "Activity_ID",
+            "activityId",
+        ):
+            entry.pop(k, None)
         deduped.append(entry)
-        if len(deduped) >= limit:
-            break
     return {"window_days": window, "entries": deduped}
 
 
