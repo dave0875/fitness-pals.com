@@ -78,6 +78,35 @@ def get_average_cadence(client: InfluxDBClient, row: dict) -> Optional[float]:
         return None
 
 
+def get_elevation_gain(client: InfluxDBClient, activity_id: int) -> Optional[float]:
+    """Return total positive elevation gain for an activity, if available."""
+    try:
+        # If summary already has it, prefer that.
+        summary = list(
+            client.query(
+                f'SELECT "totalElevationGain" FROM "ActivitySummary" WHERE "Activity_ID" = {int(activity_id)} LIMIT 1'
+            ).get_points()
+        )
+        if summary:
+            gain = summary[0].get("totalElevationGain")
+            if gain is not None:
+                return gain
+
+        # Compute from GPS altitude deltas, summing only positive changes.
+        q = (
+            "SELECT SUM(\"alt_diff\") AS gain FROM ("
+            'SELECT DIFFERENCE("Altitude") AS alt_diff FROM "ActivityGPS" '
+            f'WHERE "Activity_ID" = {int(activity_id)}'
+            ") WHERE alt_diff > 0"
+        )
+        points = list(client.query(q).get_points())
+        if points:
+            return points[0].get("gain")
+    except Exception:
+        return None
+    return None
+
+
 ACTIONS: List[ActionSpec] = [
         {
             "name": "Health Check",
@@ -839,6 +868,7 @@ def training_log(limit: int = 20, days: int = 42):
         entry["activity_id"] = row.get("Activity_ID") or row.get("activityId")
         entry["run_label"] = RUN_TYPE_LABELS.get(run_type, run_type)
         entry["average_cadence"] = get_average_cadence(client, row)
+        entry["elevation_gain_m"] = get_elevation_gain(client, entry["activity_id"])
         entry["stride_length"] = row.get("strideLength")
         entry["vertical_oscillation"] = row.get("verticalOscillation")
         entry["ground_contact_time"] = row.get("groundContactTime")
