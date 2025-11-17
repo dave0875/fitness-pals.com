@@ -4,13 +4,11 @@ import html
 import os
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Security
+from fastapi import Depends, FastAPI, HTTPException, Request, Security, Header
 from fastapi.responses import HTMLResponse
-from fastapi.security import APIKeyHeader
 from influxdb import InfluxDBClient
-
-API_KEY_NAME = "X-TRAINING-API-KEY"
-api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 
 app = FastAPI(title="Garmin Training API", version="0.1.0")
 
@@ -798,12 +796,26 @@ def require_api_key(header: Optional[str] = Security(api_key_header)) -> None:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
 
+def require_google_auth(authorization: Optional[str] = Header(None, alias="Authorization")) -> dict:
+    client_id = os.environ.get("RUNTRAINER_GOOGLE_CLIENT_ID")
+    if not client_id:
+        raise HTTPException(status_code=500, detail="Server missing RUNTRAINER_GOOGLE_CLIENT_ID env")
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+    token = authorization.split(" ", 1)[1].strip()
+    try:
+        claims = id_token.verify_oauth2_token(token, google_requests.Request(), audience=client_id)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid Google ID token")
+    return claims
+
+
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
 
 
-@app.get("/weekly-summary", dependencies=[Depends(require_api_key)])
+@app.get("/weekly-summary", dependencies=[Depends(require_google_auth)])
 def weekly_summary(days: int = 7):
     window = max(days, 1)
     client = get_influx_client()
@@ -824,7 +836,7 @@ def weekly_summary(days: int = 7):
     return stats
 
 
-@app.get("/sleep-summary", dependencies=[Depends(require_api_key)])
+@app.get("/sleep-summary", dependencies=[Depends(require_google_auth)])
 def sleep_summary(days: int = 7):
     window = max(days, 1)
     client = get_influx_client()
@@ -862,7 +874,7 @@ def sleep_summary(days: int = 7):
     }
 
 
-@app.get("/vo2-trend", dependencies=[Depends(require_api_key)])
+@app.get("/vo2-trend", dependencies=[Depends(require_google_auth)])
 def vo2_trend(days: int = 30):
     window = max(days, 1)
     client = get_influx_client()
@@ -879,7 +891,7 @@ def vo2_trend(days: int = 30):
     return {"latest": latest, "average": avg, "window_days": window}
 
 
-@app.get("/hrv-trend", dependencies=[Depends(require_api_key)])
+@app.get("/hrv-trend", dependencies=[Depends(require_google_auth)])
 def hrv_trend(days: int = 30):
     client = get_influx_client()
     window = max(days, 1)
@@ -893,7 +905,7 @@ def hrv_trend(days: int = 30):
     return payload
 
 
-@app.get("/last-run", dependencies=[Depends(require_api_key)])
+@app.get("/last-run", dependencies=[Depends(require_google_auth)])
 def last_run():
     client = get_influx_client()
     query = (
@@ -928,7 +940,7 @@ def last_run():
     }
 
 
-@app.get("/recovery-score", dependencies=[Depends(require_api_key)])
+@app.get("/recovery-score", dependencies=[Depends(require_google_auth)])
 def recovery_score():
     client = get_influx_client()
     query = (
@@ -946,7 +958,7 @@ def recovery_score():
     }
 
 
-@app.get("/training-log", dependencies=[Depends(require_api_key)])
+@app.get("/training-log", dependencies=[Depends(require_google_auth)])
 def training_log(limit: int = 20, days: int = 42):
     client = get_influx_client()
     window = max(days, 1)
@@ -1047,7 +1059,7 @@ def training_log(limit: int = 20, days: int = 42):
     return {"window_days": window, "entries": deduped}
 
 
-@app.get("/training-load", dependencies=[Depends(require_api_key)])
+@app.get("/training-load", dependencies=[Depends(require_google_auth)])
 def training_load_focus(days: int = 14):
     client = get_influx_client()
     window = max(days, 1)
@@ -1062,7 +1074,7 @@ def training_load_focus(days: int = 14):
     return payload
 
 
-@app.get("/running-dynamics", dependencies=[Depends(require_api_key)])
+@app.get("/running-dynamics", dependencies=[Depends(require_google_auth)])
 def running_dynamics(days: int = 30):
     client = get_influx_client()
     window = max(days, 1)
@@ -1085,7 +1097,7 @@ def running_dynamics(days: int = 30):
     }
 
 
-@app.get("/recovery-time", dependencies=[Depends(require_api_key)])
+@app.get("/recovery-time", dependencies=[Depends(require_google_auth)])
 def recovery_time(days: int = 7):
     client = get_influx_client()
     window = max(days, 1)
@@ -1100,7 +1112,7 @@ def recovery_time(days: int = 7):
     }
 
 
-@app.get("/sleep-metrics", dependencies=[Depends(require_api_key)])
+@app.get("/sleep-metrics", dependencies=[Depends(require_google_auth)])
 def sleep_metrics(days: int = 7):
     client = get_influx_client()
     window = max(days, 1)
