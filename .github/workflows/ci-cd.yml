@@ -90,7 +90,12 @@ jobs:
       - name: Show environment target
         run: echo "Deploying to PROD via self-hosted runner $(hostname)"
 
+      - name: Ensure external volumes exist
+        run: |
+          sudo docker volume inspect garmin-grafana_influxdb_data >/dev/null 2>&1 || sudo docker volume create garmin-grafana_influxdb_data
+          sudo docker volume inspect garmin-grafana_grafana_data >/dev/null 2>&1 || sudo docker volume create garmin-grafana_grafana_data
+
       - name: Pull and restart training-agent
         run: |
-          sudo docker compose --env-file "$ENV_FILE" pull training-agent
-          sudo docker compose --env-file "$ENV_FILE" up -d --no-deps --no-recreate training-agent
+          sudo docker compose --env-file "$ENV_FILE" pull training-agent grafana garmin-fetch-data influxdb
+          sudo docker compose --env-file "$ENV_FILE" up -d --no-deps --no-recreate influxdb grafana garmin-fetch-data training-agent
