@@ -53,7 +53,6 @@ jobs:
             exit 1
           fi
           cp "$SECRET_ENV_PATH" "$ENV_FILE"
-          sudo chown "$RUN_AS_USER":"$RUN_AS_USER" "$ENV_FILE"
 
       - name: Show environment target
         run: echo "Deploying to DEV via self-hosted runner $(hostname)"
