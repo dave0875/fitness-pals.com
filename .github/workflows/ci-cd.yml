@@ -95,7 +95,7 @@ jobs:
           docker volume inspect garmin-grafana_influxdb_data >/dev/null 2>&1 || docker volume create garmin-grafana_influxdb_data
           docker volume inspect garmin-grafana_grafana_data >/dev/null 2>&1 || docker volume create garmin-grafana_grafana_data
 
-      - name: Pull and restart training-agent
+      - name: Pull and restart stack
         run: |
-          docker compose --env-file "$ENV_FILE" pull training-agent grafana garmin-fetch-data influxdb
-          docker compose --env-file "$ENV_FILE" up -d --no-deps --no-recreate influxdb grafana garmin-fetch-data training-agent
+          docker compose --env-file "$ENV_FILE" pull training-agent grafana garmin-fetch-data influxdb cloudflared
+          docker compose --env-file "$ENV_FILE" up -d --no-deps --no-recreate influxdb grafana garmin-fetch-data training-agent cloudflared
