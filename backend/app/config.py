@@ -19,6 +19,14 @@ class Settings(BaseSettings):
     google_client_secret: str
     google_redirect_uri: AnyUrl
 
+    microsoft_client_id: Optional[str] = None
+    microsoft_client_secret: Optional[str] = None
+    microsoft_redirect_uri: Optional[AnyUrl] = None
+
+    apple_client_id: Optional[str] = None
+    apple_client_secret: Optional[str] = None
+    apple_redirect_uri: Optional[AnyUrl] = None
+
     database_url: str
 
     influx_default_url: Optional[str] = None
@@ -26,9 +34,14 @@ class Settings(BaseSettings):
 
     fernet_key: str
 
+    dedupe_start_time_tolerance_seconds: int = 90
+    dedupe_duration_tolerance_ratio: float = 0.1
+    dedupe_distance_tolerance_ratio: float = 0.03
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        env_prefix = "RUNTRAINER_"
 
 
 @lru_cache
