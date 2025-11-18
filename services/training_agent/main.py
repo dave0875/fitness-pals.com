@@ -69,6 +69,7 @@ REQUEST_LATENCY = Histogram(
     "HTTP request latency in seconds",
     ["method", "path", "status"],
 )
+API_KEY_NAME = os.environ.get("TRAINING_API_KEY_HEADER", "x-api-key")
 
 logger = logging.getLogger("training_agent.oauth")
 logging.basicConfig(level=logging.INFO)
