@@ -503,6 +503,8 @@ ACTIONS: List[ActionSpec] = [
 
 
 def render_action_index(base_url: str, api_key: str | None) -> str:
+    api_header = API_KEY_NAME
+    api_header_escaped = html.escape(api_header)
     def render_field(param: ActionParam) -> str:
         input_type = html.escape(str(param.get("type", "text")))
         default = html.escape(str(param.get("default", "")))
@@ -740,13 +742,13 @@ def render_action_index(base_url: str, api_key: str | None) -> str:
 <body>
     <h1>Garmin Training API Explorer</h1>
     <section class="callout">
-        <p>Most endpoints require the <code>{API_KEY_NAME}</code> header.</p>
+        <p>Most endpoints require the <code>{api_header_escaped}</code> header.</p>
         <div class="api-key-input">
             <label for="api-key-field">API key used by harness</label>
             <input id="api-key-field" type="password" value="{api_key_value}" placeholder="Enter API key">
         </div>
         <p>Example curl:</p>
-        <pre>curl -H "{API_KEY_NAME}: &lt;your key&gt;" {escaped_base}/weekly-summary</pre>
+        <pre>curl -H "{api_header_escaped}: &lt;your key&gt;" {escaped_base}/weekly-summary</pre>
     </section>
     <div class="cards">
         {cards_html}
@@ -760,7 +762,7 @@ def render_action_index(base_url: str, api_key: str | None) -> str:
         <pre id="response-body">Use the harness to send a request and the body will appear here.</pre>
     </section>
     <script>
-        const API_KEY_HEADER = "{API_KEY_NAME}";
+        const API_KEY_HEADER = "{api_header_escaped}";
         const apiKeyField = document.getElementById("api-key-field");
         const responseEndpoint = document.getElementById("response-endpoint");
         const responseStatus = document.getElementById("response-status");
