@@ -10,6 +10,19 @@ jobs:
   test:
     name: Lint & Test
     runs-on: ubuntu-latest
+    env:
+      RUNTRAINER_JWT_SECRET: ci-secret
+      RUNTRAINER_GOOGLE_CLIENT_ID: ci-google-id
+      RUNTRAINER_GOOGLE_CLIENT_SECRET: ci-google-secret
+      RUNTRAINER_GOOGLE_REDIRECT_URI: https://example.com/oauth/callback
+      RUNTRAINER_MICROSOFT_CLIENT_ID: ci-ms-id
+      RUNTRAINER_MICROSOFT_CLIENT_SECRET: ci-ms-secret
+      RUNTRAINER_MICROSOFT_REDIRECT_URI: https://example.com/auth/microsoft/callback
+      RUNTRAINER_APPLE_CLIENT_ID: ci-apple-id
+      RUNTRAINER_APPLE_CLIENT_SECRET: ci-apple-secret
+      RUNTRAINER_APPLE_REDIRECT_URI: https://example.com/auth/apple/callback
+      RUNTRAINER_DATABASE_URL: sqlite:///./ci.db
+      RUNTRAINER_FERNET_KEY: ZmFrZS1mZXJuZXQta2V5LWRvLW5vdC11c2U=  # fake key for tests
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,18 +32,39 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install dependencies (backend + training agent)
         run: |
           python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
           python -m pip install -r services/training_agent/requirements-dev.txt
+          python -m pip install ruff mypy
 
-      - name: Run tests with coverage
+      - name: Static analysis (syntax + lint + type check)
+        run: |
+          python -m compileall backend services/training_agent
+          # Fail-fast linting on undefined names/syntax only
+          ruff check --select=E9,F63,F7,F82 --target-version=py310 backend services/training_agent
+          mypy --ignore-missing-imports --implicit-optional backend services/training_agent
+
+      - name: Validate migrations (offline)
+        working-directory: backend
+        run: |
+          alembic upgrade head --sql >/dev/null
+
+      - name: Build training-agent image (unique tag per commit)
         env:
-          PYTHONPATH: .
+          CI_IMAGE_TAG: fitness-pals-training-agent:ci-${{ github.sha }}
+        run: |
+          docker build --pull -t "$CI_IMAGE_TAG" ./services/training_agent
+          docker rmi "$CI_IMAGE_TAG" || true
+
+      - name: Run tests with coverage (backend + training agent)
+        env:
+          PYTHONPATH: backend:services/training_agent:.
         run: |
           pytest -vv --maxfail=1 --disable-warnings \
-            --cov=services/training_agent --cov-report=term-missing \
-            services/training_agent/tests
+            --cov=backend --cov=services/training_agent --cov-report=term-missing \
+            backend/tests services/training_agent/tests
 
   deploy-dev:
     name: Deploy to Dev
@@ -69,6 +103,8 @@ jobs:
     runs-on: [self-hosted, prod]
     environment:
       name: production
+      reviewers:
+        - dave0875
     env:
       COMPOSE_FILE: compose.yml
       ENV_FILE: .env
