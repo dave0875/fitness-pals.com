@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import html
+import json
 import logging
 import os
 import time
@@ -12,6 +13,7 @@ from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.responses import HTMLResponse, Response
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
+from google.auth import exceptions as google_exceptions
 from influxdb import InfluxDBClient
 from influxdb.exceptions import InfluxDBClientError, InfluxDBServerError
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
@@ -855,7 +857,7 @@ def verify_google_bearer(token: str, audience: str) -> dict:
         claims = id_token.verify_oauth2_token(token, request_obj, audience=audience)
         claims["_token_type"] = "id_token"
         return claims
-    except Exception as err:
+    except (ValueError, google_exceptions.GoogleAuthError) as err:
         logger.info(
             "Bearer did not validate as ID token; will try access token path",
             extra={"error": str(err), "error_type": type(err).__name__},
@@ -887,7 +889,8 @@ def verify_google_bearer(token: str, audience: str) -> dict:
             extra={"error": str(err), "error_type": type(err).__name__},
         )
         raise HTTPException(status_code=401, detail="Invalid Google token")
-    except Exception as err:
+    except ValueError as err:
+        # JSON decode, type errors, or malformed responses.
         logger.error("Access token validation failed", extra={"error": str(err), "error_type": type(err).__name__})
         raise HTTPException(status_code=401, detail="Invalid Google token")
 
@@ -919,6 +922,7 @@ def oauth_google_auth(
     code_challenge: Optional[str] = None,
     code_challenge_method: Optional[str] = None,
 ):
+    """Proxy to Google's OAuth authorize endpoint for the configured client."""
     if not GOOGLE_CLIENT_ID or not GOOGLE_REDIRECT_URI:
         raise HTTPException(status_code=500, detail="Server missing Google OAuth env")
 
@@ -943,6 +947,7 @@ def oauth_google_auth(
 
 @app.post("/oauth/google/token")
 async def oauth_google_token(request: Request):
+    """Proxy to Google's token endpoint; accepts form/JSON/query and forwards with client credentials."""
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not GOOGLE_REDIRECT_URI:
         raise HTTPException(status_code=500, detail="Server missing Google client credentials/env")
 
@@ -951,11 +956,11 @@ async def oauth_google_token(request: Request):
     try:
         form = await request.form()
         data = dict(form)
-    except Exception as err:
+    except (ValueError, RuntimeError) as err:
         logger.warning("Form parse failed", extra={"error": str(err), "error_type": type(err).__name__})
         try:
             data = await request.json()
-        except Exception as err2:
+        except (json.JSONDecodeError, ValueError, RuntimeError) as err2:
             logger.warning("JSON parse failed", extra={"error": str(err2), "error_type": type(err2).__name__})
             data = {}
     # query fallback for transparency
@@ -1029,7 +1034,7 @@ async def oauth_google_token(request: Request):
             status_code=502,
             content={"error": "token_exchange_failed", "error_description": str(err)},
         )
-    except Exception as err:
+    except (ValueError, json.JSONDecodeError) as err:
         logger.error("Token exchange failed (unexpected)", exc_info=err)
         return JSONResponse(
             status_code=500,
