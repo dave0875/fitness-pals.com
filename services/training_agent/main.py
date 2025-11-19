@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, Response
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from influxdb import InfluxDBClient
+from influxdb.exceptions import InfluxDBClientError, InfluxDBServerError
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 import requests
 
@@ -165,8 +166,11 @@ def get_elevation_gain(client: InfluxDBClient, activity_id: int) -> Optional[flo
         points = list(client.query(q).get_points())
         if points:
             return points[0].get("gain")
-    except Exception as err:
-        logger.warning("Elevation gain query failed", extra={"activity_id": activity_id, "error": str(err)})
+    except (InfluxDBClientError, InfluxDBServerError, ValueError, TypeError) as err:
+        logger.warning(
+            "Elevation gain query failed",
+            extra={"activity_id": activity_id, "error": str(err), "error_type": type(err).__name__},
+        )
         return None
     return None
 
@@ -212,7 +216,7 @@ def get_elevation_stats(client: InfluxDBClient, activity_id: int) -> dict[str, O
         if descent:
             loss = descent[0].get("loss")
             stats["descent"] = abs(loss) if loss is not None else None
-    except Exception as err:
+    except (InfluxDBClientError, InfluxDBServerError, ValueError, TypeError) as err:
         logger.warning(
             "Elevation stats query failed", extra={"activity_id": activity_id, "error": str(err), "partial": stats}
         )
@@ -243,7 +247,7 @@ def get_temperature_stats(client: InfluxDBClient, activity_id: int) -> dict[str,
             )
             if lap:
                 stats["avg"] = lap[0].get("avg_temp")
-    except Exception as err:
+    except (InfluxDBClientError, InfluxDBServerError, ValueError, TypeError) as err:
         logger.warning(
             "Temperature stats query failed", extra={"activity_id": activity_id, "error": str(err), "partial": stats}
         )
@@ -267,8 +271,11 @@ def get_max_cadence(client: InfluxDBClient, activity_id: int) -> Optional[float]
         )
         if lap:
             return lap[0].get("max_cadence")
-    except Exception as err:
-        logger.warning("Max cadence query failed", extra={"activity_id": activity_id, "error": str(err)})
+    except (InfluxDBClientError, InfluxDBServerError, ValueError, TypeError) as err:
+        logger.warning(
+            "Max cadence query failed",
+            extra={"activity_id": activity_id, "error": str(err), "error_type": type(err).__name__},
+        )
         return None
     return None
 
