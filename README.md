@@ -67,6 +67,7 @@ When multiple providers surface the same workout, the backend keeps one canonica
 ### Garmin scraper (temporary multi-tenant bridge)
 - Official Garmin Health API is the long-term solution; until approved, users can supply their own Garmin Connect credentials via `/api/providers/garmin/scraper/connect`. Credentials are encrypted per user. A scraper adapter (`backend/app/providers/garmin_scraper.py`) exists as a bridge and will be swapped for Garmin Health when available.
 - The legacy `GARMINCONNECT_*` env values support only a single shared account; plan to retire them once per-user ingestion is wired up end-to-end.
+- The scraper path uses the `garth` library (installed via backend requirements) to log in per user. It remains unofficial; expect occasional breakage if Garmin changes private endpoints.
 
 ## Updating garmin-grafana
 Because we rely on published images, updating is as simple as pulling new tags:
