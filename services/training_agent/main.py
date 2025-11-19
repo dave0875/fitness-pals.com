@@ -1,4 +1,5 @@
 # ruff: noqa: E501
+# pylint: disable=line-too-long
 from __future__ import annotations
 
 import html
@@ -108,6 +109,7 @@ def resolve_cadence(row: dict) -> Optional[float]:
 
 
 def fetch_cadence_from_gps(client: InfluxDBClient, activity_id: int) -> Optional[float]:
+    """Fetch average cadence from GPS samples when summary cadence is missing."""
     query = (
         'SELECT MEAN("Cadence") AS cadence, MEAN("Fractional_Cadence") AS fractional '
         f'FROM "ActivityGPS" WHERE "Activity_ID" = {int(activity_id)}'
@@ -123,6 +125,7 @@ def fetch_cadence_from_gps(client: InfluxDBClient, activity_id: int) -> Optional
 
 
 def get_average_cadence(client: InfluxDBClient, row: dict) -> Optional[float]:
+    """Resolve cadence across summary, lap, and GPS sources."""
     cadence = resolve_cadence(row)
     if cadence is not None:
         return cadence
@@ -178,6 +181,7 @@ def get_elevation_gain(client: InfluxDBClient, activity_id: int) -> Optional[flo
 
 
 def first_non_null(*values):
+    """Return the first non-null value from a list of candidates."""
     for v in values:
         if v is not None:
             return v
@@ -258,6 +262,7 @@ def get_temperature_stats(client: InfluxDBClient, activity_id: int) -> dict[str,
 
 
 def get_max_cadence(client: InfluxDBClient, activity_id: int) -> Optional[float]:
+    """Return max cadence using GPS or lap aggregates."""
     try:
         gps = list(
             client.query(
@@ -493,6 +498,7 @@ ACTIONS: List[ActionSpec] = [
 
 
 def render_action_index(base_url: str, api_key: str | None) -> str:
+    """Render the HTML action explorer page for the training agent harness."""
     api_header = API_KEY_NAME
     api_header_escaped = html.escape(api_header)
     def render_field(param: ActionParam) -> str:
@@ -828,12 +834,14 @@ def render_action_index(base_url: str, api_key: str | None) -> str:
 
 @app.get("/", response_class=HTMLResponse)
 def action_index(request: Request) -> HTMLResponse:
+    """Serve the action explorer UI."""
     return HTMLResponse(
         render_action_index(str(request.base_url).rstrip("/"), os.environ.get("TRAINING_API_KEY"))
     )
 
 
 def get_influx_client() -> InfluxDBClient:
+    """Create an InfluxDB client using environment-based configuration."""
     return InfluxDBClient(
         host=os.environ.get("INFLUXDB_HOST", "influxdb"),
         port=int(os.environ.get("INFLUXDB_PORT", "8086")),
@@ -894,6 +902,7 @@ def verify_google_bearer(token: str, audience: str) -> dict:
 
 
 def require_google_auth(authorization: Optional[str] = Header(None, alias="Authorization")) -> dict:
+    """Dependency to ensure a valid Google bearer token is present."""
     client_id = GOOGLE_CLIENT_ID
     if not client_id:
         raise HTTPException(status_code=500, detail="Server missing RUNTRAINER_GOOGLE_CLIENT_ID env")
@@ -1042,6 +1051,7 @@ async def oauth_google_token(request: Request):
 
 @app.get("/health")
 def health_check():
+    """Liveness endpoint for health probes."""
     return {"status": "ok"}
 
 
@@ -1054,6 +1064,7 @@ def metrics():
 
 @app.get("/weekly-summary", dependencies=[Depends(require_google_auth)])
 def weekly_summary(days: int = 7):
+    """Aggregated distance, calories, and resting HR within the window."""
     window = max(days, 1)
     client = get_influx_client()
     query = (
@@ -1075,6 +1086,7 @@ def weekly_summary(days: int = 7):
 
 @app.get("/sleep-summary", dependencies=[Depends(require_google_auth)])
 def sleep_summary(days: int = 7):
+    """Average sleep, stress, HRV, SpO2, and stage durations within the window."""
     window = max(days, 1)
     client = get_influx_client()
     query = (
@@ -1113,6 +1125,7 @@ def sleep_summary(days: int = 7):
 
 @app.get("/vo2-trend", dependencies=[Depends(require_google_auth)])
 def vo2_trend(days: int = 30):
+    """Latest and average VO2 max over a rolling window."""
     window = max(days, 1)
     client = get_influx_client()
     query = (
@@ -1130,6 +1143,7 @@ def vo2_trend(days: int = 30):
 
 @app.get("/hrv-trend", dependencies=[Depends(require_google_auth)])
 def hrv_trend(days: int = 30):
+    """Latest and average overnight HRV values."""
     client = get_influx_client()
     window = max(days, 1)
     query = (
@@ -1144,6 +1158,7 @@ def hrv_trend(days: int = 30):
 
 @app.get("/last-run", dependencies=[Depends(require_google_auth)])
 def last_run():
+    """Most recent running activity with summary metrics and dynamics."""
     client = get_influx_client()
     query = (
         'SELECT * FROM "ActivitySummary" '
@@ -1179,6 +1194,7 @@ def last_run():
 
 @app.get("/recovery-score", dependencies=[Depends(require_google_auth)])
 def recovery_score():
+    """Latest body battery change and sleep stress metrics."""
     client = get_influx_client()
     query = (
         'SELECT LAST("bodyBatteryChange") AS body_battery, '
@@ -1197,6 +1213,7 @@ def recovery_score():
 
 @app.get("/training-log", dependencies=[Depends(require_google_auth)])
 def training_log(limit: int = 20, days: int = 42):
+    """Recent activities within a window with enrichment for cadence and elevation."""
     client = get_influx_client()
     window = max(days, 1)
     query = (
@@ -1298,6 +1315,7 @@ def training_log(limit: int = 20, days: int = 42):
 
 @app.get("/training-load", dependencies=[Depends(require_google_auth)])
 def training_load_focus(days: int = 14):
+    """Latest low/high aerobic and anaerobic load values over the window."""
     client = get_influx_client()
     window = max(days, 1)
     query = (
@@ -1313,6 +1331,7 @@ def training_load_focus(days: int = 14):
 
 @app.get("/running-dynamics", dependencies=[Depends(require_google_auth)])
 def running_dynamics(days: int = 30):
+    """Most recent running dynamics: cadence, stride, oscillation, contact time."""
     client = get_influx_client()
     window = max(days, 1)
     query = (
@@ -1336,6 +1355,7 @@ def running_dynamics(days: int = 30):
 
 @app.get("/recovery-time", dependencies=[Depends(require_google_auth)])
 def recovery_time(days: int = 7):
+    """Latest prescribed recovery time from Training Status."""
     client = get_influx_client()
     window = max(days, 1)
     query = (
@@ -1351,6 +1371,7 @@ def recovery_time(days: int = 7):
 
 @app.get("/sleep-metrics", dependencies=[Depends(require_google_auth)])
 def sleep_metrics(days: int = 7):
+    """Most recent sleep stage durations, resting HR, and score."""
     client = get_influx_client()
     window = max(days, 1)
     query = (
@@ -1368,6 +1389,7 @@ def sleep_metrics(days: int = 7):
 
 @app.get("/stress-battery", dependencies=[Depends(require_google_auth)])
 def stress_battery(days: int = 7):
+    """Combined stress percentage and body battery charge/drain metrics."""
     client = get_influx_client()
     window = max(days, 1)
     stress_query = (
@@ -1391,6 +1413,7 @@ def stress_battery(days: int = 7):
 
 @app.get("/lactate-threshold", dependencies=[Depends(require_google_auth)])
 def lactate_threshold():
+    """Most recent threshold heart rate and pace."""
     client = get_influx_client()
     query = (
         'SELECT LAST("heartRate") AS heart_rate, LAST("pace") AS pace '
@@ -1402,6 +1425,7 @@ def lactate_threshold():
 
 @app.get("/race-predictions", dependencies=[Depends(require_google_auth)])
 def race_predictions(days: int = 30):
+    """Latest estimated finish times for common race distances."""
     client = get_influx_client()
     window = max(days, 1)
     query = (
@@ -1417,6 +1441,7 @@ def race_predictions(days: int = 30):
 
 @app.get("/race-schedule", dependencies=[Depends(require_google_auth)])
 def race_schedule(limit: int = 5, days: int = 365):
+    """Upcoming calendar items with location and start time."""
     client = get_influx_client()
     window = max(days, 1)
     query = (
