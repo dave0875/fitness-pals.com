@@ -881,18 +881,16 @@ def verify_google_bearer(token: str, audience: str) -> dict:
             raise HTTPException(status_code=401, detail="Invalid Google token")
         data["_token_type"] = "access_token"
         return data
-    except HTTPException:
-        raise
     except requests.RequestException as err:
         logger.error(
             "Access token validation request failed",
             extra={"error": str(err), "error_type": type(err).__name__},
         )
-        raise HTTPException(status_code=401, detail="Invalid Google token")
+        raise HTTPException(status_code=401, detail="Invalid Google token") from err
     except ValueError as err:
         # JSON decode, type errors, or malformed responses.
         logger.error("Access token validation failed", extra={"error": str(err), "error_type": type(err).__name__})
-        raise HTTPException(status_code=401, detail="Invalid Google token")
+        raise HTTPException(status_code=401, detail="Invalid Google token") from err
 
 
 def require_google_auth(authorization: Optional[str] = Header(None, alias="Authorization")) -> dict:
