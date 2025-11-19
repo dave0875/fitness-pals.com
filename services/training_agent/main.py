@@ -165,7 +165,8 @@ def get_elevation_gain(client: InfluxDBClient, activity_id: int) -> Optional[flo
         points = list(client.query(q).get_points())
         if points:
             return points[0].get("gain")
-    except Exception:
+    except Exception as err:
+        logger.warning("Elevation gain query failed", extra={"activity_id": activity_id, "error": str(err)})
         return None
     return None
 
@@ -211,7 +212,10 @@ def get_elevation_stats(client: InfluxDBClient, activity_id: int) -> dict[str, O
         if descent:
             loss = descent[0].get("loss")
             stats["descent"] = abs(loss) if loss is not None else None
-    except Exception:
+    except Exception as err:
+        logger.warning(
+            "Elevation stats query failed", extra={"activity_id": activity_id, "error": str(err), "partial": stats}
+        )
         return stats
     return stats
 
@@ -239,7 +243,10 @@ def get_temperature_stats(client: InfluxDBClient, activity_id: int) -> dict[str,
             )
             if lap:
                 stats["avg"] = lap[0].get("avg_temp")
-    except Exception:
+    except Exception as err:
+        logger.warning(
+            "Temperature stats query failed", extra={"activity_id": activity_id, "error": str(err), "partial": stats}
+        )
         return stats
     return stats
 
@@ -260,7 +267,8 @@ def get_max_cadence(client: InfluxDBClient, activity_id: int) -> Optional[float]
         )
         if lap:
             return lap[0].get("max_cadence")
-    except Exception:
+    except Exception as err:
+        logger.warning("Max cadence query failed", extra={"activity_id": activity_id, "error": str(err)})
         return None
     return None
 
@@ -841,7 +849,10 @@ def verify_google_bearer(token: str, audience: str) -> dict:
         claims["_token_type"] = "id_token"
         return claims
     except Exception as err:
-        logger.info("Bearer did not validate as ID token; will try access token path", extra={"error": str(err)})
+        logger.info(
+            "Bearer did not validate as ID token; will try access token path",
+            extra={"error": str(err), "error_type": type(err).__name__},
+        )
 
     # Fallback: access token introspection via tokeninfo endpoint.
     try:
@@ -863,8 +874,14 @@ def verify_google_bearer(token: str, audience: str) -> dict:
         return data
     except HTTPException:
         raise
+    except requests.RequestException as err:
+        logger.error(
+            "Access token validation request failed",
+            extra={"error": str(err), "error_type": type(err).__name__},
+        )
+        raise HTTPException(status_code=401, detail="Invalid Google token")
     except Exception as err:
-        logger.error("Access token validation failed", extra={"error": str(err)})
+        logger.error("Access token validation failed", extra={"error": str(err), "error_type": type(err).__name__})
         raise HTTPException(status_code=401, detail="Invalid Google token")
 
 
@@ -928,11 +945,11 @@ async def oauth_google_token(request: Request):
         form = await request.form()
         data = dict(form)
     except Exception as err:
-        logger.warning("Form parse failed", extra={"error": str(err)})
+        logger.warning("Form parse failed", extra={"error": str(err), "error_type": type(err).__name__})
         try:
             data = await request.json()
         except Exception as err2:
-            logger.warning("JSON parse failed", extra={"error": str(err2)})
+            logger.warning("JSON parse failed", extra={"error": str(err2), "error_type": type(err2).__name__})
             data = {}
     # query fallback for transparency
     if not data:
@@ -999,10 +1016,16 @@ async def oauth_google_token(request: Request):
             extra={"status_code": resp.status_code, "response_body": resp.text},
         )
         return JSONResponse(status_code=resp.status_code, content=resp.json())
-    except Exception as err:
-        logger.error("Token exchange failed", exc_info=err)
+    except requests.RequestException as err:
+        logger.error("Token exchange failed (request)", exc_info=err)
         return JSONResponse(
-            status_code=502 if isinstance(err, requests.RequestException) else 500,
+            status_code=502,
+            content={"error": "token_exchange_failed", "error_description": str(err)},
+        )
+    except Exception as err:
+        logger.error("Token exchange failed (unexpected)", exc_info=err)
+        return JSONResponse(
+            status_code=500,
             content={"error": "token_exchange_failed", "error_description": str(err)},
         )
 
