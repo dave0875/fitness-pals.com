@@ -10,7 +10,9 @@ class GarminProvider(FitnessProvider):
     Placeholder adapter for Garmin. The real implementation should:
     - Use the per-user tokens stored in user_provider_tokens
     - Refresh tokens via the Garmin token endpoint
-    - Normalize activity/sleep metrics into the schema the ingestion pipeline expects
+    - Normalize activity/sleep metrics into the schema the ingestion pipeline expects.
+    Until Garmin Health API is available, use the unofficial scraper adapter in
+    garmin_scraper.py to source data per user based on their supplied credentials.
     """
 
     name = "garmin"

@@ -77,6 +77,8 @@ def save_user_provider_token(
     expires_at: Optional[datetime] = None,
     metadata: Optional[dict] = None,
 ) -> UserProviderToken:
+    if not access_token:
+        raise ValueError("access_token is required to store provider token")
     existing = get_user_provider_token(db, user_id, provider)
     encrypted_access = encrypt_token(access_token)
     encrypted_refresh = encrypt_token(refresh_token) if refresh_token else None

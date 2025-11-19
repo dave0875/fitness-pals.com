@@ -64,6 +64,10 @@ When multiple providers surface the same workout, the backend keeps one canonica
 - User-facing provenance (to be wired in UI): show which providers contributed to a workout and which fields came from where; allow marking duplicates or keeping both to override the matcher.
 - Safety: Provider records are never deleted; decisions are logged for replay. Conflicts (multiple close matches with disagreements) should be flagged as `conflict` and surfaced for review rather than silently merged.
 
+### Garmin scraper (temporary multi-tenant bridge)
+- Official Garmin Health API is the long-term solution; until approved, users can supply their own Garmin Connect credentials via `/api/providers/garmin/scraper/connect`. Credentials are encrypted per user. A scraper adapter (`backend/app/providers/garmin_scraper.py`) exists as a bridge and will be swapped for Garmin Health when available.
+- The legacy `GARMINCONNECT_*` env values support only a single shared account; plan to retire them once per-user ingestion is wired up end-to-end.
+
 ## Updating garmin-grafana
 Because we rely on published images, updating is as simple as pulling new tags:
 ```bash

@@ -32,6 +32,13 @@ class ProviderTokenRequest(BaseModel):
     metadata: Optional[dict] = Field(default=None, description="Arbitrary provider-specific metadata")
 
 
+class GarminScraperConnectRequest(BaseModel):
+    """Credentials for the unofficial Garmin Connect scraper (per user)."""
+
+    username: str
+    password: str
+
+
 router = APIRouter(prefix="/api/providers", tags=["providers"])
 
 
@@ -93,6 +100,30 @@ def connect_provider(
         provider_user_id=body.provider_user_id,
         expires_at=body.expires_at,
         metadata=body.metadata,
+    )
+    return {"status": "ok", "provider": token.provider, "user_id": str(token.user_id)}
+
+
+@router.post("/garmin/scraper/connect")
+def connect_garmin_scraper(
+    body: GarminScraperConnectRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Store per-user Garmin credentials for the unofficial scraper flow.
+    Note: this is intended as a bridge until Garmin Health API onboarding is available.
+    Username is stored in access_token_encrypted, password in refresh_token_encrypted.
+    """
+    token: UserProviderToken = save_user_provider_token(
+        db,
+        user_id=user.id,
+        provider="garmin_scraper",
+        access_token=body.username,
+        refresh_token=body.password,
+        scope=None,
+        provider_user_id=None,
+        metadata={"mode": "scraper", "created_at": datetime.utcnow().isoformat()},
     )
     return {"status": "ok", "provider": token.provider, "user_id": str(token.user_id)}
 
