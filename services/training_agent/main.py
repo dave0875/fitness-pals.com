@@ -1,3 +1,10 @@
+"""
+Training agent FastAPI service.
+- Provides read endpoints for Garmin-derived metrics (InfluxDB v1) secured by Google OAuth.
+- Hosts an HTML harness for manual exploration.
+- Includes a Google OAuth proxy for GPT Actions.
+Note: long lines are tolerated in HTML/queries; Pylint line length is disabled.
+"""
 # ruff: noqa: E501
 # pylint: disable=line-too-long
 from __future__ import annotations
