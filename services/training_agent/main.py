@@ -895,6 +895,13 @@ def verify_google_bearer(token: str, audience: str) -> dict:
             extra={"error": str(err), "error_type": type(err).__name__},
         )
         raise HTTPException(status_code=401, detail="Invalid Google token") from err
+    except RuntimeError as err:
+        # Catch unexpected runtime errors from the GET path (e.g., test fakes)
+        logger.error(
+            "Access token validation encountered runtime error",
+            extra={"error": str(err), "error_type": type(err).__name__},
+        )
+        raise HTTPException(status_code=401, detail="Invalid Google token") from err
     except ValueError as err:
         # JSON decode, type errors, or malformed responses.
         logger.error("Access token validation failed", extra={"error": str(err), "error_type": type(err).__name__})
