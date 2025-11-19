@@ -18,10 +18,10 @@ from fastapi.responses import Response
 from google.oauth2 import id_token
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-from services.training_agent import auth as auth_module
-from services.training_agent import metrics_routes as metrics_module
-from services.training_agent.auth import GOOGLE_CLIENT_ID, router as auth_router
-from services.training_agent.influx_utils import (
+from . import auth as auth_module
+from . import metrics_routes as metrics_module
+from .auth import GOOGLE_CLIENT_ID, router as auth_router
+from .influx_utils import (
     get_influx_client,
     get_average_cadence,
     get_elevation_gain,
@@ -31,8 +31,8 @@ from services.training_agent.influx_utils import (
     resolve_cadence,
     first_non_null,
 )
-from services.training_agent.middleware import REQUEST_COUNTER, REQUEST_LATENCY, metrics_middleware
-from services.training_agent.ui import router as ui_router
+from .middleware import REQUEST_COUNTER, REQUEST_LATENCY, metrics_middleware
+from .ui import router as ui_router
 
 verify_google_bearer = auth_module.verify_google_bearer
 
@@ -57,9 +57,9 @@ app = FastAPI(title="Garmin Training API", version="0.1.0")
 app.middleware("http")(metrics_middleware)
 app.include_router(ui_router)
 app.include_router(auth_router)
-app.include_router(metrics_module.router, dependencies=[Depends(require_google_auth)])
+app.include_router(metrics_module.router)
 
-# Allow metrics routes to rely on the overridable get_influx_client from this module.
+# Allow metrics routes to rely on overridable helpers from this module (dynamic lookup for tests).
 metrics_module.get_influx_client = lambda: get_influx_client()
 metrics_module.get_average_cadence = lambda client, row: get_average_cadence(client, row)
 metrics_module.get_elevation_gain = lambda client, activity_id: get_elevation_gain(client, activity_id)
