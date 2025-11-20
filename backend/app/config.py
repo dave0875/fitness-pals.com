@@ -4,7 +4,8 @@ import os
 from functools import lru_cache
 from typing import Optional
 
-from pydantic import BaseSettings, AnyUrl
+from pydantic import AnyUrl
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):

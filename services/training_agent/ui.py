@@ -225,7 +225,7 @@ ACTIONS: List[ActionSpec] = [
 ]
 
 
-def render_action_index(base_url: str, api_key: str | None) -> str:
+def render_action_index(base_url: str, api_key: str | None, google_client_id: str | None) -> str:
     """Render the HTML action explorer page for the training agent harness."""
     api_header = API_KEY_NAME
     api_header_escaped = html.escape(api_header)
@@ -295,6 +295,7 @@ def render_action_index(base_url: str, api_key: str | None) -> str:
 <head>
     <meta charset="utf-8">
     <title>Garmin Training API Explorer</title>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
         :root {{
             color-scheme: light dark;
@@ -312,6 +313,17 @@ def render_action_index(base_url: str, api_key: str | None) -> str:
         }}
         a {{
             color: #38bdf8;
+        }}
+        .status-banner {{
+            display: none;
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            background: rgba(236, 72, 153, 0.1);
+            border: 1px solid rgba(236, 72, 153, 0.4);
+        }}
+        .status-banner.visible {{
+            display: block;
         }}
         .cards {{
             display: grid;
@@ -389,18 +401,45 @@ def render_action_index(base_url: str, api_key: str | None) -> str:
             margin-bottom: 0.5rem;
             opacity: 0.8;
         }}
+        .callout {{
+            margin-bottom: 1.5rem;
+            background: rgba(15, 23, 42, 0.85);
+            border-radius: 0.75rem;
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            padding: 1rem;
+        }}
+        .callout-content {{
+            display: flex;
+            gap: 2rem;
+            flex-wrap: wrap;
+            align-items: flex-start;
+        }}
+        .auth-status {{
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+            color: #a5b4fc;
+        }}
     </style>
 </head>
 <body>
     <h1>Garmin Training API Explorer</h1>
+    <div id="status-banner" class="status-banner"></div>
     <section class="callout">
-        <p>Most endpoints require the <code>{api_header_escaped}</code> header.</p>
-        <div class="api-key-input">
-            <label for="api-key-field">API key used by harness</label>
-            <input id="api-key-field" type="password" value="{api_key_value}" placeholder="Enter API key">
+        <div class="callout-content">
+            <div>
+                <h2>Authorization</h2>
+                <p>Sign in with Google to automatically add a bearer token to requests.</p>
+                <div id="google-login"></div>
+                <div id="auth-status" class="auth-status">Not signed in</div>
+                <button id="sign-out-button" style="display:none;">Sign out</button>
+            </div>
+            <div class="api-key-input">
+                <label for="api-key-field">Optional API key (x-api-key header)</label>
+                <input id="api-key-field" type="password" value="{api_key_value}" placeholder="Enter API key">
+                <small>Example curl:</small>
+                <pre>curl -H "{api_header_escaped}: &lt;your key&gt;" {escaped_base}/weekly-summary</pre>
+            </div>
         </div>
-        <p>Example curl:</p>
-        <pre>curl -H "{api_header_escaped}: &lt;your key&gt;" {escaped_base}/weekly-summary</pre>
     </section>
     <div class="cards">
         {cards_html}
@@ -414,11 +453,96 @@ def render_action_index(base_url: str, api_key: str | None) -> str:
         <pre id="response-body">Use the harness to send a request and the body will appear here.</pre>
     </section>
     <script>
+        const GOOGLE_CLIENT_ID = "{google_client_id or ''}";
         const API_KEY_HEADER = "{api_header_escaped}";
         const apiKeyField = document.getElementById("api-key-field");
         const responseEndpoint = document.getElementById("response-endpoint");
         const responseStatus = document.getElementById("response-status");
         const responseBody = document.getElementById("response-body");
+        const authStatus = document.getElementById("auth-status");
+        const statusBanner = document.getElementById("status-banner");
+        const signOutButton = document.getElementById("sign-out-button");
+        let googleToken = null;
+
+let bannerTimeout;
+function showBanner(message, level = "warn") {{
+    statusBanner.textContent = message;
+    statusBanner.className = `status-banner visible ${level}`;
+    clearTimeout(bannerTimeout);
+    bannerTimeout = setTimeout(() => {{
+        statusBanner.classList.remove("visible");
+    }}, 4000);
+}}
+
+        function parseJwt(token) {{
+            try {{
+                const base64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+                const jsonPayload = decodeURIComponent(
+                    atob(base64)
+                        .split("")
+                        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+                        .join("")
+                );
+                return JSON.parse(jsonPayload);
+            }} catch (err) {{
+                return {{}};
+            }}
+        }}
+
+        function updateAuthDisplay() {{
+            if (googleToken) {{
+                const payload = parseJwt(googleToken);
+                authStatus.textContent = payload.email ? `Signed in as ${payload.email}` : "Signed in";
+                signOutButton.style.display = "inline-flex";
+            }} else {{
+                authStatus.textContent = "Not signed in";
+                signOutButton.style.display = "none";
+            }}
+        }}
+
+        function handleCredentialResponse(response) {{
+            googleToken = response.credential;
+            showBanner("Google sign-in successful", "info");
+            updateAuthDisplay();
+        }}
+
+        window.initializeGoogle = function () {{
+            if (!GOOGLE_CLIENT_ID) {{
+                showBanner("Server missing Google client id; Google sign-in unavailable");
+                return;
+            }}
+            const loader = () => {{
+                if (window.google && window.google.accounts && window.google.accounts.id) {{
+                    window.google.accounts.id.initialize({{
+                        client_id: GOOGLE_CLIENT_ID,
+                        callback: handleCredentialResponse,
+                    }});
+                    window.google.accounts.id.renderButton(document.getElementById("google-login"), {{
+                        theme: "filled_black",
+                        size: "large",
+                        text: "signin_with",
+                        shape: "pill",
+                    }});
+                }} else {{
+                    setTimeout(loader, 300);
+                }}
+            }};
+            loader();
+        }};
+
+        window.onload = () => {{
+            updateAuthDisplay();
+            initializeGoogle();
+        }};
+
+        signOutButton.addEventListener("click", () => {{
+            googleToken = null;
+            if (window.google && window.google.accounts && window.google.accounts.id) {{
+                window.google.accounts.id.disableAutoSelect();
+            }}
+            updateAuthDisplay();
+            showBanner("Signed out", "info");
+        }});
 
         function formatBody(body) {{
             if (!body) {{
@@ -457,6 +581,11 @@ def render_action_index(base_url: str, api_key: str | None) -> str:
             if (apiKey) {{
                 headers[API_KEY_HEADER] = apiKey;
             }}
+            if (googleToken) {{
+                headers["Authorization"] = `Bearer ${googleToken}`;
+            }} else {{
+                showBanner("Sign in with Google to call protected endpoints");
+            }}
             try {{
                 const res = await fetch(url.toString(), {{ headers }});
                 const text = await res.text();
@@ -492,5 +621,9 @@ def render_action_index(base_url: str, api_key: str | None) -> str:
 def action_index(request: Request) -> HTMLResponse:
     """Serve the action explorer UI."""
     return HTMLResponse(
-        render_action_index(str(request.base_url).rstrip("/"), os.environ.get("TRAINING_API_KEY"))
+        render_action_index(
+            str(request.base_url).rstrip("/"),
+            os.environ.get("TRAINING_API_KEY"),
+            os.environ.get("RUNTRAINER_GOOGLE_CLIENT_ID") or os.environ.get("GOOGLE_CLIENT_ID"),
+        )
     )

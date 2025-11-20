@@ -1,43 +1,16 @@
 # There is support for influxdb v3 (core) OSS, but it's highly recommended to use Influxdb 1.x versions with this project. 
 
 services:
-  garmin-fetch-data:
+  postgres:
+    image: postgres:15
     restart: unless-stopped
-    image: ghcr.io/arpanghosh8453/garmin-fetch-data:latest
-    container_name: garmin-fetch-data
-    # user: root # Runs the container as root user, uncomment this line if you are getting permission issues which can't be resolved otherwise. For this, you also need to change the below volume mount from './garminconnect-tokens:/home/appuser/.garminconnect' to './garminconnect-tokens:/root/.garminconnect' to ensure the token files persist during container rebuilding. 
-    depends_on:
-      - influxdb
-    volumes:
-      - ./garminconnect-tokens:/home/appuser/.garminconnect # (persistent tokens storage - garminconnect-tokens folder must be owned by 1000:1000) - should be './garminconnect-tokens:/root/.garminconnect' instead if you are using using user: root
+    container_name: runtrainer-postgres
     environment:
-      - INFLUXDB_HOST=${INFLUXDB_HOST}
-      - INFLUXDB_PORT=${INFLUXDB_PORT} # Influxdb V3 maps to 8181 instead of 8086 of V1
-      - INFLUXDB_USERNAME=${INFLUXDB_USERNAME} # user should have read/write access to INFLUXDB_DATABASE (Required for influxdb 1.x, ignore for influxdb 3.x - set the 3.x specific variables)
-      - INFLUXDB_PASSWORD=${INFLUXDB_PASSWORD} # (Required for influxdb 1.x, ignore for influxdb 3.x - set the 3.x specific variables)
-      - INFLUXDB_DATABASE=${INFLUXDB_DATABASE}
-      - GARMINCONNECT_IS_CN=False # Set this to True if you are in mainland China or use Garmin-cn (Default False)
-      #####################################################################################
-      - GARMINCONNECT_EMAIL=${GARMINCONNECT_EMAIL} # optional, read the setup docs. (remove or comment out this line altogether if not used)
-      - GARMINCONNECT_BASE64_PASSWORD=${GARMINCONNECT_BASE64_PASSWORD} # optional, must be Base64 encoded, read setup docs. (remove or comment out this line altogether if not used)
-      #####################################################################################
-      # The following ENV variables are required only if you are using influxdb V3 (You won't have to set the above )
-      #####################################################################################
-      # - INFLUXDB_VERSION=1 # Required for influxdb V3, Default is 1, must be overridden with 3 if using Influxdb V3
-      # - INFLUXDB_V3_ACCESS_TOKEN=your_influxdb_admin_access_token # Required for influxdb V3 (ignored for V1), Set this to your admin access token (or a token that has database R/W access) - You can generate this by following step 3 notes in the README installation
-      #####################################################################################
-      # The following ENV variables will override some default settings. 
-      # Please read the README guide before using them as they may change how the script behaves
-      #####################################################################################
-      # - LOG_LEVEL=DEBUG # change to DEBUG to get DEBUG logs
-      # - UPDATE_INTERVAL_SECONDS=300 # Default update check interval is set to 5 minutes
-      # - FETCH_SELECTION=daily_avg,sleep,steps,heartrate,stress,breathing,hrv,fitness_age,vo2,activity,race_prediction,body_composition,training_status,training_readiness,hill_score,endurance_score,solar_intensity
-      - FETCH_SELECTION=daily_avg,sleep,steps,heartrate,stress,breathing,HRV,fitness_age,VO2,activity,race_prediction,body_composition,training_status,training_readiness,hill_score,endurance_score,solar_intensity,steps_epoch,distance_epoch,active_time_epoch,deep_sleep_duration,light_sleep_duration,rem_sleep_duration,awake_duration,validation_sleep,avg_stress_level,max_stress_level,stress_duration_seconds,low_stress_duration,medium_stress_duration,high_stress_duration,pulse_ox,respiration_rate,body_battery,lactate_threshold_estimate,stride_length,cadence,ground_contact_time,vertical_oscillation,elevation_gain,elevation_loss
-      # - KEEP_FIT_FILES=False # Stores the FIT files (downloads and saves them) when set to True - read docs for more details
-      # - ALWAYS_PROCESS_FIT_FILES=False # Enables processing FIT files even if GPS data is not present in it when set to True, default False
-      # - USER_TIMEZONE= # Can hardcode user's timezone - must be a valid TZ identifier like Europe/Budapest without quotes, fetches timezone automatically and dynamically on each run if set to empty (default) - Read docs
-      # - INFLUXDB_ENDPOINT_IS_HTTP=True # Set this to False if you are using HTTPS for your influxdb connection (over the internet)
-      # - FORCE_REPROCESS_ACTIVITIES=True # Enables re-processing of FIT files on iterative updates when set to True (default), setting to False may save processing time but known for skipping activities
+      - POSTGRES_DB=${RUNTRAINER_POSTGRES_DB:-runtrainer}
+      - POSTGRES_USER=${RUNTRAINER_POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${RUNTRAINER_POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
   influxdb:
     restart: unless-stopped
@@ -119,6 +92,25 @@ services:
       - "9000:9000"
     depends_on:
       - influxdb
+      - backend
+
+  backend:
+    build:
+      context: ./backend
+    container_name: runtrainer-backend
+    environment:
+      - RUNTRAINER_DATABASE_URL=postgresql://${RUNTRAINER_POSTGRES_USER:-postgres}:${RUNTRAINER_POSTGRES_PASSWORD:-postgres}@postgres:5432/${RUNTRAINER_POSTGRES_DB:-runtrainer}
+      - RUNTRAINER_JWT_SECRET=${RUNTRAINER_JWT_SECRET}
+      - RUNTRAINER_FERNET_KEY=${RUNTRAINER_FERNET_KEY}
+      - RUNTRAINER_GOOGLE_CLIENT_ID=${RUNTRAINER_GOOGLE_CLIENT_ID}
+      - RUNTRAINER_GOOGLE_CLIENT_SECRET=${RUNTRAINER_GOOGLE_CLIENT_SECRET}
+      - RUNTRAINER_GOOGLE_REDIRECT_URI=${RUNTRAINER_GOOGLE_REDIRECT_URI}
+      - RUNTRAINER_INFLUX_DEFAULT_URL=${RUNTRAINER_INFLUX_DEFAULT_URL}
+      - RUNTRAINER_OPENAI_API_KEY=${RUNTRAINER_OPENAI_API_KEY}
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
 
 volumes:
   influxdb_data:
@@ -127,3 +119,5 @@ volumes:
   grafana_data:
     external: true
     name: garmin-grafana_grafana_data
+  postgres_data:
+    external: false
