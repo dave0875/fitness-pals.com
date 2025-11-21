@@ -17,3 +17,4 @@ fetch.out
 
 # editor
 .vscode/
+.lintvenv/
