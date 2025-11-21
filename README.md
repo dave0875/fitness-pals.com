@@ -52,6 +52,39 @@ Key services:
 - OAuth login now supports Google, Microsoft, and Apple. Configure the relevant client id/secret + redirect URI in `.env` (RUNTRAINER_* variables) and hit `/auth/{provider}/login` (or `/auth/login` for Google). Callbacks live at `/auth/{provider}/callback`.
 - Tokens issued by these providers are exchanged for app JWTs the same way as Google; user records are keyed by email. Ensure the IdP returns an email claim or the login is rejected.
 
+## Garmin OAuth integration (current)
+- Endpoints: `/api/providers/garmin/login`, `/api/providers/garmin/callback`, `/api/providers/garmin/refresh`, `/api/providers/garmin/fetch`.
+- Security: OAuth-only (no credentials), tokens are encrypted via Fernet (`RUNTRAINER_FERNET_KEY`), refresh/reauth on expiry/401, no token logging.
+- Env vars: `GARMIN_CLIENT_ID`, `GARMIN_CLIENT_SECRET`, `GARMIN_REDIRECT_URI`; optional `GARMIN_AUTH_URL`, `GARMIN_TOKEN_URL`, `GARMIN_SCOPE`, `GARMIN_API_BASE`; encryption key `RUNTRAINER_FERNET_KEY`.
+- Fetch flow: user triggers `/fetch`, backend refreshes tokens if needed, calls Garmin API, records an ingest run (optionally writes metrics to Influx).
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant BE as Backend
+  participant G as Garmin OAuth
+  U->>BE: GET /api/providers/garmin/login
+  BE-->>U: Redirect to Garmin OAuth
+  U->>G: Login + consent
+  G-->>BE: Redirect with code
+  BE->>G: Exchange code for tokens
+  G-->>BE: access_token + refresh_token
+  BE-->>BE: Encrypt + store tokens
+  BE-->>U: Garmin connected
+```
+
+```mermaid
+flowchart LR
+  U[User trigger /fetch] --> BE[Backend]
+  BE --> DB[(IngestRun, tokens)]
+  BE --> GAPI[Garmin API]
+  GAPI --> BE
+  BE --> PG[(Postgres)]
+  BE -.-> IFX[(InfluxDB)]
+  classDef dashed stroke-dasharray: 4 4;
+  class IFX dashed;
+```
+
 ## Activity de-duplication & provenance (Garmin / Strava / Apple Health)
 When multiple providers surface the same workout, the backend keeps one canonical activity per user and tracks every provider source for transparency:
 - Canonical tables: `activities` holds the merged record; `activity_sources` links every provider item with decisions, chosen fields, and optional trimmed payload; `ingest_runs` + `ingest_decisions` capture batch runs and per-activity decisions for audit.

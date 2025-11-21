@@ -55,6 +55,7 @@ class UserProviderToken(Base):  # pylint: disable=too-few-public-methods
         nullable=False,
         index=True,
     )
+    tenant_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     provider = Column(String, nullable=False, index=True)
     provider_user_id = Column(String, nullable=True)
     access_token_encrypted = Column(BYTEA, nullable=False)

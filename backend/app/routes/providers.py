@@ -148,19 +148,10 @@ def connect_garmin_scraper(
     Note: this is intended as a bridge until Garmin Health API onboarding is available.
     Username is stored in access_token_encrypted, password in refresh_token_encrypted.
     """
-    token: UserProviderToken = save_user_provider_token(
-        db,
-        ProviderTokenDetails(
-            user_id=user.id,
-            provider="garmin_scraper",
-            access_token=body.username,
-            refresh_token=body.password,
-            scope=None,
-            provider_user_id=None,
-            metadata={"mode": "scraper", "created_at": datetime.utcnow().isoformat()},
-        ),
+    raise HTTPException(
+        status_code=410,
+        detail="Garmin scraper credential flow is disabled; use OAuth-based connect.",
     )
-    return {"status": "ok", "provider": token.provider, "user_id": str(token.user_id)}
 
 
 @router.get("/me")

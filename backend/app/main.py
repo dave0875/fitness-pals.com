@@ -10,6 +10,7 @@ from app.routes.datasource import router as datasource_router
 from app.routes.metrics import router as metrics_router
 from app.routes.chat import router as chat_router
 from app.routes import providers as provider_router
+from app.routes import providers_garmin
 from app.routes.ingest import router as ingest_router
 from app.config import get_settings
 
@@ -30,6 +31,7 @@ app.include_router(datasource_router)
 app.include_router(metrics_router)
 app.include_router(chat_router)
 app.include_router(provider_router.router)
+app.include_router(providers_garmin.router)
 app.include_router(ingest_router)
 
 

@@ -434,6 +434,7 @@ def render_action_index(
                 <h2>Authorization</h2>
                 <p>Sign in with Google to automatically add a bearer token to requests.</p>
                 <div id="google-login"></div>
+                <button id="google-login-btn" type="button">Sign in with Google</button>
                 <div id="auth-status" class="auth-status">Not signed in</div>
                 <button id="sign-out-button" style="display:none;">Sign out</button>
             </div>
@@ -460,6 +461,7 @@ def render_action_index(
         const GOOGLE_CLIENT_ID = "{google_client_id or ''}";
         const API_KEY_HEADER = "{api_header_escaped}";
         const apiKeyField = document.getElementById("api-key-field");
+        const googleLoginButton = document.getElementById("google-login-btn");
         const responseEndpoint = document.getElementById("response-endpoint");
         const responseStatus = document.getElementById("response-status");
         const responseBody = document.getElementById("response-body");
@@ -467,6 +469,11 @@ def render_action_index(
         const statusBanner = document.getElementById("status-banner");
         const signOutButton = document.getElementById("sign-out-button");
         let googleToken = null;
+
+        const isLocalhost =
+            window.location.hostname === "localhost" ||
+            window.location.hostname === "127.0.0.1";
+        const REDIRECT_BASE = isLocalhost ? "http://localhost:9000" : window.location.origin;
 
 let bannerTimeout;
 function showBanner(message, level = "warn") {{
@@ -491,6 +498,11 @@ function showBanner(message, level = "warn") {{
             }} catch (err) {{
                 return {{}};
             }}
+        }}
+
+        function buildGoogleAuthUrl() {{
+            const base = REDIRECT_BASE;
+            return `${{base}}/oauth/google/auth?redirect_uri=${{encodeURIComponent(base + "/oauth/google/callback")}}`;
         }}
 
         function updateAuthDisplay() {{
@@ -546,6 +558,10 @@ function showBanner(message, level = "warn") {{
             }}
             updateAuthDisplay();
             showBanner("Signed out", "info");
+        }});
+
+        googleLoginButton.addEventListener("click", () => {{
+            window.location.href = buildGoogleAuthUrl();
         }});
 
         function formatBody(body) {{

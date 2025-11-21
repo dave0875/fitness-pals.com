@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import sys
+
 from functools import lru_cache
 from typing import Optional
 
 from pydantic import AnyUrl
 from pydantic_settings import BaseSettings
-
 
 class Settings(BaseSettings):
     """Pydantic model representing all runtime configuration values."""
@@ -51,6 +52,10 @@ class Settings(BaseSettings):
 
 
 @lru_cache
-def get_settings() -> Settings:
-    """Return a cached settings instance."""
+
+
+def get_settings():
+    """Return settings for test scenarios."""
+    if "pytest" in sys.modules:
+        return Settings(_env_file=".env.test")
     return Settings()

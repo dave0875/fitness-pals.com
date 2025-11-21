@@ -33,9 +33,9 @@ class ProviderTokenDetails:  # pylint: disable=too-many-instance-attributes
     """Encrypted token payload stored per user."""
 
     user_id: UUID
-    tenant_id: Optional[UUID] = None
     provider: str
     access_token: str
+    tenant_id: Optional[UUID] = None
     refresh_token: Optional[str] = None
     scope: Optional[str] = None
     provider_user_id: Optional[str] = None
