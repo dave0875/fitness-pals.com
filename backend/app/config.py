@@ -1,6 +1,7 @@
+"""Typed configuration helpers for the backend service."""
+
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from typing import Optional
 
@@ -9,6 +10,8 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    """Pydantic model representing all runtime configuration values."""
+
     app_name: str = "Run Trainer"
     debug: bool = False
     jwt_secret: str
@@ -39,7 +42,9 @@ class Settings(BaseSettings):
     dedupe_duration_tolerance_ratio: float = 0.1
     dedupe_distance_tolerance_ratio: float = 0.03
 
-    class Config:
+    class Config:  # pylint: disable=too-few-public-methods
+        """Pydantic-specific configuration metadata."""
+
         env_file = ".env"
         env_file_encoding = "utf-8"
         env_prefix = "RUNTRAINER_"
@@ -47,4 +52,5 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings(_env_file=os.environ.get("ENV_FILE", ".env"))
+    """Return a cached settings instance."""
+    return Settings()

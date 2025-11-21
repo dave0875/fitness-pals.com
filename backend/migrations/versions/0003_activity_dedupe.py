@@ -1,3 +1,5 @@
+# pylint: disable=invalid-name,no-member
+
 """add activity dedupe and ingest audit tables
 
 Revision ID: 0003_activity_dedupe
@@ -20,10 +22,16 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Create activities, sources, and ingest audit tables."""
     op.create_table(
         "activities",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "user_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("start_time", sa.DateTime(timezone=True), nullable=False),
         sa.Column("duration_seconds", sa.Integer(), nullable=True),
         sa.Column("distance_m", sa.Float(), nullable=True),
@@ -37,12 +45,19 @@ def upgrade() -> None:
     op.create_index("ix_activities_user_id", "activities", ["user_id"])
     op.create_index("ix_activities_start_time", "activities", ["start_time"])
     op.create_index("ix_activities_sport", "activities", ["sport"])
-    op.create_index("ix_activities_fingerprint_hash", "activities", ["fingerprint_hash"])
+    op.create_index(
+        "ix_activities_fingerprint_hash", "activities", ["fingerprint_hash"]
+    )
 
     op.create_table(
         "activity_sources",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("activity_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("activities.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "activity_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("activities.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("provider", sa.String(), nullable=False),
         sa.Column("provider_activity_id", sa.String(), nullable=False),
         sa.Column("raw_hash", sa.String(), nullable=True),
@@ -53,7 +68,9 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )
-    op.create_index("ix_activity_sources_activity_id", "activity_sources", ["activity_id"])
+    op.create_index(
+        "ix_activity_sources_activity_id", "activity_sources", ["activity_id"]
+    )
     op.create_index("ix_activity_sources_provider", "activity_sources", ["provider"])
 
     op.create_table(
@@ -70,11 +87,26 @@ def upgrade() -> None:
     op.create_table(
         "ingest_decisions",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("ingest_run_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("ingest_runs.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "ingest_run_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("ingest_runs.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "user_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("provider", sa.String(), nullable=False),
         sa.Column("provider_activity_id", sa.String(), nullable=True),
-        sa.Column("activity_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("activities.id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "activity_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("activities.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column("decision", sa.String(), nullable=False),
         sa.Column("reason", sa.String(), nullable=True),
         sa.Column("fingerprint", postgresql.JSONB(), nullable=True),
@@ -82,13 +114,18 @@ def upgrade() -> None:
         sa.Column("chosen_fields", postgresql.JSONB(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
-    op.create_index("ix_ingest_decisions_ingest_run_id", "ingest_decisions", ["ingest_run_id"])
+    op.create_index(
+        "ix_ingest_decisions_ingest_run_id", "ingest_decisions", ["ingest_run_id"]
+    )
     op.create_index("ix_ingest_decisions_user_id", "ingest_decisions", ["user_id"])
     op.create_index("ix_ingest_decisions_provider", "ingest_decisions", ["provider"])
-    op.create_index("ix_ingest_decisions_activity_id", "ingest_decisions", ["activity_id"])
+    op.create_index(
+        "ix_ingest_decisions_activity_id", "ingest_decisions", ["activity_id"]
+    )
 
 
 def downgrade() -> None:
+    """Drop activities, sources, and ingest audit tables."""
     op.drop_index("ix_ingest_decisions_activity_id", table_name="ingest_decisions")
     op.drop_index("ix_ingest_decisions_provider", table_name="ingest_decisions")
     op.drop_index("ix_ingest_decisions_user_id", table_name="ingest_decisions")

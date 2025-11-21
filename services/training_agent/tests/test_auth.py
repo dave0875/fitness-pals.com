@@ -1,21 +1,36 @@
 # ruff: noqa: E501
+"""Tests covering Google OAuth verification and metrics endpoints."""
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-import services.training_agent.main as main
+from services.training_agent import main
+
+
+class StaticResponse:  # pylint: disable=too-few-public-methods
+    """Test HTTP response stub for mocking requests."""
+
+    def __init__(self, status_code: int, text: str, payload: dict):
+        self.status_code = status_code
+        self.text = text
+        self._payload = payload
+
+    def json(self):
+        """Return the stored JSON payload."""
+        return self._payload
 
 
 def test_id_token_path_prefers_local_verification(monkeypatch):
+    """ID tokens should be verified locally without tokeninfo."""
     calls = {"id": False, "tokeninfo": False}
 
-    def fake_verify(token, request_obj, audience):
+    def fake_verify(token, _request_obj, audience):
         calls["id"] = True
         assert token == "idtoken"
         assert audience == "client-id"
         return {"sub": "123"}
 
-    def fake_get(url, params=None, timeout=None):
+    def fake_get(_url, _params=None, _timeout=None):
         calls["tokeninfo"] = True
         pytest.fail("tokeninfo should not be called for valid ID tokens")
 
@@ -30,23 +45,21 @@ def test_id_token_path_prefers_local_verification(monkeypatch):
 
 
 def test_access_token_path_uses_tokeninfo(monkeypatch):
+    """Access tokens without JWT claims should call tokeninfo endpoint."""
     calls = {"tokeninfo": False}
 
-    def fake_verify(token, request_obj, audience):
+    def fake_verify(token, _request_obj, audience):
         raise ValueError("not an ID token")
 
-    class DummyResponse:
-        status_code = 200
-        text = '{"aud": "client-id", "sub": "456"}'
-
-        def json(self):
-            return {"aud": "client-id", "sub": "456"}
-
-    def fake_get(url, params=None, timeout=None):
+    def fake_get(_url, params=None, timeout=None):
         calls["tokeninfo"] = True
         assert params == {"access_token": "accesstoken"}
         assert timeout == 5
-        return DummyResponse()
+        return StaticResponse(
+            200,
+            '{"aud": "client-id", "sub": "456"}',
+            {"aud": "client-id", "sub": "456"},
+        )
 
     monkeypatch.setattr(main.id_token, "verify_oauth2_token", fake_verify)
     monkeypatch.setattr(main.requests, "get", fake_get)
@@ -58,18 +71,13 @@ def test_access_token_path_uses_tokeninfo(monkeypatch):
 
 
 def test_access_token_audience_mismatch(monkeypatch):
-    def fake_verify(token, request_obj, audience):
+    """Tokeninfo results with wrong audience should raise HTTPException."""
+
+    def fake_verify(token, _request_obj, audience):
         raise ValueError("not an ID token")
 
-    class DummyResponse:
-        status_code = 200
-        text = '{"aud": "other-client"}'
-
-        def json(self):
-            return {"aud": "other-client"}
-
-    def fake_get(url, params=None, timeout=None):
-        return DummyResponse()
+    def fake_get(_url, _params=None, _timeout=None):
+        return StaticResponse(200, '{"aud": "other-client"}', {"aud": "other-client"})
 
     monkeypatch.setattr(main.id_token, "verify_oauth2_token", fake_verify)
     monkeypatch.setattr(main.requests, "get", fake_get)
@@ -82,18 +90,13 @@ def test_access_token_audience_mismatch(monkeypatch):
 
 
 def test_access_token_tokeninfo_failure_status(monkeypatch):
-    def fake_verify(token, request_obj, audience):
+    """Non-200 responses from tokeninfo should raise HTTPException."""
+
+    def fake_verify(token, _request_obj, audience):
         raise ValueError("not an ID token")
 
-    class DummyResponse:
-        status_code = 400
-        text = "bad token"
-
-        def json(self):
-            return {}
-
-    def fake_get(url, params=None, timeout=None):
-        return DummyResponse()
+    def fake_get(_url, _params=None, _timeout=None):
+        return StaticResponse(400, "bad token", {})
 
     monkeypatch.setattr(main.id_token, "verify_oauth2_token", fake_verify)
     monkeypatch.setattr(main.requests, "get", fake_get)
@@ -104,10 +107,12 @@ def test_access_token_tokeninfo_failure_status(monkeypatch):
 
 
 def test_access_token_tokeninfo_raises(monkeypatch):
-    def fake_verify(token, request_obj, audience):
+    """Tokeninfo transport failures should be surfaced as HTTP errors."""
+
+    def fake_verify(token, _request_obj, audience):
         raise ValueError("not an ID token")
 
-    def fake_get(url, params=None, timeout=None):
+    def fake_get(_url, _params=None, _timeout=None):
         raise RuntimeError("network issue")
 
     monkeypatch.setattr(main.id_token, "verify_oauth2_token", fake_verify)
@@ -119,8 +124,10 @@ def test_access_token_tokeninfo_raises(monkeypatch):
 
 
 def test_require_google_auth_success(monkeypatch):
+    """require_google_auth should pass through valid bearer tokens."""
     monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "client-id")
     monkeypatch.setattr(main, "GOOGLE_CLIENT_ID", "client-id")
+
     def fake_verify(token, audience):
         assert token == "goodtoken"
         assert audience == "client-id"
@@ -133,6 +140,7 @@ def test_require_google_auth_success(monkeypatch):
 
 @pytest.mark.parametrize("header", [None, "", "Token xyz", "Bearer"])
 def test_require_google_auth_missing_or_bad_header(monkeypatch, header):
+    """Missing or malformed Authorization headers should raise 401."""
     monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "client-id")
     monkeypatch.setattr(main, "GOOGLE_CLIENT_ID", "client-id")
     with pytest.raises(HTTPException) as excinfo:
@@ -142,6 +150,7 @@ def test_require_google_auth_missing_or_bad_header(monkeypatch, header):
 
 
 def test_require_google_auth_empty_token(monkeypatch):
+    """Blank bearer tokens should be rejected."""
     monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "client-id")
     monkeypatch.setattr(main, "GOOGLE_CLIENT_ID", "client-id")
     with pytest.raises(HTTPException) as excinfo:
@@ -151,6 +160,7 @@ def test_require_google_auth_empty_token(monkeypatch):
 
 
 def test_require_google_auth_missing_client_id(monkeypatch):
+    """Missing Google client ID should result in server error."""
     monkeypatch.delenv("RUNTRAINER_GOOGLE_CLIENT_ID", raising=False)
     monkeypatch.setattr(main, "GOOGLE_CLIENT_ID", None)
     with pytest.raises(HTTPException) as excinfo:
@@ -160,6 +170,7 @@ def test_require_google_auth_missing_client_id(monkeypatch):
 
 
 def test_health_and_metrics_emit_prometheus():
+    """Health and metrics endpoints should respond under tests."""
     client = TestClient(main.app)
     resp = client.get("/health")
     assert resp.status_code == 200
@@ -167,26 +178,38 @@ def test_health_and_metrics_emit_prometheus():
     assert metrics.status_code == 200
     assert metrics.headers["content-type"].startswith("text/plain")
     body = metrics.text
-    assert 'training_agent_requests_total{method="GET",path="/health",status="200"}' in body
-    assert 'training_agent_request_latency_seconds_count{method="GET",path="/health",status="200"}' in body
+    assert (
+        'training_agent_requests_total{method="GET",path="/health",status="200"}'
+        in body
+    )
+    assert (
+        'training_agent_request_latency_seconds_count{method="GET",path="/health",status="200"}'
+        in body
+    )
 
 
 # --- Helpers for endpoint integration-style tests ---
-class FakeResult:
+class FakeResult:  # pylint: disable=too-few-public-methods
+    """Thin wrapper that mimics the Influx query result interface."""
+
     def __init__(self, rows):
         self._rows = rows
 
     def get_points(self):
+        """Return an iterator over the stored rows."""
         return iter(self._rows)
 
 
-class FakeClient:
+class FakeClient:  # pylint: disable=too-few-public-methods
+    """Simple Influx client stub returning pre-defined results."""
+
     def __init__(self, responses):
         # responses is a list of lists; each query pops the next
         self.responses = list(responses)
         self.queries = []
 
     def query(self, _query):
+        """Return the next canned response."""
         self.queries.append(_query)
         if self.responses:
             return FakeResult(self.responses.pop(0))
@@ -218,6 +241,7 @@ def setup_app_overrides(monkeypatch, responses):
 
 
 def test_weekly_and_sleep_summary(monkeypatch):
+    """Weekly/sleep endpoints should aggregate distance and sleep metrics."""
     # weekly: two queries; sleep: one query
     responses = [
         [{"distance": 10, "calories": 500}],
@@ -249,6 +273,7 @@ def test_weekly_and_sleep_summary(monkeypatch):
 
 
 def test_vo2_and_hrv_trends(monkeypatch):
+    """VO2 and HRV trend endpoints respond with recent stats."""
     responses = [
         [{"latest": 52, "average": 50}],
         [{"latest": 80, "average": 75}],
@@ -262,6 +287,7 @@ def test_vo2_and_hrv_trends(monkeypatch):
 
 
 def test_last_run(monkeypatch):
+    """last-run endpoint should enrich cadence and metadata."""
     responses = [
         [
             {
@@ -287,6 +313,7 @@ def test_last_run(monkeypatch):
 
 
 def test_recovery_and_load(monkeypatch):
+    """Recovery score and training load endpoints work end-to-end."""
     responses = [
         [{"body_battery": 12, "sleep_stress": 3}],
         [{"low": 10, "high": 20, "anaerobic": 5}],
@@ -299,6 +326,7 @@ def test_recovery_and_load(monkeypatch):
 
 
 def test_running_dynamics_and_recovery_time(monkeypatch):
+    """Running dynamics and recovery time endpoints should return values."""
     responses = [
         [
             {
@@ -319,25 +347,48 @@ def test_running_dynamics_and_recovery_time(monkeypatch):
 
 
 def test_sleep_stress_battery(monkeypatch):
+    """Sleep metrics and stress battery endpoints support responses."""
     responses = [
-        [{"sleep": 26000, "deep": 9000, "light": 11000, "rem": 4000, "awake": 2000, "score": 85, "rhr": 42}],
+        [
+            {
+                "sleep": 26000,
+                "deep": 9000,
+                "light": 11000,
+                "rem": 4000,
+                "awake": 2000,
+                "score": 85,
+                "rhr": 42,
+            }
+        ],
         [{"stress": 12}],
         [{"charged": 80, "drained": 30}],
     ]
     client, _ = setup_app_overrides(monkeypatch, responses)
     metrics = client.get("/sleep-metrics")
     stress = client.get("/stress-battery")
-    assert metrics.json()["sleep"] == 26000 or metrics.json().get("sleepTimeSeconds") is None
+    assert (
+        metrics.json()["sleep"] == 26000
+        or metrics.json().get("sleepTimeSeconds") is None
+    )
     assert stress.json()["stress_percentage"] == 12
 
 
 def test_lactate_race(monkeypatch):
+    """Lactate threshold and race endpoints handle API output."""
     responses = [
         [{"heart_rate": 170, "pace": 300}],
         [{"time5K": 1200, "time10K": 2400, "half": 5400, "marathon": 12000}],
         [
-            {"summary": "Race A", "startTimeLocal": "2025-01-01T09:00:00", "location": "NYC"},
-            {"summary": "Race B", "startTimeLocal": "2025-02-01T09:00:00", "location": "BOS"},
+            {
+                "summary": "Race A",
+                "startTimeLocal": "2025-01-01T09:00:00",
+                "location": "NYC",
+            },
+            {
+                "summary": "Race B",
+                "startTimeLocal": "2025-02-01T09:00:00",
+                "location": "BOS",
+            },
         ],
     ]
     client, _ = setup_app_overrides(monkeypatch, responses)
@@ -350,6 +401,7 @@ def test_lactate_race(monkeypatch):
 
 
 def test_training_log(monkeypatch):
+    """Training log should dedupe entries and compute paces."""
     responses = [
         [
             {
@@ -391,6 +443,7 @@ def test_training_log(monkeypatch):
 
 
 def test_utility_helpers_cover_branches():
+    """Utility helpers should cover spur-of-the-moment branches."""
     row = {"avgCadence": 165}
     assert main.resolve_cadence(row) == 165
     assert main.first_non_null(None, None, 5, 6) == 5

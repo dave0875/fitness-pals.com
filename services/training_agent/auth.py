@@ -1,5 +1,7 @@
 # ruff: noqa: E501
 # pylint: disable=line-too-long
+"""Google OAuth helper utilities for the training agent."""
+
 from __future__ import annotations
 
 import json
@@ -7,37 +9,54 @@ import logging
 import os
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Header, Request
+import requests
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from google.auth import exceptions as google_exceptions
-from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
-import requests
+from google.oauth2 import id_token
+from pydantic import BaseModel
 
-DEFAULT_SCOPE = os.environ.get("RUNTRAINER_GOOGLE_SCOPE") or "openid email profile"
-GOOGLE_AUTH_URL = (
+DEFAULT_SCOPE: str = os.environ.get("RUNTRAINER_GOOGLE_SCOPE") or "openid email profile"
+GOOGLE_AUTH_URL: str = (
     os.environ.get("RUNTRAINER_GOOGLE_AUTH_URL")
     or os.environ.get("GOOGLE_AUTH_URL")
     or "https://accounts.google.com/o/oauth2/v2/auth"
 )
-GOOGLE_TOKEN_URL = (
+GOOGLE_TOKEN_URL: str = (
     os.environ.get("RUNTRAINER_GOOGLE_TOKEN_URL")
     or os.environ.get("GOOGLE_TOKEN_URL")
     or "https://oauth2.googleapis.com/token"
 )
-GOOGLE_CLIENT_ID = os.environ.get("RUNTRAINER_GOOGLE_CLIENT_ID") or os.environ.get("GOOGLE_CLIENT_ID")
-GOOGLE_CLIENT_SECRET = os.environ.get("RUNTRAINER_GOOGLE_CLIENT_SECRET") or os.environ.get("GOOGLE_CLIENT_SECRET")
-GOOGLE_REDIRECT_URI = (
+GOOGLE_CLIENT_ID: str | None = os.environ.get(
+    "RUNTRAINER_GOOGLE_CLIENT_ID"
+) or os.environ.get("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET: str | None = os.environ.get(
+    "RUNTRAINER_GOOGLE_CLIENT_SECRET"
+) or os.environ.get("GOOGLE_CLIENT_SECRET")
+GOOGLE_REDIRECT_URI: str = (
     os.environ.get("RUNTRAINER_GOOGLE_REDIRECT_URI")
     or os.environ.get("GOOGLE_REDIRECT_URI")
     or "https://chat.openai.com/aip/g-11e1b5846d447ba53af301061856b1a079cb91b9/oauth/callback"
 )
-GOOGLE_REQUEST_TIMEOUT = 5
-TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
+GOOGLE_REQUEST_TIMEOUT: int = 5
+TOKENINFO_URL: str = "https://oauth2.googleapis.com/tokeninfo"
 
 logger = logging.getLogger("training_agent.oauth")
 
 router = APIRouter()
+
+
+class OAuthAuthorizeParams(BaseModel):
+    """Query parameters accepted by the Google OAuth authorize proxy."""
+
+    state: Optional[str] = None
+    scope: Optional[str] = DEFAULT_SCOPE
+    response_type: str = "code"
+    access_type: str = "offline"
+    prompt: str = "consent"
+    code_challenge: Optional[str] = None
+    code_challenge_method: Optional[str] = None
 
 
 def verify_google_bearer(token: str, audience: str) -> dict:
@@ -59,7 +78,11 @@ def verify_google_bearer(token: str, audience: str) -> dict:
         )
 
     try:
-        resp = requests.get(TOKENINFO_URL, params={"access_token": token}, timeout=GOOGLE_REQUEST_TIMEOUT)
+        resp = requests.get(
+            TOKENINFO_URL,
+            params={"access_token": token},
+            timeout=GOOGLE_REQUEST_TIMEOUT,
+        )
         if resp.status_code != 200:
             logger.warning(
                 "tokeninfo request failed",
@@ -75,8 +98,6 @@ def verify_google_bearer(token: str, audience: str) -> dict:
             raise HTTPException(status_code=401, detail="Invalid Google token")
         data["_token_type"] = "access_token"
         return data
-    except HTTPException:
-        raise
     except requests.RequestException as err:
         logger.error(
             "Access token validation request failed",
@@ -90,15 +111,26 @@ def verify_google_bearer(token: str, audience: str) -> dict:
         )
         raise HTTPException(status_code=401, detail="Invalid Google token") from err
     except ValueError as err:
-        logger.error("Access token validation failed", extra={"error": str(err), "error_type": type(err).__name__})
+        logger.error(
+            "Access token validation failed",
+            extra={"error": str(err), "error_type": type(err).__name__},
+        )
         raise HTTPException(status_code=401, detail="Invalid Google token") from err
 
 
-def require_google_auth(authorization: Optional[str] = Header(None, alias="Authorization")) -> dict:
+def require_google_auth(
+    authorization: Optional[str] = Header(None, alias="Authorization")
+) -> dict:
     """Dependency to enforce a valid Google bearer token on protected endpoints."""
-    client_id = GOOGLE_CLIENT_ID or os.environ.get("RUNTRAINER_GOOGLE_CLIENT_ID") or os.environ.get("GOOGLE_CLIENT_ID")
+    client_id = (
+        GOOGLE_CLIENT_ID
+        or os.environ.get("RUNTRAINER_GOOGLE_CLIENT_ID")
+        or os.environ.get("GOOGLE_CLIENT_ID")
+    )
     if not client_id:
-        raise HTTPException(status_code=500, detail="Server missing RUNTRAINER_GOOGLE_CLIENT_ID env")
+        raise HTTPException(
+            status_code=500, detail="Server missing RUNTRAINER_GOOGLE_CLIENT_ID env"
+        )
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
     token = authorization.split(" ", 1)[1].strip()
@@ -108,35 +140,27 @@ def require_google_auth(authorization: Optional[str] = Header(None, alias="Autho
 
 
 @router.get("/oauth/google/auth")
-def oauth_google_auth(
-    state: Optional[str] = None,
-    scope: Optional[str] = DEFAULT_SCOPE,
-    response_type: str = "code",
-    access_type: str = "offline",
-    prompt: str = "consent",
-    code_challenge: Optional[str] = None,
-    code_challenge_method: Optional[str] = None,
-):
+def oauth_google_auth(params: OAuthAuthorizeParams = Depends()):
     """Proxy to Google's OAuth authorize endpoint for the configured client."""
     if not GOOGLE_CLIENT_ID or not GOOGLE_REDIRECT_URI:
         raise HTTPException(status_code=500, detail="Server missing Google OAuth env")
 
-    params = {
+    payload = {
         "client_id": GOOGLE_CLIENT_ID,
         "redirect_uri": GOOGLE_REDIRECT_URI,
-        "response_type": response_type,
-        "scope": scope,
-        "access_type": access_type,
-        "prompt": prompt,
+        "response_type": params.response_type,
+        "scope": params.scope,
+        "access_type": params.access_type,
+        "prompt": params.prompt,
     }
-    if state:
-        params["state"] = state
-    if code_challenge:
-        params["code_challenge"] = code_challenge
-    if code_challenge_method:
-        params["code_challenge_method"] = code_challenge_method
+    if params.state:
+        payload["state"] = params.state
+    if params.code_challenge:
+        payload["code_challenge"] = params.code_challenge
+    if params.code_challenge_method:
+        payload["code_challenge_method"] = params.code_challenge_method
 
-    url = requests.Request("GET", GOOGLE_AUTH_URL, params=params).prepare().url
+    url = requests.Request("GET", GOOGLE_AUTH_URL, params=payload).prepare().url
     return RedirectResponse(url)
 
 
@@ -144,18 +168,26 @@ def oauth_google_auth(
 async def oauth_google_token(request: Request):
     """Proxy to Google's token endpoint; accepts form/JSON/query and forwards with client credentials."""
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not GOOGLE_REDIRECT_URI:
-        raise HTTPException(status_code=500, detail="Server missing Google client credentials/env")
+        raise HTTPException(
+            status_code=500, detail="Server missing Google client credentials/env"
+        )
 
     data: dict = {}
     try:
         form = await request.form()
         data = dict(form)
     except (ValueError, RuntimeError) as err:
-        logger.warning("Form parse failed", extra={"error": str(err), "error_type": type(err).__name__})
+        logger.warning(
+            "Form parse failed",
+            extra={"error": str(err), "error_type": type(err).__name__},
+        )
         try:
             data = await request.json()
         except (json.JSONDecodeError, ValueError, RuntimeError) as err2:
-            logger.warning("JSON parse failed", extra={"error": str(err2), "error_type": type(err2).__name__})
+            logger.warning(
+                "JSON parse failed",
+                extra={"error": str(err2), "error_type": type(err2).__name__},
+            )
             data = {}
     if not data:
         data = dict(request.query_params)
@@ -176,10 +208,15 @@ async def oauth_google_token(request: Request):
 
     if grant_type == "refresh_token":
         if not refresh_token:
-            logger.info("Refresh token request missing refresh_token", extra={"data": data})
+            logger.info(
+                "Refresh token request missing refresh_token", extra={"data": data}
+            )
             return JSONResponse(
                 status_code=400,
-                content={"error": "invalid_request", "error_description": "refresh_token is required"},
+                content={
+                    "error": "invalid_request",
+                    "error_description": "refresh_token is required",
+                },
             )
         payload = {
             "refresh_token": refresh_token,
@@ -192,7 +229,10 @@ async def oauth_google_token(request: Request):
             logger.info("Token request missing code", extra={"data": data})
             return JSONResponse(
                 status_code=400,
-                content={"error": "invalid_request", "error_description": "code is required"},
+                content={
+                    "error": "invalid_request",
+                    "error_description": "code is required",
+                },
             )
         payload = {
             "code": code,

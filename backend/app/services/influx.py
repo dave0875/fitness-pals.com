@@ -1,3 +1,5 @@
+"""Helpers for querying user-specific InfluxDB connections."""
+
 from __future__ import annotations
 
 from typing import Optional
@@ -10,10 +12,16 @@ from app.utils.security import decrypt_token
 
 
 def get_user_datasource(db: Session, user_id) -> Optional[DataSource]:
-    return db.query(DataSource).filter(DataSource.user_id == user_id, DataSource.type == "influxdb").first()
+    """Fetch a user's Influx datasource definition."""
+    return (
+        db.query(DataSource)
+        .filter(DataSource.user_id == user_id, DataSource.type == "influxdb")
+        .first()
+    )
 
 
 def get_influx_client_for_user(db: Session, user_id) -> InfluxDBClient:
+    """Instantiate an Influx client using the stored encrypted token."""
     ds = get_user_datasource(db, user_id)
     if not ds:
         raise ValueError("User has no InfluxDB datasource")

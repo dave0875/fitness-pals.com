@@ -1,11 +1,14 @@
+"""Prompt helpers for teaching Codex how to scaffold new agents."""
+
 from __future__ import annotations
 
 from typing import Dict
 
 
 SYSTEM_HINT = (
-    "You are Codex, a coding agent. Generate ONLY the incremental code needed to add the new agent. "
-    "Do not restate or rebuild existing Run Trainer architecture. Use GPT-5.1 for all completions."
+    "You are Codex, a coding agent. Generate ONLY the incremental code needed "
+    "to add the new agent. Do not restate or rebuild existing Run Trainer "
+    "architecture. Use GPT-5.1 for all completions."
 )
 
 

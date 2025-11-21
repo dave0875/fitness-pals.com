@@ -1,3 +1,5 @@
+"""Endpoints that expose ingest run transparency details."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,6 +15,7 @@ router = APIRouter(prefix="/api/ingest", tags=["ingest"])
 
 @router.get("/runs")
 def list_runs(_: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Return recent ingest runs."""
     runs = db.query(IngestRun).order_by(IngestRun.started_at.desc()).limit(200).all()
     return [
         {
@@ -28,7 +31,10 @@ def list_runs(_: User = Depends(get_current_user), db: Session = Depends(get_db)
 
 
 @router.get("/runs/{run_id}")
-def get_run(run_id: str, _: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_run(
+    run_id: str, _: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """Return metadata for a specific ingest run."""
     run = db.query(IngestRun).filter(IngestRun.id == run_id).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -43,8 +49,16 @@ def get_run(run_id: str, _: User = Depends(get_current_user), db: Session = Depe
 
 
 @router.get("/runs/{run_id}/decisions")
-def list_decisions(run_id: str, _: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    decisions = db.query(IngestDecision).filter(IngestDecision.ingest_run_id == run_id).order_by(IngestDecision.created_at).all()
+def list_decisions(
+    run_id: str, _: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    """Return fine-grained decisions for an ingest batch."""
+    decisions = (
+        db.query(IngestDecision)
+        .filter(IngestDecision.ingest_run_id == run_id)
+        .order_by(IngestDecision.created_at)
+        .all()
+    )
     return [
         {
             "id": str(decision.id),

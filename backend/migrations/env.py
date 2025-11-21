@@ -1,3 +1,7 @@
+"""Alembic migration environment configuration."""
+
+# pylint: disable=wildcard-import,unused-wildcard-import,no-member
+
 from __future__ import annotations
 
 from logging.config import fileConfig
@@ -26,6 +30,7 @@ target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
+    """Run migrations in offline mode (without DB connection)."""
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
@@ -39,6 +44,7 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    """Run migrations in online mode with an open DB connection."""
     connectable = engine_from_config(
         config.get_section(config.config_ini_section),
         prefix="sqlalchemy.",

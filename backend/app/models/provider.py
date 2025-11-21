@@ -1,3 +1,5 @@
+"""OAuth provider metadata and per-user token storage."""
+
 from __future__ import annotations
 
 import uuid
@@ -10,7 +12,7 @@ from sqlalchemy.orm import relationship
 from app.db import Base
 
 
-class ProviderApp(Base):
+class ProviderApp(Base):  # pylint: disable=too-few-public-methods
     """
     Represents a provider OAuth app/client that the platform owns (e.g., Garmin, Strava).
     Stores client credentials encrypted so environments can be configured through the API
@@ -27,11 +29,18 @@ class ProviderApp(Base):
     auth_url = Column(String, nullable=True)
     token_url = Column(String, nullable=True)
     scopes = Column(String, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
 
 
-class UserProviderToken(Base):
+class UserProviderToken(Base):  # pylint: disable=too-few-public-methods
     """
     User-specific grant for a provider. Access/refresh tokens are encrypted, and a small
     amount of metadata (scopes, provider user id) is stored for orchestration.
@@ -40,15 +49,27 @@ class UserProviderToken(Base):
     __tablename__ = "user_provider_tokens"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     provider = Column(String, nullable=False, index=True)
     provider_user_id = Column(String, nullable=True)
     access_token_encrypted = Column(BYTEA, nullable=False)
     refresh_token_encrypted = Column(BYTEA, nullable=True)
     scope = Column(String, nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
-    metadata = Column(JSON, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    metadata_json = Column("metadata", JSON, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
 
     user = relationship("User", backref="provider_tokens")

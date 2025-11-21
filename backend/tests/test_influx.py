@@ -1,12 +1,15 @@
+"""Unit tests for the Influx service helpers."""
+
 import uuid
 from unittest.mock import MagicMock, patch
 
+from app.models import DataSource
 from app.services.influx import get_influx_client_for_user
 from app.utils.security import encrypt_token
-from app.models import DataSource
 
 
 def test_get_influx_client_for_user():
+    """Influx client helper should return a configured client."""
     fake_db = MagicMock()
     user_id = uuid.uuid4()
     ds = DataSource(
@@ -20,3 +23,4 @@ def test_get_influx_client_for_user():
     with patch("app.services.influx.InfluxDBClient") as client_cls:
         client = get_influx_client_for_user(fake_db, user_id)
         client_cls.assert_called_once()
+        assert client is client_cls.return_value

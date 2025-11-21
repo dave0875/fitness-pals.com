@@ -1,3 +1,5 @@
+"""FastAPI application wiring for Run Trainer backend."""
+
 from __future__ import annotations
 
 from fastapi import FastAPI
@@ -33,4 +35,5 @@ app.include_router(ingest_router)
 
 @app.get("/health")
 def health():
+    """Lightweight health probe for container orchestration."""
     return {"status": "ok"}

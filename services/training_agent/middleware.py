@@ -1,3 +1,5 @@
+"""Prometheus instrumentation middleware for the training agent."""
+
 from __future__ import annotations
 
 import time

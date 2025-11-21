@@ -1,3 +1,5 @@
+"""Pytest bootstrap to ensure the repo root is on sys.path for imports."""
+
 import sys
 from pathlib import Path
 

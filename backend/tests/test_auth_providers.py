@@ -1,44 +1,59 @@
+"""Tests around multi-provider OAuth flows."""
+
+# pylint: disable=redefined-outer-name
+
 import importlib
-import os
-import uuid
 from types import SimpleNamespace
 
 import pytest
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
+import app.auth.oauth as oauth_mod
+
 
 class FakeSession:
+    """Minimal DB session stub."""
+
     def __init__(self):
+        """Initialize with empty storage."""
         self._items = []
         self.added = []
 
     def add(self, obj):
+        """Record added objects."""
         self.added.append(obj)
 
     def commit(self):
+        """No-op commit."""
         return None
 
     def refresh(self, obj):
+        """Return the refreshed object."""
         return obj
 
-    def query(self, model):
-        # Return an object that yields no existing user
+    def query(self, _model):
+        """Return an object that yields no existing user."""
         return SimpleNamespace(filter=lambda *args, **kwargs: SimpleNamespace(first=lambda: None))
 
 
 class FakeClient:
+    """Simple OAuth client stub that tracks redirects/tokens."""
+
     def __init__(self, provider: str):
+        """Initialize with canned metadata."""
         self.provider = provider
         self.server_metadata = {"userinfo_endpoint": "https://example.com/userinfo"}
         self.redirects = []
         self.access_tokens = []
 
-    async def authorize_redirect(self, request: Request, redirect_uri: str):
+    async def authorize_redirect(self, _request: Request, redirect_uri: str):
+        """Simulate redirect flow."""
         self.redirects.append(redirect_uri)
         return RedirectResponse(redirect_uri)
 
-    async def authorize_access_token(self, request: Request):
+    async def authorize_access_token(self, _request: Request):
+        """Return a fake access token payload."""
         token = {
             "access_token": f"token-{self.provider}",
             "userinfo": {
@@ -51,15 +66,17 @@ class FakeClient:
         return token
 
     async def userinfo(self, token):
+        """Return stored userinfo payload."""
         return token.get("userinfo")
 
-    async def parse_id_token(self, request: Request, token):
-        # Fallback path if userinfo endpoint isn't used
+    async def parse_id_token(self, _request: Request, token):
+        """Fallback path if userinfo endpoint isn't used."""
         return token.get("userinfo")
 
 
 @pytest.fixture()
 def reload_oauth(monkeypatch):
+    """Reload the OAuth module after injecting env vars for providers."""
     # Ensure env vars exist so providers register
     monkeypatch.setenv("RUNTRAINER_JWT_SECRET", "test")
     monkeypatch.setenv("RUNTRAINER_FERNET_KEY", "ZmFrZS1mZXJuZXQta2V5LWRvLW5vdC11c2U=")
@@ -68,12 +85,11 @@ def reload_oauth(monkeypatch):
         monkeypatch.setenv(f"RUNTRAINER_{provider}_CLIENT_ID", f"{provider.lower()}-id")
         monkeypatch.setenv(f"RUNTRAINER_{provider}_CLIENT_SECRET", f"{provider.lower()}-secret")
         monkeypatch.setenv(
-            f"RUNTRAINER_{provider}_REDIRECT_URI", f"https://example.com/auth/{provider.lower()}/callback"
+            f"RUNTRAINER_{provider}_REDIRECT_URI",
+            f"https://example.com/auth/{provider.lower()}/callback",
         )
 
     # Reload module to pick up the env
-    import app.auth.oauth as oauth_mod
-
     importlib.reload(oauth_mod)
     return oauth_mod
 
@@ -81,10 +97,11 @@ def reload_oauth(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("provider", ["google", "microsoft", "apple"])
 async def test_login_and_callback_with_stubbed_oidc(provider, reload_oauth):
+    """Login + callback should succeed per provider using fake client."""
     oauth_mod = reload_oauth
     fake_client = FakeClient(provider)
     # Ensure provider is considered registered
-    oauth_mod._registered[provider] = True
+    oauth_mod._registered[provider] = True  # pylint: disable=protected-access
     setattr(oauth_mod.oauth, provider, fake_client)
 
     request = Request(scope={"type": "http"})
@@ -101,6 +118,7 @@ async def test_login_and_callback_with_stubbed_oidc(provider, reload_oauth):
 
 @pytest.mark.asyncio
 async def test_missing_provider_raises(reload_oauth):
+    """Unknown providers should raise when login is attempted."""
     oauth_mod = reload_oauth
     request = Request(scope={"type": "http"})
     with pytest.raises(Exception):

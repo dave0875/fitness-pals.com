@@ -1,3 +1,5 @@
+"""Abstractions for third-party fitness providers."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -21,5 +23,10 @@ class FitnessProvider(ABC):
         """Return normalized daily stats for the connected user."""
 
     @abstractmethod
-    def fetch_activities(self, access_token: str, since: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+    def fetch_activities(
+        self,
+        access_token: str,
+        since: Optional[str] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
         """Return normalized activity feed for the user."""

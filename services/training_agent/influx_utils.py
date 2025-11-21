@@ -1,10 +1,12 @@
 # ruff: noqa: E501
 # pylint: disable=line-too-long
+"""InfluxDB helper queries for training agent metrics."""
+
 from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
+from typing import Any, Optional, cast
 
 from influxdb import InfluxDBClient
 from influxdb.exceptions import InfluxDBClientError, InfluxDBServerError
@@ -16,6 +18,13 @@ RUN_TYPE_LABELS = {
     "treadmill_running": "Treadmill run",
     "trail_running": "Trail run",
 }
+
+
+def _query_points(client: InfluxDBClient, query: str) -> list[dict]:
+    """Execute a query and return list of point dictionaries."""
+    result = client.query(query)
+    points_iter = cast(Any, result).get_points()
+    return list(points_iter)
 
 
 def get_influx_client() -> InfluxDBClient:
@@ -51,7 +60,7 @@ def fetch_cadence_from_gps(client: InfluxDBClient, activity_id: int) -> Optional
         'SELECT MEAN("Cadence") AS cadence, MEAN("Fractional_Cadence") AS fractional '
         f'FROM "ActivityGPS" WHERE "Activity_ID" = {int(activity_id)}'
     )
-    points = list(client.query(query).get_points())
+    points = _query_points(client, query)
     if not points:
         return None
     cadence = points[0].get("cadence")
@@ -74,7 +83,7 @@ def get_average_cadence(client: InfluxDBClient, row: dict) -> Optional[float]:
             'SELECT MEAN("Avg_Cadence") AS cadence FROM "ActivityLap" '
             f'WHERE "Activity_ID" = {int(activity_id)}'
         )
-        lap_points = list(client.query(lap_query).get_points())
+        lap_points = _query_points(client, lap_query)
         lap_cadence = lap_points[0].get("cadence") if lap_points else None
         if lap_cadence is not None:
             return lap_cadence
@@ -86,10 +95,9 @@ def get_average_cadence(client: InfluxDBClient, row: dict) -> Optional[float]:
 def get_elevation_gain(client: InfluxDBClient, activity_id: int) -> Optional[float]:
     """Return total positive elevation gain for an activity, if available."""
     try:
-        summary = list(
-            client.query(
-                f'SELECT "totalElevationGain" FROM "ActivitySummary" WHERE "Activity_ID" = {int(activity_id)} LIMIT 1'
-            ).get_points()
+        summary = _query_points(
+            client,
+            f'SELECT "totalElevationGain" FROM "ActivitySummary" WHERE "Activity_ID" = {int(activity_id)} LIMIT 1',
         )
         if summary:
             gain = summary[0].get("totalElevationGain")
@@ -97,18 +105,22 @@ def get_elevation_gain(client: InfluxDBClient, activity_id: int) -> Optional[flo
                 return gain
 
         q = (
-            "SELECT SUM(\"alt_diff\") AS gain FROM ("
+            'SELECT SUM("alt_diff") AS gain FROM ('
             'SELECT DIFFERENCE("Altitude") AS alt_diff FROM "ActivityGPS" '
             f'WHERE "Activity_ID" = {int(activity_id)}'
             ") WHERE alt_diff > 0"
         )
-        points = list(client.query(q).get_points())
+        points = _query_points(client, q)
         if points:
             return points[0].get("gain")
     except (InfluxDBClientError, InfluxDBServerError, ValueError, TypeError) as err:
         logger.warning(
             "Elevation gain query failed",
-            extra={"activity_id": activity_id, "error": str(err), "error_type": type(err).__name__},
+            extra={
+                "activity_id": activity_id,
+                "error": str(err),
+                "error_type": type(err).__name__,
+            },
         )
         return None
     return None
@@ -122,57 +134,60 @@ def first_non_null(*values):
     return None
 
 
-def get_elevation_stats(client: InfluxDBClient, activity_id: int) -> dict[str, Optional[float]]:
+def get_elevation_stats(
+    client: InfluxDBClient, activity_id: int
+) -> dict[str, Optional[float]]:
     """Return ascent, descent, min, and max elevation for an activity."""
     stats = {"ascent": None, "descent": None, "min": None, "max": None}
     try:
-        base = list(
-            client.query(
-                f'SELECT MIN("Altitude") AS min_alt, MAX("Altitude") AS max_alt '
-                f'FROM "ActivityGPS" WHERE "Activity_ID" = {int(activity_id)}'
-            ).get_points()
+        base = _query_points(
+            client,
+            f'SELECT MIN("Altitude") AS min_alt, MAX("Altitude") AS max_alt '
+            f'FROM "ActivityGPS" WHERE "Activity_ID" = {int(activity_id)}',
         )
         if base:
             stats["min"] = base[0].get("min_alt")
             stats["max"] = base[0].get("max_alt")
 
         ascent_q = (
-            "SELECT SUM(\"alt_diff\") AS gain FROM ("
+            'SELECT SUM("alt_diff") AS gain FROM ('
             'SELECT DIFFERENCE("Altitude") AS alt_diff FROM "ActivityGPS" '
             f'WHERE "Activity_ID" = {int(activity_id)}'
             ") WHERE alt_diff > 0"
         )
-        ascent = list(client.query(ascent_q).get_points())
+        ascent = _query_points(client, ascent_q)
         if ascent:
             stats["ascent"] = ascent[0].get("gain")
 
         descent_q = (
-            "SELECT SUM(\"alt_diff\") AS loss FROM ("
+            'SELECT SUM("alt_diff") AS loss FROM ('
             'SELECT DIFFERENCE("Altitude") AS alt_diff FROM "ActivityGPS" '
             f'WHERE "Activity_ID" = {int(activity_id)}'
             ") WHERE alt_diff < 0"
         )
-        descent = list(client.query(descent_q).get_points())
+        descent = _query_points(client, descent_q)
         if descent:
             loss = descent[0].get("loss")
             stats["descent"] = abs(loss) if loss is not None else None
     except (InfluxDBClientError, InfluxDBServerError, ValueError, TypeError) as err:
         logger.warning(
-            "Elevation stats query failed", extra={"activity_id": activity_id, "error": str(err), "partial": stats}
+            "Elevation stats query failed",
+            extra={"activity_id": activity_id, "error": str(err), "partial": stats},
         )
         return stats
     return stats
 
 
-def get_temperature_stats(client: InfluxDBClient, activity_id: int) -> dict[str, Optional[float]]:
+def get_temperature_stats(
+    client: InfluxDBClient, activity_id: int
+) -> dict[str, Optional[float]]:
     """Return avg/min/max temperature for an activity if available."""
     stats = {"avg": None, "min": None, "max": None}
     try:
-        temps = list(
-            client.query(
-                f'SELECT MEAN("Temperature") AS avg_temp, MIN("Temperature") AS min_temp, '
-                f'MAX("Temperature") AS max_temp FROM "ActivityGPS" WHERE "Activity_ID" = {int(activity_id)}'
-            ).get_points()
+        temps = _query_points(
+            client,
+            f'SELECT MEAN("Temperature") AS avg_temp, MIN("Temperature") AS min_temp, '
+            f'MAX("Temperature") AS max_temp FROM "ActivityGPS" WHERE "Activity_ID" = {int(activity_id)}',
         )
         if temps:
             row = temps[0]
@@ -180,16 +195,16 @@ def get_temperature_stats(client: InfluxDBClient, activity_id: int) -> dict[str,
             stats["min"] = row.get("min_temp")
             stats["max"] = row.get("max_temp")
         if stats["avg"] is None:
-            lap = list(
-                client.query(
-                    f'SELECT MEAN("Avg_Temperature") AS avg_temp FROM "ActivityLap" WHERE "Activity_ID" = {int(activity_id)}'
-                ).get_points()
+            lap = _query_points(
+                client,
+                f'SELECT MEAN("Avg_Temperature") AS avg_temp FROM "ActivityLap" WHERE "Activity_ID" = {int(activity_id)}',
             )
             if lap:
                 stats["avg"] = lap[0].get("avg_temp")
     except (InfluxDBClientError, InfluxDBServerError, ValueError, TypeError) as err:
         logger.warning(
-            "Temperature stats query failed", extra={"activity_id": activity_id, "error": str(err), "partial": stats}
+            "Temperature stats query failed",
+            extra={"activity_id": activity_id, "error": str(err), "partial": stats},
         )
         return stats
     return stats
@@ -198,24 +213,26 @@ def get_temperature_stats(client: InfluxDBClient, activity_id: int) -> dict[str,
 def get_max_cadence(client: InfluxDBClient, activity_id: int) -> Optional[float]:
     """Return max cadence using GPS or lap aggregates."""
     try:
-        gps = list(
-            client.query(
-                f'SELECT MAX("Cadence") AS max_cadence FROM "ActivityGPS" WHERE "Activity_ID" = {int(activity_id)}'
-            ).get_points()
+        gps = _query_points(
+            client,
+            f'SELECT MAX("Cadence") AS max_cadence FROM "ActivityGPS" WHERE "Activity_ID" = {int(activity_id)}',
         )
         if gps and gps[0].get("max_cadence") is not None:
             return gps[0].get("max_cadence")
-        lap = list(
-            client.query(
-                f'SELECT MAX("Avg_Cadence") AS max_cadence FROM "ActivityLap" WHERE "Activity_ID" = {int(activity_id)}'
-            ).get_points()
+        lap = _query_points(
+            client,
+            f'SELECT MAX("Avg_Cadence") AS max_cadence FROM "ActivityLap" WHERE "Activity_ID" = {int(activity_id)}',
         )
         if lap:
             return lap[0].get("max_cadence")
     except (InfluxDBClientError, InfluxDBServerError, ValueError, TypeError) as err:
         logger.warning(
             "Max cadence query failed",
-            extra={"activity_id": activity_id, "error": str(err), "error_type": type(err).__name__},
+            extra={
+                "activity_id": activity_id,
+                "error": str(err),
+                "error_type": type(err).__name__,
+            },
         )
         return None
     return None

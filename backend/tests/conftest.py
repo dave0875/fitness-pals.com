@@ -1,3 +1,5 @@
+"""Pytest bootstrap for backend tests to make the app package importable."""
+
 import sys
 from pathlib import Path
 

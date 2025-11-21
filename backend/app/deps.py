@@ -1,3 +1,5 @@
+"""Dependency helpers shared across backend routes."""
+
 from __future__ import annotations
 
 import uuid
@@ -17,6 +19,7 @@ bearer = HTTPBearer(auto_error=False)
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer), db: Session = Depends(get_db)
 ) -> User:
+    """Resolve the current authenticated user from the Authorization header."""
     if credentials is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credentials missing")
     token = credentials.credentials
@@ -26,8 +29,11 @@ def get_current_user(
         if user_id is None:
             raise ValueError("sub missing")
         uid = uuid.UUID(user_id)
-    except (JWTError, ValueError):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    except (JWTError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        ) from exc
     user = db.query(User).filter(User.id == uid).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")

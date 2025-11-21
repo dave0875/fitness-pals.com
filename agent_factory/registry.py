@@ -1,3 +1,5 @@
+"""Minimal FastAPI router for registering newly provisioned agents."""
+
 from __future__ import annotations
 
 from typing import Dict, List
@@ -11,6 +13,8 @@ from app.db import get_db
 
 
 class AgentRegistration(BaseModel):
+    """Pydantic schema representing an agent registration payload."""
+
     agent_id: str
     name: str
     description: str
@@ -24,7 +28,12 @@ AGENT_REGISTRY: Dict[str, AgentRegistration] = {}
 
 
 @registry_router.post("/register")
-def register_agent(body: AgentRegistration, user=Depends(get_current_user), db: Session = Depends(get_db)):
+def register_agent(
+    body: AgentRegistration,
+    _user=Depends(get_current_user),
+    _db: Session = Depends(get_db),
+):
+    """Register an agent idempotently for internal discovery."""
     if body.agent_id in AGENT_REGISTRY:
         raise HTTPException(status_code=400, detail="Agent already registered")
     AGENT_REGISTRY[body.agent_id] = body

@@ -1,3 +1,5 @@
+# pylint: disable=invalid-name,no-member
+
 """add provider apps and user provider tokens
 
 Revision ID: 0002_multi_tenant_providers
@@ -20,6 +22,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Create provider app/token tables."""
     op.create_table(
         "provider_apps",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -38,7 +41,12 @@ def upgrade() -> None:
     op.create_table(
         "user_provider_tokens",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "user_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("provider", sa.String(), nullable=False),
         sa.Column("provider_user_id", sa.String(), nullable=True),
         sa.Column("access_token_encrypted", sa.LargeBinary(), nullable=False),
@@ -49,11 +57,16 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )
-    op.create_index("ix_user_provider_tokens_user_id", "user_provider_tokens", ["user_id"])
-    op.create_index("ix_user_provider_tokens_provider", "user_provider_tokens", ["provider"])
+    op.create_index(
+        "ix_user_provider_tokens_user_id", "user_provider_tokens", ["user_id"]
+    )
+    op.create_index(
+        "ix_user_provider_tokens_provider", "user_provider_tokens", ["provider"]
+    )
 
 
 def downgrade() -> None:
+    """Drop provider app/token tables."""
     op.drop_index("ix_user_provider_tokens_provider", table_name="user_provider_tokens")
     op.drop_index("ix_user_provider_tokens_user_id", table_name="user_provider_tokens")
     op.drop_table("user_provider_tokens")

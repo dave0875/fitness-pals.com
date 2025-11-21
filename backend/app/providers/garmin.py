@@ -1,3 +1,5 @@
+"""Garmin provider interface placeholder until Health API integration ships."""
+
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
@@ -18,10 +20,18 @@ class GarminProvider(FitnessProvider):
     name = "garmin"
 
     def refresh_access_token(self, refresh_token: str) -> Dict[str, Any]:
+        """Exchange a refresh token for a new access token."""
         raise NotImplementedError("Garmin token refresh not yet implemented")
 
     def fetch_daily_stats(self, access_token: str, **kwargs) -> Dict[str, Any]:
+        """Return normalized daily stats."""
         raise NotImplementedError("Garmin adapter not yet implemented")
 
-    def fetch_activities(self, access_token: str, since: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+    def fetch_activities(
+        self,
+        access_token: str,
+        since: Optional[str] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Return normalized activities."""
         raise NotImplementedError("Garmin adapter not yet implemented")

@@ -1,8 +1,11 @@
 # ruff: noqa: E501
 # pylint: disable=line-too-long
+"""REST endpoints that expose InfluxDB-derived training metrics."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter
+
 from .influx_utils import (
     RUN_TYPE_LABELS,
     first_non_null,
@@ -157,6 +160,74 @@ def recovery_score():
     }
 
 
+def _score_training_row(row: dict) -> int:
+    """Return a score representing how complete an activity summary row is."""
+    score = 0
+    if row.get("activityType"):
+        score += 2
+        if row.get("activityType") != "No Activity":
+            score += 1
+    for key in ("distance", "averageSpeed", "averageHR", "calories"):
+        if row.get(key) is not None:
+            score += 1
+    return score
+
+
+def _dedupe_training_rows(client, rows: list[dict], limit: int) -> list[dict]:
+    """Remove duplicate activity rows while enriching cadence/elevation."""
+    best_by_id: dict[str, dict] = {}
+    for row in rows:
+        activity_id = row.get("Activity_ID") or row.get("activityId")
+        if activity_id is None:
+            continue
+        row_score = _score_training_row(row)
+        existing = best_by_id.get(str(activity_id))
+        if existing is None or row_score > _score_training_row(existing):
+            best_by_id[str(activity_id)] = row
+
+    deduped: list[dict] = []
+    for row in sorted(best_by_id.values(), key=lambda r: r.get("time", ""), reverse=True):
+        if len(deduped) >= limit:
+            break
+        run_type = row.get("activityType")
+        entry = dict(row)
+        activity_id = row.get("Activity_ID") or row.get("activityId")
+        entry["activity_id"] = activity_id
+        entry["run_label"] = RUN_TYPE_LABELS.get(run_type, run_type)
+        entry["average_cadence"] = get_average_cadence(client, row)
+        entry["elevation_gain_m"] = first_non_null(
+            get_elevation_gain(client, int(activity_id)),
+            row.get("totalElevationGain"),
+        )
+        elev = get_elevation_stats(client, int(activity_id))
+        entry["elevation_gain_m"] = first_non_null(entry.get("elevation_gain_m"), elev.get("ascent"))
+        entry["elevation_loss_m"] = elev.get("descent")
+        entry["elevation_min_m"] = elev.get("min")
+        entry["elevation_max_m"] = elev.get("max")
+        speed_mps = row.get("averageSpeed")
+        if speed_mps and speed_mps > 0:
+            entry["avg_pace_sec_per_km"] = 1000.0 / speed_mps
+            entry["avg_pace_sec_per_mile"] = 1609.34 / speed_mps
+        for key in (
+            "averageRunCadence",
+            "avgRunCadence",
+            "averageCadence",
+            "avgCadence",
+            "Activity_ID",
+            "activityId",
+            "strideLength",
+            "verticalOscillation",
+            "groundContactTime",
+            "groundContactBalance",
+            "stanceTimePercent",
+        ):
+            entry.pop(key, None)
+        if entry.get("elevation_gain_m") is not None:
+            entry.pop("totalElevationGain", None)
+        deduped.append(entry)
+    return deduped
+
+
 @router.get("/training-log")
 def training_log(limit: int = 20, days: int = 42):
     """Recent activities within a window with enrichment for cadence and elevation."""
@@ -171,67 +242,7 @@ def training_log(limit: int = 20, days: int = 42):
         "ORDER BY time DESC LIMIT {}".format(int(limit * 2))
     )
     result = list(client.query(query).get_points())
-
-    def score(row: dict) -> int:
-        s = 0
-        if row.get("activityType"):
-            s += 2
-            if row.get("activityType") != "No Activity":
-                s += 1
-        for key in ("distance", "averageSpeed", "averageHR", "calories"):
-            if row.get(key) is not None:
-                s += 1
-        return s
-
-    best_by_id: dict[str, dict] = {}
-    for row in result:
-        activity_id = row.get("Activity_ID") or row.get("activityId")
-        if activity_id is None:
-            continue
-        row_score = score(row)
-        existing = best_by_id.get(str(activity_id))
-        if existing is None or row_score > score(existing):
-            best_by_id[str(activity_id)] = row
-
-    deduped = []
-    for row in sorted(best_by_id.values(), key=lambda r: r.get("time", ""), reverse=True):
-        if len(deduped) >= limit:
-            break
-        run_type = row.get("activityType")
-        entry = dict(row)
-        entry["activity_id"] = row.get("Activity_ID") or row.get("activityId")
-        entry["run_label"] = RUN_TYPE_LABELS.get(run_type, run_type)
-        entry["average_cadence"] = get_average_cadence(client, row)
-        entry["elevation_gain_m"] = first_non_null(
-            get_elevation_gain(client, int(entry["activity_id"])),
-            row.get("totalElevationGain"),
-        )
-        elev = get_elevation_stats(client, int(entry["activity_id"]))
-        entry["elevation_gain_m"] = first_non_null(entry.get("elevation_gain_m"), elev.get("ascent"))
-        entry["elevation_loss_m"] = elev.get("descent")
-        entry["elevation_min_m"] = elev.get("min")
-        entry["elevation_max_m"] = elev.get("max")
-        speed_mps = row.get("averageSpeed")
-        if speed_mps and speed_mps > 0:
-            entry["avg_pace_sec_per_km"] = 1000.0 / speed_mps
-            entry["avg_pace_sec_per_mile"] = 1609.34 / speed_mps
-        for k in (
-            "averageRunCadence",
-            "avgRunCadence",
-            "averageCadence",
-            "avgCadence",
-            "Activity_ID",
-            "activityId",
-            "strideLength",
-            "verticalOscillation",
-            "groundContactTime",
-            "groundContactBalance",
-            "stanceTimePercent",
-        ):
-            entry.pop(k, None)
-        if entry.get("elevation_gain_m") is not None:
-            entry.pop("totalElevationGain", None)
-        deduped.append(entry)
+    deduped = _dedupe_training_rows(client, result, limit)
     return {"window_days": window, "entries": deduped}
 
 

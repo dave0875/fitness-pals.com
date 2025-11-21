@@ -1,3 +1,5 @@
+"""Deduplication helpers for ingest runs and transparency logging."""
+
 from __future__ import annotations
 
 import hashlib
@@ -6,17 +8,20 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import Activity, ActivitySource, IngestDecision, IngestRun
+from app.models import IngestDecision, IngestRun
 
 logger = logging.getLogger("dedupe")
 
 
 @dataclass
 class DedupConfig:
+    """Runtime configuration for deduping heuristics."""
+
     start_time_tolerance_seconds: int = 90
     duration_tolerance_ratio: float = 0.1  # 10%
     distance_tolerance_ratio: float = 0.03  # 3%
@@ -24,7 +29,22 @@ class DedupConfig:
     primary_provider: Optional[str] = None  # optional per-user override upstream
 
 
+@dataclass
+class DecisionDetails:  # pylint: disable=too-many-instance-attributes
+    """Captured ingest decision metadata."""
+
+    user_id: UUID
+    provider: str
+    provider_activity_id: Optional[str]
+    decision: str
+    reason: Optional[str]
+    fingerprint: dict
+    tolerances: dict
+    chosen_fields: Optional[dict] = None
+
+
 def load_config() -> DedupConfig:
+    """Load dedupe configuration from settings with sane defaults."""
     settings = get_settings()
     return DedupConfig(
         start_time_tolerance_seconds=getattr(settings, "dedupe_start_time_tolerance_seconds", 90),
@@ -33,7 +53,13 @@ def load_config() -> DedupConfig:
     )
 
 
-def fingerprint_activity(start_time_iso: str, duration_s: Optional[float], distance_m: Optional[float], sport: str) -> str:
+def fingerprint_activity(
+    start_time_iso: str,
+    duration_s: Optional[float],
+    distance_m: Optional[float],
+    sport: str,
+) -> str:
+    """Return a deterministic hash for identifying duplicate activities."""
     payload = {
         "start": start_time_iso,
         "duration_s": None if duration_s is None else round(duration_s),
@@ -45,6 +71,7 @@ def fingerprint_activity(start_time_iso: str, duration_s: Optional[float], dista
 
 
 def record_ingest_run(db: Session, provider: str) -> IngestRun:
+    """Persist the start of an ingest run."""
     run = IngestRun(provider=provider, status="running")
     db.add(run)
     db.commit()
@@ -52,7 +79,13 @@ def record_ingest_run(db: Session, provider: str) -> IngestRun:
     return run
 
 
-def finish_ingest_run(db: Session, run: IngestRun, status: str, summary: Optional[dict] = None) -> IngestRun:
+def finish_ingest_run(
+    db: Session,
+    run: IngestRun,
+    status: str,
+    summary: Optional[dict] = None,
+) -> IngestRun:
+    """Mark the ingest run as finished and store summary data."""
     run.status = status
     run.finished_at = run.finished_at or datetime.utcnow()
     run.summary = summary
@@ -61,29 +94,18 @@ def finish_ingest_run(db: Session, run: IngestRun, status: str, summary: Optiona
     return run
 
 
-def log_decision(
-    db: Session,
-    run: IngestRun,
-    *,
-    user_id,
-    provider: str,
-    provider_activity_id: Optional[str],
-    decision: str,
-    reason: Optional[str],
-    fingerprint: dict,
-    tolerances: dict,
-    chosen_fields: Optional[dict] = None,
-) -> IngestDecision:
+def log_decision(db: Session, run: IngestRun, details: DecisionDetails) -> IngestDecision:
+    """Persist an ingest decision and emit structured logs."""
     rec = IngestDecision(
         ingest_run_id=run.id,
-        user_id=user_id,
-        provider=provider,
-        provider_activity_id=provider_activity_id,
-        decision=decision,
-        reason=reason,
-        fingerprint=fingerprint,
-        tolerances=tolerances,
-        chosen_fields=chosen_fields,
+        user_id=details.user_id,
+        provider=details.provider,
+        provider_activity_id=details.provider_activity_id,
+        decision=details.decision,
+        reason=details.reason,
+        fingerprint=details.fingerprint,
+        tolerances=details.tolerances,
+        chosen_fields=details.chosen_fields,
     )
     db.add(rec)
     db.commit()
@@ -91,11 +113,11 @@ def log_decision(
     logger.info(
         "ingest decision",
         extra={
-            "provider": provider,
-            "provider_activity_id": provider_activity_id,
-            "decision": decision,
-            "reason": reason,
-            "fingerprint": fingerprint,
+            "provider": details.provider,
+            "provider_activity_id": details.provider_activity_id,
+            "decision": details.decision,
+            "reason": details.reason,
+            "fingerprint": details.fingerprint,
         },
     )
     return rec

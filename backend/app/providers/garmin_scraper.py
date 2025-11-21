@@ -1,10 +1,17 @@
+"""Wrapper around the community Garmin scraper to keep interfaces consistent."""
+
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any
 
 from app.services.providers import decrypt_user_tokens
 from app.models import UserProviderToken
+
+try:
+    from garth import Client as GarminConnectClient  # type: ignore
+except ImportError:  # pragma: no cover - optional dependency
+    GarminConnectClient = None  # type: ignore[assignment]
 
 logger = logging.getLogger("providers.garmin_scraper")
 
@@ -18,26 +25,31 @@ class GarminScraperClient:
     def __init__(self, username: str, password: str):
         self.username = username
         self.password = password
-        self._client = None
+        self._client: Any | None = None
 
     def login(self):
-        try:
-            # Lazy import so environments without the scraper library still run tests.
-            from garth import Client  # type: ignore
-        except Exception as err:  # pragma: no cover - optional dependency
-            raise RuntimeError("garth client not installed; cannot use Garmin scraper") from err
+        """Authenticate with Garmin Connect using stored credentials."""
+        if GarminConnectClient is None:
+            raise RuntimeError("garth client not installed; cannot use Garmin scraper")
 
-        self._client = Client()
+        self._client = GarminConnectClient()
         self._client.login(self.username, self.password)
         return self._client
 
     def fetch_activities(self, limit: int = 10):
+        """Fetch recent activities via the unofficial API."""
         if not self._client:
             self.login()
-        return self._client.connectapi(f"activitylist-service/activities/search/activities?limit={limit}")
+        client = self._client
+        if client is None:
+            raise RuntimeError("Garmin scraper client not initialized")
+        return client.connectapi(
+            f"activitylist-service/activities/search/activities?limit={limit}"
+        )
 
 
 def build_scraper_client(token: UserProviderToken) -> GarminScraperClient:
+    """Create a scraper client from stored provider tokens."""
     creds = decrypt_user_tokens(token)
     username = creds["access_token"]
     password = creds["refresh_token"]

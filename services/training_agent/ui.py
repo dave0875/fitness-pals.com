@@ -1,5 +1,7 @@
 # ruff: noqa: E501
 # pylint: disable=line-too-long
+"""HTML harness for exercising training agent endpoints."""
+
 from __future__ import annotations
 
 import html
@@ -225,69 +227,71 @@ ACTIONS: List[ActionSpec] = [
 ]
 
 
-def render_action_index(base_url: str, api_key: str | None, google_client_id: str | None) -> str:
-    """Render the HTML action explorer page for the training agent harness."""
-    api_header = API_KEY_NAME
-    api_header_escaped = html.escape(api_header)
+def render_field(param: ActionParam) -> str:
+    """Render a single harness form field."""
+    input_type = html.escape(str(param.get("type", "text")))
+    default = html.escape(str(param.get("default", "")))
+    name = html.escape(str(param["name"]))
+    desc = html.escape(str(param.get("description", "")))
+    attrs = []
+    for attr_name in ("min", "max", "step"):
+        if attr_name in param:
+            attrs.append(f" {attr_name}='{param[attr_name]}'")
+    attr_str = "".join(attrs)
+    return (
+        "<label class='field'>"
+        f"<span>{name}</span>"
+        f"<input type='{input_type}' name='{name}' value='{default}'{attr_str}>"
+        f"<small>{desc}</small>"
+        "</label>"
+    )
 
-    def render_field(param: ActionParam) -> str:
-        input_type = html.escape(str(param.get("type", "text")))
-        default = html.escape(str(param.get("default", "")))
-        name = html.escape(str(param["name"]))
-        desc = html.escape(str(param.get("description", "")))
-        attrs = []
-        for attr_name in ("min", "max", "step"):
-            if attr_name in param:
-                attrs.append(f" {attr_name}='{param[attr_name]}'")
-        attr_str = "".join(attrs)
-        return (
-            "<label class='field'>"
-            f"<span>{name}</span>"
-            f"<input type='{input_type}' name='{name}' value='{default}'{attr_str}>"
-            f"<small>{desc}</small>"
-            "</label>"
-        )
 
-    action_cards = []
-    for spec in ACTIONS:
-        path = html.escape(str(spec["path"]))
-        name = html.escape(str(spec["name"]))
-        description = html.escape(str(spec.get("description", "")))
-        params = spec.get("params") or []
-        if params:
-            fields = "".join(render_field(p) for p in params)
-            form_html = f"""
-                <form class="api-form" data-endpoint="{path}">
-                    <div class="fields">
-                        {fields}
-                    </div>
-                    <div class="form-actions">
-                        <button type="submit">Send via harness</button>
-                        <a href="{path}" target="_blank" rel="noreferrer">Open without header</a>
-                    </div>
-                </form>
-            """
-        else:
-            form_html = f"""
-                <p class="no-params">No query parameters</p>
-                <div class="form-actions no-fields">
-                    <button class="button-link ghost no-param" data-endpoint="{path}" type="button">Send via harness</button>
-                    <a class="button-link" href="{path}" target="_blank" rel="noreferrer">Open without header</a>
+def _render_action_card(spec: ActionSpec) -> str:
+    """Build the markup for a single action card."""
+    path = html.escape(str(spec["path"]))
+    name = html.escape(str(spec["name"]))
+    description = html.escape(str(spec.get("description", "")))
+    params = spec.get("params") or []
+    if params:
+        fields = "".join(render_field(p) for p in params)
+        form_html = f"""
+            <form class="api-form" data-endpoint="{path}">
+                <div class="fields">
+                    {fields}
                 </div>
-            """
-        card = f"""
-        <section class="card">
-            <header>
-                <h2>{name}</h2>
-                <code>GET {path}</code>
-            </header>
-            <p class="description">{description}</p>
-            {form_html}
-        </section>
+                <div class="form-actions">
+                    <button type="submit">Send via harness</button>
+                    <a href="{path}" target="_blank" rel="noreferrer">Open without header</a>
+                </div>
+            </form>
         """
-        action_cards.append(card)
+    else:
+        form_html = f"""
+            <p class="no-params">No query parameters</p>
+            <div class="form-actions no-fields">
+                <button class="button-link ghost no-param" data-endpoint="{path}" type="button">Send via harness</button>
+                <a class="button-link" href="{path}" target="_blank" rel="noreferrer">Open without header</a>
+            </div>
+        """
+    return f"""
+    <section class="card">
+        <header>
+            <h2>{name}</h2>
+            <code>GET {path}</code>
+        </header>
+        <p class="description">{description}</p>
+        {form_html}
+    </section>
+    """
 
-    cards_html = "\n".join(action_cards)
+
+def render_action_index(
+    base_url: str, api_key: str | None, google_client_id: str | None
+) -> str:
+    """Render the HTML action explorer page for the training agent harness."""
+    api_header_escaped = html.escape(API_KEY_NAME)
+    cards_html = "\n".join(_render_action_card(spec) for spec in ACTIONS)
     escaped_base = html.escape(base_url)
     api_key_value = html.escape(api_key or "")
     return f"""<!DOCTYPE html>
@@ -467,7 +471,7 @@ def render_action_index(base_url: str, api_key: str | None, google_client_id: st
 let bannerTimeout;
 function showBanner(message, level = "warn") {{
     statusBanner.textContent = message;
-    statusBanner.className = `status-banner visible ${level}`;
+    statusBanner.className = `status-banner visible ${{level}}`;
     clearTimeout(bannerTimeout);
     bannerTimeout = setTimeout(() => {{
         statusBanner.classList.remove("visible");
@@ -492,7 +496,7 @@ function showBanner(message, level = "warn") {{
         function updateAuthDisplay() {{
             if (googleToken) {{
                 const payload = parseJwt(googleToken);
-                authStatus.textContent = payload.email ? `Signed in as ${payload.email}` : "Signed in";
+                authStatus.textContent = payload.email ? `Signed in as ${{payload.email}}` : "Signed in";
                 signOutButton.style.display = "inline-flex";
             }} else {{
                 authStatus.textContent = "Not signed in";
@@ -582,7 +586,7 @@ function showBanner(message, level = "warn") {{
                 headers[API_KEY_HEADER] = apiKey;
             }}
             if (googleToken) {{
-                headers["Authorization"] = `Bearer ${googleToken}`;
+                headers["Authorization"] = `Bearer ${{googleToken}}`;
             }} else {{
                 showBanner("Sign in with Google to call protected endpoints");
             }}
@@ -624,6 +628,7 @@ def action_index(request: Request) -> HTMLResponse:
         render_action_index(
             str(request.base_url).rstrip("/"),
             os.environ.get("TRAINING_API_KEY"),
-            os.environ.get("RUNTRAINER_GOOGLE_CLIENT_ID") or os.environ.get("GOOGLE_CLIENT_ID"),
+            os.environ.get("RUNTRAINER_GOOGLE_CLIENT_ID")
+            or os.environ.get("GOOGLE_CLIENT_ID"),
         )
     )
