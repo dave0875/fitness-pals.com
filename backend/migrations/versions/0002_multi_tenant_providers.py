@@ -23,10 +23,11 @@ depends_on = None
 
 def upgrade() -> None:
     """Create provider app/token tables."""
+    op.execute("DROP INDEX IF EXISTS ix_provider_apps_provider")
     op.create_table(
         "provider_apps",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("provider", sa.String(), nullable=False, index=True),
+        sa.Column("provider", sa.String(), nullable=False),
         sa.Column("display_name", sa.String(), nullable=True),
         sa.Column("client_id", sa.String(), nullable=False),
         sa.Column("client_secret_encrypted", sa.LargeBinary(), nullable=True),
@@ -36,7 +37,7 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )
-    op.create_index("ix_provider_apps_provider", "provider_apps", ["provider"])
+    op.create_index("ix_provider_apps_provider_v2", "provider_apps", ["provider"])
 
     op.create_table(
         "user_provider_tokens",
@@ -70,5 +71,5 @@ def downgrade() -> None:
     op.drop_index("ix_user_provider_tokens_provider", table_name="user_provider_tokens")
     op.drop_index("ix_user_provider_tokens_user_id", table_name="user_provider_tokens")
     op.drop_table("user_provider_tokens")
-    op.drop_index("ix_provider_apps_provider", table_name="provider_apps")
+    op.drop_index("ix_provider_apps_provider_v2", table_name="provider_apps")
     op.drop_table("provider_apps")

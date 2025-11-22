@@ -26,3 +26,18 @@ def fetch_all(db: Session) -> dict:
         except Exception:
             errors += 1
     return {"status": "ok", "runs": runs, "errors": errors}
+
+
+def start_polling(interval_seconds: int = 300):
+    """Poll for new data every interval_seconds."""
+    def _loop():
+        while True:
+            session = db_session()
+            try:
+                fetch_all(session)
+            finally:
+                session.close()
+            time.sleep(interval_seconds)
+
+    thread = threading.Thread(target=_loop, daemon=True)
+    thread.start()

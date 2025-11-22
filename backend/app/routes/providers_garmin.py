@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -11,6 +11,7 @@ import requests
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
+import garth
 
 from app.deps import get_current_user
 from app.db import get_db
@@ -208,11 +209,57 @@ def garmin_fetch_all(_: User = Depends(get_current_user), db: Session = Depends(
         raise HTTPException(status_code=502, detail="Garmin batch fetch failed") from exc
 
 
+@router.get("/token-status")
+def garmin_token_status(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return metadata about the stored Garmin token for the current user."""
+    tenant_id = _resolve_tenant(user)
+    token = get_user_provider_token(db, user.id, "garmin", tenant_id)
+    mode = "oauth"
+    if not token:
+        token = get_user_provider_token(db, user.id, "garmin_scraper", tenant_id)
+        mode = "scraper" if token else None
+    if not token:
+        return {
+            "status": "missing",
+            "expires_at": None,
+            "seconds_remaining": None,
+            "provider_user_id": None,
+            "refresh_token_present": False,
+            "mode": None,
+        }
+    expires_dt = token.expires_at
+    if expires_dt and expires_dt.tzinfo is None:
+        expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    seconds_remaining = (
+        int((expires_dt - now).total_seconds()) if expires_dt else None
+    )
+    status_str = (
+        "active"
+        if expires_dt is None or (seconds_remaining is not None and seconds_remaining > 0)
+        else "expired"
+    )
+    if seconds_remaining is not None and seconds_remaining < 0:
+        seconds_remaining = 0
+    return {
+        "status": status_str,
+        "expires_at": expires_dt.isoformat() if expires_dt else None,
+        "seconds_remaining": seconds_remaining,
+        "provider_user_id": str(token.provider_user_id) if token.provider_user_id else None,
+        "refresh_token_present": bool(token.refresh_token_encrypted),
+        "mode": mode,
+    }
+
+
 class ScraperTokenRequest(BaseModel):
     """Body for supplying a scraper access token (no credentials)."""
 
     scraper_access_token: str
     expires_at: Optional[datetime] = None
+    token_secret: Optional[str] = None
 
 
 @router.post("/scraper/token")
@@ -233,7 +280,156 @@ def garmin_scraper_token(
             scope="scraper",
             provider_user_id=None,
             expires_at=body.expires_at,
-            metadata={"token_received_at": datetime.utcnow().isoformat(), "mode": "scraper"},
+            metadata={
+                "token_received_at": datetime.utcnow().isoformat(),
+                "mode": "scraper",
+                "token_secret": body.token_secret,
+            },
         ),
     )
     return {"status": "ok", "provider": "garmin_scraper"}
+
+
+class GarminAcquireTokenRequest(BaseModel):
+    """Incoming credentials used to acquire Garmin OAuth tokens (not stored)."""
+
+    username: str
+    password: str
+    expires_at: Optional[datetime] = None
+
+
+@router.post("/acquire-token")
+def garmin_acquire_token(
+    body: GarminAcquireTokenRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Exchange Garmin credentials for tokens without storing credentials."""
+    mode = (os.environ.get("GARMIN_MODE") or "oauth").lower()
+    provider_name = "garmin" if mode == "oauth" else "garmin_scraper"
+    client = garth.Client()
+    username = body.username
+    password = body.password
+    try:
+        client.login(username, password)
+    except Exception as exc:  # pylint: disable=broad-except
+        raise HTTPException(status_code=400, detail="Garmin login failed") from exc
+    finally:
+        # Immediately clear sensitive values from memory
+        body.password = ""
+        password = ""
+    oauth2 = getattr(client, "oauth2_token", None)
+    oauth1 = getattr(client, "oauth1_token", None)
+    access_token = None
+    refresh_token = None
+    token_secret = None
+    if mode == "scraper":
+        if not oauth1:
+            raise HTTPException(status_code=400, detail="Garmin did not return scraper tokens")
+        access_token = getattr(oauth1, "oauth_token", None)
+        token_secret = getattr(oauth1, "oauth_token_secret", None)
+    else:
+        if not oauth2:
+            raise HTTPException(status_code=400, detail="Garmin did not return OAuth tokens")
+        access_token = getattr(oauth2, "access_token", None) or oauth2.get("access_token")
+        refresh_token = getattr(oauth2, "refresh_token", None) or oauth2.get("refresh_token")
+    expires_at = body.expires_at
+    if not expires_at:
+        exp_ts = getattr(oauth2, "expires_at", None) if oauth2 else None
+        if not exp_ts and oauth2:
+            exp_ts = oauth2.get("expires_at")
+        if isinstance(exp_ts, (int, float)):
+            expires_at = datetime.fromtimestamp(exp_ts, tz=timezone.utc)
+        elif isinstance(exp_ts, datetime):
+            expires_at = exp_ts
+        elif oauth2:
+            expires_in = getattr(oauth2, "expires_in", None) or oauth2.get("expires_in")
+            if isinstance(expires_in, (int, float)):
+                expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))
+    if not access_token or (mode == "oauth" and not refresh_token):
+        raise HTTPException(status_code=400, detail="Garmin tokens incomplete")
+    scope_val = getattr(oauth2, "scope", None) if oauth2 else None
+    if not scope_val and oauth2:
+        scope_val = oauth2.get("scope")
+    refresh_present = bool(refresh_token)
+    metadata = {
+        "token_received_at": datetime.utcnow().isoformat(),
+    }
+    if token_secret:
+        metadata["token_secret"] = token_secret
+    save_user_provider_token(
+        db,
+        ProviderTokenDetails(
+            user_id=user.id,
+            tenant_id=_resolve_tenant(user),
+            provider=provider_name,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            scope=scope_val,
+            provider_user_id=None,
+            expires_at=expires_at,
+            metadata=metadata,
+        ),
+    )
+    return {
+        "status": "ok",
+        "expires_at": expires_at.isoformat() if expires_at else None,
+        "refresh_token_present": refresh_present,
+    }
+
+
+@router.post("/refresh-token")
+def garmin_refresh_token(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Refresh the stored Garmin OAuth token when refresh_token is present."""
+    tenant_id = _resolve_tenant(user)
+    token_row = get_user_provider_token(db, user.id, "garmin", tenant_id)
+    if not token_row or not token_row.refresh_token_encrypted:
+        raise HTTPException(status_code=400, detail="No refresh token stored")
+    tokens = decrypt_user_tokens(token_row)
+    refresh_token = tokens.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=400, detail="Refresh token missing")
+    cfg = _require_env()
+    data = {
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "client_id": cfg["client_id"],
+        "client_secret": cfg["client_secret"],
+    }
+    try:
+        resp = requests.post(cfg["token_url"], data=data, timeout=10)
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail="Garmin refresh failed") from exc
+    if resp.status_code != 200:
+        raise HTTPException(status_code=400, detail="Garmin refresh rejected")
+    payload = resp.json()
+    access_token = payload.get("access_token")
+    new_refresh = payload.get("refresh_token") or refresh_token
+    expires_in = payload.get("expires_in")
+    expires_at = token_row.expires_at
+    if isinstance(expires_in, (int, float)):
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))
+    if not access_token:
+        raise HTTPException(status_code=400, detail="Garmin refresh missing access token")
+    save_user_provider_token(
+        db,
+        ProviderTokenDetails(
+            user_id=user.id,
+            tenant_id=tenant_id,
+            provider="garmin",
+            access_token=access_token,
+            refresh_token=new_refresh,
+            scope=payload.get("scope") or tokens.get("scope"),
+            provider_user_id=token_row.provider_user_id,
+            expires_at=expires_at,
+            metadata={"token_received_at": datetime.utcnow().isoformat()},
+        ),
+    )
+    return {
+        "status": "ok",
+        "expires_at": expires_at.isoformat() if expires_at else None,
+        "refresh_token_present": True,
+    }

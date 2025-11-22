@@ -25,6 +25,12 @@ class Activity(Base):  # pylint: disable=too-few-public-methods
         nullable=False,
         index=True,
     )
+    ingest_run_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("ingest_runs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     start_time = Column(DateTime(timezone=True), nullable=False, index=True)
     duration_seconds = Column(Integer, nullable=True)
     distance_m = Column(Float, nullable=True)
@@ -98,6 +104,12 @@ class IngestRun(Base):  # pylint: disable=too-few-public-methods
     )
     finished_at = Column(DateTime(timezone=True), nullable=True)
     summary = Column(JSON, nullable=True)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
 
 
 class IngestDecision(Base):  # pylint: disable=too-few-public-methods

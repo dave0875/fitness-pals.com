@@ -17,3 +17,4 @@ pytest==8.3.3
 pytest-asyncio==0.24.0
 garth==0.5.3
 pydantic-settings==2.12.0
+google-auth==2.35.0

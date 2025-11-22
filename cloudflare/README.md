@@ -8,11 +8,12 @@ The tunnel now runs as a service defined in `compose.yml` (`cloudflared`) using 
    ```
    CLOUDFLARE_TUNNEL_TOKEN=xxxxxxxx
    ```
-3. Bring up the stack:
+3. Authenticate once to obtain a cert: run `cloudflared tunnel login` locally and copy the generated `~/.cloudflared/cert.pem` to `cloudflare/cert.pem` (compose mounts it into the container).
+4. Bring up the stack:
    ```
    docker compose up -d cloudflared
    ```
-   The container runs `cloudflared tunnel run` with the provided token.
+   The container runs `cloudflared tunnel run` with the provided token and forces `--protocol http2` to avoid QUIC/UDP buffer issues common on WSL/Windows hosts.
 
 ## Notes
 - The tunnel currently depends on `grafana` and `training-agent` in `compose.yml`; adjust ingress rules in Cloudflare’s dashboard to map to those services/ports.

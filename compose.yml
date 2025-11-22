@@ -75,9 +75,12 @@ services:
         condition: service_started
       training-agent:
         condition: service_healthy
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate run --protocol http2 --token ${CLOUDFLARE_TUNNEL_TOKEN}
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+      - TUNNEL_ORIGIN_CERT=/etc/cloudflared/cert.pem
+    volumes:
+      - ./cloudflare/cert.pem:/etc/cloudflared/cert.pem:ro
 
   training-agent:
     build:
@@ -122,6 +125,7 @@ services:
       - RUNTRAINER_GOOGLE_REDIRECT_URI=${RUNTRAINER_GOOGLE_REDIRECT_URI}
       - RUNTRAINER_INFLUX_DEFAULT_URL=${RUNTRAINER_INFLUX_DEFAULT_URL}
       - RUNTRAINER_OPENAI_API_KEY=${RUNTRAINER_OPENAI_API_KEY}
+      - GARMIN_MODE=${GARMIN_MODE}
     ports:
       - "8000:8000"
     depends_on:
