@@ -237,11 +237,11 @@ def garmin_token_status(
     seconds_remaining = (
         int((expires_dt - now).total_seconds()) if expires_dt else None
     )
-    status_str = (
-        "active"
-        if expires_dt is None or (seconds_remaining is not None and seconds_remaining > 0)
-        else "expired"
-    )
+    # Allow small clock skew (~5m) before marking tokens as expired to avoid false negatives right after issue.
+    if seconds_remaining is not None and seconds_remaining < -300:
+        status_str = "expired"
+    else:
+        status_str = "active"
     if seconds_remaining is not None and seconds_remaining < 0:
         seconds_remaining = 0
     return {

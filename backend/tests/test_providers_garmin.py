@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -202,6 +202,27 @@ def test_fetch_all_batch(monkeypatch):
     summary = providers_garmin.garmin_fetch_all(SimpleNamespace(), db=db)
     assert summary["runs"] >= 1
     assert summary.get("errors", 0) >= 0
+
+
+def test_token_status_allows_clock_skew():
+    """Token status should not immediately report expired when slightly in the past."""
+    db = FakeSession()
+    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    # Seed a token that expired 1 minute ago; should still be considered active due to grace period.
+    save_user_provider_token(
+        db,
+        ProviderTokenDetails(
+            user_id=user.id,
+            tenant_id=None,
+            provider="garmin",
+            access_token="at",
+            refresh_token="rt",
+            expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        ),
+    )
+    status = providers_garmin.garmin_token_status(user=user, db=db)
+    assert status["status"] == "active"
+    assert status["seconds_remaining"] == 0
 
 
 def test_refresh_reauth_on_failure(monkeypatch):
