@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timedelta
 import uuid
+import logging
 from typing import Optional
 
 import requests
@@ -26,22 +27,58 @@ from app.services.providers import (
 from app.routes import providers_garmin
 
 
+logger = logging.getLogger("garmin_ingest")
+
+
 def _mode() -> str:
     return (os.environ.get("GARMIN_MODE") or "oauth").lower()
+
+
+def _redact_token(token: Optional[str]) -> str:
+    """Return a short hint of a token without leaking the value."""
+    if not token:
+        return ""
+    if len(token) <= 8:
+        return "***"
+    return f"{token[:4]}...{token[-4:]}"
 
 
 def _ensure_fresh_tokens(db: Session, user, token_row) -> dict:
     tokens = decrypt_user_tokens(token_row)
     expires_at: Optional[datetime] = tokens.get("expires_at")
+    logger.info(
+        "garmin token check",
+        extra={
+            "user_id": str(getattr(user, "id", "")),
+            "provider": getattr(token_row, "provider", None),
+            "expires_at": expires_at.isoformat() if expires_at else None,
+        },
+    )
     if expires_at and expires_at > datetime.utcnow() + timedelta(minutes=5):
         return tokens
     refresh_token = tokens.get("refresh_token")
     if not refresh_token:
         raise HTTPException(status_code=410, detail="Garmin reauth required")
+    logger.info(
+        "refreshing garmin token",
+        extra={
+            "user_id": str(getattr(user, "id", "")),
+            "refresh_token_hint": _redact_token(refresh_token),
+        },
+    )
     refreshed = providers_garmin._refresh_tokens(refresh_token)  # pylint: disable=protected-access
     if not refreshed:
         raise HTTPException(status_code=410, detail="Garmin reauth required")
     access_token, new_refresh, new_expires_at, payload = refreshed
+    logger.info(
+        "garmin token refreshed",
+        extra={
+            "user_id": str(getattr(user, "id", "")),
+            "new_access_hint": _redact_token(access_token),
+            "new_refresh_hint": _redact_token(new_refresh),
+            "expires_at": new_expires_at.isoformat() if new_expires_at else None,
+        },
+    )
     save_user_provider_token(
         db,
         ProviderTokenDetails(
@@ -64,6 +101,13 @@ def _ensure_fresh_tokens(db: Session, user, token_row) -> dict:
 
 
 def _build_garth_client(access_token: str, token_secret: Optional[str] = None) -> garth.Client:
+    logger.info(
+        "building garth client",
+        extra={
+            "access_hint": _redact_token(access_token),
+            "secret_present": bool(token_secret),
+        },
+    )
     client = garth.Client()
     client.oauth1_token = SimpleNamespace(
         oauth_token=access_token,
@@ -188,6 +232,16 @@ def fetch_garmin_recent(db: Session, user) -> IngestRun:
     access_token = tokens.get("access_token")
     if not access_token:
         raise HTTPException(status_code=410, detail="Garmin reauth required")
+    logger.info(
+        "garmin fetch starting",
+        extra={
+            "user_id": str(getattr(user, "id", "")),
+            "mode": mode,
+            "provider": provider_key,
+            "expires_at": tokens.get("expires_at").isoformat() if tokens.get("expires_at") else None,
+            "access_token_hint": _redact_token(access_token),
+        },
+    )
     token_secret = None
     if mode == "scraper":
         meta_secret = tokens.get("metadata", {}).get("token_secret") if isinstance(tokens.get("metadata"), dict) else None
@@ -196,16 +250,41 @@ def fetch_garmin_recent(db: Session, user) -> IngestRun:
         token_secret = tokens.get("metadata", {}).get("token_secret") if isinstance(tokens.get("metadata"), dict) else None
     client = _build_garth_client(access_token, token_secret)
     try:
+        logger.info(
+            "calling garth connectapi",
+            extra={
+                "user_id": str(getattr(user, "id", "")),
+                "mode": mode,
+                "path": "activitylist-service/activities",
+            },
+        )
         activities = client.connectapi(
             "activitylist-service/activities",
             params={"start": 0, "limit": 20},
         )
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
+        logger.error(
+            "garmin activities fetch failed",
+            extra={
+                "user_id": str(getattr(user, "id", "")),
+                "mode": mode,
+                "provider": provider_key,
+                "error": str(exc),
+            },
+        )
         raise HTTPException(status_code=410, detail="Garmin reauth required") if mode == "scraper" else HTTPException(status_code=502, detail="Garmin fetch failed")
     run = dedupe.record_ingest_run(db, provider="garmin", user_id=getattr(user, "id", None))
     activity_list = activities if isinstance(activities, list) else []
+    logger.info(
+        "garmin activities fetched",
+        extra={
+            "user_id": str(getattr(user, "id", "")),
+            "fetched": len(activity_list),
+            "run_id": str(run.id),
+        },
+    )
     _write_influx_points(db, user, run, activity_list)
     _persist_activities(db, user, run, activity_list)
     # Fetch additional categories using garth and write to Influx

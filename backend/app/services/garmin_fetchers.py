@@ -5,8 +5,11 @@ Helper functions to pull multiple Garmin data categories via garth and write to 
 from __future__ import annotations
 
 from typing import Any, Dict, List
+import logging
 
 from app.services.influx import get_influx_client_for_user
+
+logger = logging.getLogger("garmin_fetchers")
 
 # Categories roughly mirroring the garmin-grafana FETCH_SELECTION
 CATEGORIES = [
@@ -99,10 +102,36 @@ def fetch_and_write_categories(db, user, run, garth_client, categories: List[str
         return summary
     for cat in categories:
         try:
+            logger.info(
+                "garmin category fetch",
+                extra={
+                    "user_id": str(getattr(user, "id", "")),
+                    "run_id": str(getattr(run, "id", "")),
+                    "category": cat,
+                },
+            )
             data = garth_client.connectapi(cat)
-        except Exception:
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning(
+                "garmin category fetch failed",
+                extra={
+                    "user_id": str(getattr(user, "id", "")),
+                    "run_id": str(getattr(run, "id", "")),
+                    "category": cat,
+                    "error": str(exc),
+                },
+            )
             continue
         records = data if isinstance(data, list) else [data]
         written = write_points(db, user, run, client, cat, records)
         summary[cat] = written
+        logger.info(
+            "garmin category written",
+            extra={
+                "user_id": str(getattr(user, "id", "")),
+                "run_id": str(getattr(run, "id", "")),
+                "category": cat,
+                "written": written,
+            },
+        )
     return summary

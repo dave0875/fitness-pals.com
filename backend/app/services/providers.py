@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import logging
 from typing import Optional
 from uuid import UUID
 
@@ -13,6 +14,9 @@ from sqlalchemy.orm import Session
 
 from app.models import ProviderApp, UserProviderToken
 from app.utils.security import decrypt_token, encrypt_token
+
+
+logger = logging.getLogger("providers")
 
 
 @dataclass
@@ -107,6 +111,17 @@ def save_user_provider_token(
     """Insert or update a user's encrypted provider token."""
     if not details.access_token:
         raise ValueError("access_token is required to store provider token")
+    logger.info(
+        "saving provider token",
+        extra={
+            "user_id": str(details.user_id),
+            "tenant_id": str(details.tenant_id) if details.tenant_id else None,
+            "provider": details.provider,
+            "expires_at": details.expires_at.isoformat() if details.expires_at else None,
+            "has_refresh": bool(details.refresh_token),
+            "metadata_keys": list(details.metadata.keys()) if details.metadata else [],
+        },
+    )
     existing = get_user_provider_token(
         db, details.user_id, details.provider, details.tenant_id
     )
@@ -124,6 +139,16 @@ def save_user_provider_token(
         existing.tenant_id = details.tenant_id
         db.commit()
         db.refresh(existing)
+        logger.info(
+            "provider token updated",
+            extra={
+                "user_id": str(details.user_id),
+                "tenant_id": str(details.tenant_id) if details.tenant_id else None,
+                "provider": details.provider,
+                "expires_at": existing.expires_at.isoformat() if existing.expires_at else None,
+                "has_refresh": bool(details.refresh_token),
+            },
+        )
         return existing
 
     token = UserProviderToken(
@@ -140,6 +165,16 @@ def save_user_provider_token(
     db.add(token)
     db.commit()
     db.refresh(token)
+    logger.info(
+        "provider token created",
+        extra={
+            "user_id": str(details.user_id),
+            "tenant_id": str(details.tenant_id) if details.tenant_id else None,
+            "provider": details.provider,
+            "expires_at": token.expires_at.isoformat() if token.expires_at else None,
+            "has_refresh": bool(details.refresh_token),
+        },
+    )
     return token
 
 

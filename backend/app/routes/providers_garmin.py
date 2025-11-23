@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
@@ -27,6 +28,16 @@ from app.services.garmin_ingest import fetch_garmin_recent
 from app.services.garmin_scheduler import fetch_all as fetch_all_users
 
 router = APIRouter(prefix="/api/providers/garmin", tags=["garmin"])
+logger = logging.getLogger("garmin.routes")
+
+
+def _redact_token(token: Optional[str]) -> str:
+    """Return a short hint of a token without exposing full value."""
+    if not token:
+        return ""
+    if len(token) <= 8:
+        return "***"
+    return f"{token[:4]}...{token[-4:]}"
 
 def _config():
     return {
@@ -222,6 +233,10 @@ def garmin_token_status(
         token = get_user_provider_token(db, user.id, "garmin_scraper", tenant_id)
         mode = "scraper" if token else None
     if not token:
+        logger.info(
+            "garmin token status: missing",
+            extra={"user_id": str(user.id), "tenant_id": str(tenant_id) if tenant_id else None},
+        )
         return {
             "status": "missing",
             "expires_at": None,
@@ -244,7 +259,7 @@ def garmin_token_status(
         status_str = "active"
     if seconds_remaining is not None and seconds_remaining < 0:
         seconds_remaining = 0
-    return {
+    response = {
         "status": status_str,
         "expires_at": expires_dt.isoformat() if expires_dt else None,
         "seconds_remaining": seconds_remaining,
@@ -252,6 +267,20 @@ def garmin_token_status(
         "refresh_token_present": bool(token.refresh_token_encrypted),
         "mode": mode,
     }
+    logger.info(
+        "garmin token status",
+        extra={
+            "user_id": str(user.id),
+            "tenant_id": str(tenant_id) if tenant_id else None,
+            "mode": mode,
+            "expires_at": response["expires_at"],
+            "seconds_remaining": seconds_remaining,
+            "status": status_str,
+            "provider_user_id": response["provider_user_id"],
+            "has_refresh": response["refresh_token_present"],
+        },
+    )
+    return response
 
 
 class ScraperTokenRequest(BaseModel):
@@ -357,6 +386,19 @@ def garmin_acquire_token(
     }
     if token_secret:
         metadata["token_secret"] = token_secret
+    logger.info(
+        "garmin acquire token success",
+        extra={
+            "user_id": str(getattr(user, "id", "")),
+            "mode": mode,
+            "provider": provider_name,
+            "access_hint": _redact_token(access_token),
+            "refresh_hint": _redact_token(refresh_token),
+            "expires_at": expires_at.isoformat() if expires_at else None,
+            "has_refresh": refresh_present,
+            "scope": scope_val,
+        },
+    )
     save_user_provider_token(
         db,
         ProviderTokenDetails(
