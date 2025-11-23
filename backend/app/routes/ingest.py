@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -11,51 +14,73 @@ from app.models import IngestDecision, IngestRun, User
 
 
 router = APIRouter(prefix="/api/ingest", tags=["ingest"])
+logger = logging.getLogger("routes.ingest")
+
+
+def _parse_run_id(raw: str) -> UUID:
+    try:
+        return UUID(raw)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid run id format") from exc
+
+
+def _user_run_ids(db: Session, user_id: UUID) -> set[UUID]:
+    """Return run ids that have decisions recorded for the user."""
+    decision_rows = (
+        db.query(IngestDecision)
+        .filter(IngestDecision.user_id == user_id)
+        .all()
+    )
+    return {row.ingest_run_id for row in decision_rows if getattr(row, "ingest_run_id", None)}
+
+
+def _run_visible_to_user(run: IngestRun, user: User, decision_run_ids: set[UUID]) -> bool:
+    """Check whether a run is associated with the given user."""
+    return run.user_id == user.id or run.id in decision_run_ids
 
 
 @router.get("/runs")
-def list_runs(_: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_runs(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Return recent ingest runs."""
+    decision_run_ids = _user_run_ids(db, user.id)
     runs = db.query(IngestRun).order_by(IngestRun.started_at.desc()).limit(200).all()
+    visible_runs = [run for run in runs if _run_visible_to_user(run, user, decision_run_ids)]
     return [
-        {
-            "id": str(run.id),
-            "provider": run.provider,
-            "status": run.status,
-            "started_at": run.started_at,
-            "finished_at": run.finished_at,
-            "summary": run.summary,
-        }
-        for run in runs
+        _serialize_run(run)
+        for run in visible_runs
     ]
 
 
 @router.get("/runs/{run_id}")
 def get_run(
-    run_id: str, _: User = Depends(get_current_user), db: Session = Depends(get_db)
+    run_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     """Return metadata for a specific ingest run."""
-    run = db.query(IngestRun).filter(IngestRun.id == run_id).first()
-    if not run:
+    run_uuid = _parse_run_id(run_id)
+    decision_run_ids = _user_run_ids(db, user.id)
+    run = db.query(IngestRun).filter(IngestRun.id == run_uuid).first()
+    if not run or not _run_visible_to_user(run, user, decision_run_ids):
+        logger.info("ingest run not visible", extra={"run_id": run_id, "user_id": str(user.id)})
         raise HTTPException(status_code=404, detail="Run not found")
-    return {
-        "id": str(run.id),
-        "provider": run.provider,
-        "status": run.status,
-        "started_at": run.started_at,
-        "finished_at": run.finished_at,
-        "summary": run.summary,
-    }
+    return _serialize_run(run)
 
 
 @router.get("/runs/{run_id}/decisions")
 def list_decisions(
-    run_id: str, _: User = Depends(get_current_user), db: Session = Depends(get_db)
+    run_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     """Return fine-grained decisions for an ingest batch."""
+    run_uuid = _parse_run_id(run_id)
+    decision_run_ids = _user_run_ids(db, user.id)
+    run = db.query(IngestRun).filter(IngestRun.id == run_uuid).first()
+    if not run or not _run_visible_to_user(run, user, decision_run_ids):
+        raise HTTPException(status_code=404, detail="Run not found")
     decisions = (
         db.query(IngestDecision)
-        .filter(IngestDecision.ingest_run_id == run_id)
+        .filter(
+            IngestDecision.ingest_run_id == run_uuid,
+            IngestDecision.user_id == user.id,
+        )
         .order_by(IngestDecision.created_at)
         .all()
     )
@@ -75,3 +100,14 @@ def list_decisions(
         }
         for decision in decisions
     ]
+
+
+def _serialize_run(run: IngestRun) -> dict:
+    return {
+        "id": str(run.id),
+        "provider": run.provider,
+        "status": run.status,
+        "started_at": run.started_at,
+        "finished_at": run.finished_at,
+        "summary": run.summary,
+    }

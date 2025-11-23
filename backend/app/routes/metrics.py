@@ -10,7 +10,11 @@ from sqlalchemy.orm import Session
 
 from app.deps import get_current_user
 from app.db import get_db
-from app.services.influx import get_influx_client_for_user, get_user_datasource
+from app.services.influx import (
+    assert_safe_influx_config,
+    get_influx_client_for_user,
+    get_user_datasource,
+)
 from app.models import User
 
 
@@ -85,6 +89,10 @@ def summary(user: User = Depends(get_current_user), db: Session = Depends(get_db
     ds = get_user_datasource(db, user.id)
     if not ds:
         raise HTTPException(status_code=404, detail="No datasource configured")
+    try:
+        assert_safe_influx_config(ds)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     client = get_influx_client_for_user(db, user.id)
     org = ds.influx_org
     bucket = ds.influx_bucket
@@ -142,6 +150,10 @@ def race_readiness(
     ds = get_user_datasource(db, user.id)
     if not ds:
         raise HTTPException(status_code=404, detail="No datasource configured")
+    try:
+        assert_safe_influx_config(ds)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     client = get_influx_client_for_user(db, user.id)
     org = ds.influx_org
     bucket = ds.influx_bucket

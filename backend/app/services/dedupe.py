@@ -62,17 +62,22 @@ def fingerprint_activity(
     """Return a deterministic hash for identifying duplicate activities."""
     payload = {
         "start": start_time_iso,
-        "duration_s": None if duration_s is None else round(duration_s),
-        "distance_m": None if distance_m is None else round(distance_m, 1),
+        "duration_s": None if duration_s is None else round(duration_s, -1),
+        "distance_m": None if distance_m is None else round(distance_m),
         "sport": sport.lower() if sport else None,
     }
     encoded = json.dumps(payload, sort_keys=True)
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
-def record_ingest_run(db: Session, provider: str) -> IngestRun:
+def record_ingest_run(db: Session, provider: str, user_id: Optional[UUID] = None) -> IngestRun:
     """Persist the start of an ingest run."""
-    run = IngestRun(provider=provider, status="running")
+    run = IngestRun(
+        provider=provider,
+        status="running",
+        user_id=user_id,
+        started_at=datetime.utcnow(),
+    )
     db.add(run)
     db.commit()
     db.refresh(run)

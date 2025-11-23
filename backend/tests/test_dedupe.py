@@ -5,6 +5,8 @@ import uuid
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.sql import operators
+from sqlalchemy.sql.elements import BinaryExpression, BooleanClauseList, BindParameter
 
 from app.models import IngestDecision, IngestRun
 from app.routes import ingest as ingest_routes
@@ -50,13 +52,19 @@ class FakeQuery:
         """Ignore ordering and return self."""
         return self
 
-    def limit(self, *_):
-        """Ignore limit and return self."""
+    def limit(self, *args, **_kwargs):
+        """Limit the result set when provided."""
+        if args and args[0] is not None:
+            return FakeQuery(self.data[: args[0]])
         return self
 
-    def filter(self, *_args, **_kwargs):
-        """Ignore filtering and return self."""
-        return self
+    def filter(self, *conditions, **_kwargs):
+        """Apply simple SQLAlchemy-style filters to the seeded data."""
+        filtered = []
+        for item in self.data:
+            if all(self._matches(cond, item) for cond in conditions):
+                filtered.append(item)
+        return FakeQuery(filtered)
 
     def all(self):
         """Return all seeded results."""
@@ -65,6 +73,32 @@ class FakeQuery:
     def first(self):
         """Return the first seeded result if present."""
         return self.data[0] if self.data else None
+
+    @staticmethod
+    def _resolve_value(side, item):
+        """Resolve a SQLAlchemy expression side to a comparable value."""
+        if isinstance(side, BindParameter):
+            return side.value
+        attr = getattr(side, "key", None) or getattr(side, "name", None)
+        if attr and hasattr(item, attr):
+            return getattr(item, attr)
+        return side
+
+    def _matches(self, condition, item):
+        """Evaluate a subset of SQLAlchemy comparison/boolean conditions."""
+        if isinstance(condition, BooleanClauseList):
+            if condition.operator is operators.and_:
+                return all(self._matches(c, item) for c in condition.clauses)
+            if condition.operator is operators.or_:
+                return any(self._matches(c, item) for c in condition.clauses)
+        if isinstance(condition, BinaryExpression):
+            left = self._resolve_value(condition.left, item)
+            right = self._resolve_value(condition.right, item)
+            try:
+                return condition.operator(left, right)
+            except Exception:  # pragma: no cover - defensive
+                return False
+        return True
 
 
 def test_fingerprint_variation_with_sport_and_rounded_fields():
@@ -170,3 +204,58 @@ def test_ingest_get_run_not_found_raises_http():
     user = type("User", (), {"id": uuid.uuid4()})()
     with pytest.raises(HTTPException):
         ingest_routes.get_run(str(uuid.uuid4()), user, db=db)
+
+
+def test_ingest_endpoints_hide_other_user_runs():
+    """Users should not see ingest runs or decisions belonging to others."""
+    user = type("User", (), {"id": uuid.uuid4()})()
+    other_user_id = uuid.uuid4()
+    visible_run = IngestRun(
+        id=uuid.uuid4(),
+        provider="garmin",
+        status="completed",
+        started_at=datetime.datetime.utcnow(),
+        finished_at=datetime.datetime.utcnow(),
+        summary={"new": 1},
+        user_id=user.id,
+    )
+    hidden_run = IngestRun(
+        id=uuid.uuid4(),
+        provider="garmin",
+        status="completed",
+        started_at=datetime.datetime.utcnow(),
+        finished_at=datetime.datetime.utcnow(),
+        summary={"new": 99},
+        user_id=other_user_id,
+    )
+    hidden_decision = IngestDecision(
+        id=uuid.uuid4(),
+        ingest_run_id=hidden_run.id,
+        user_id=other_user_id,
+        provider="garmin",
+        provider_activity_id="act-hidden",
+        decision="merged",
+        reason="n/a",
+        fingerprint={},
+        tolerances={},
+        chosen_fields={},
+        created_at=datetime.datetime.utcnow(),
+    )
+    db = FakeSession(items=[visible_run, hidden_run, hidden_decision])
+
+    runs = ingest_routes.list_runs(user, db=db)
+    assert any(r["id"] == str(visible_run.id) for r in runs)
+    assert all(r["id"] != str(hidden_run.id) for r in runs)
+
+    with pytest.raises(HTTPException):
+        ingest_routes.get_run(str(hidden_run.id), user, db=db)
+    with pytest.raises(HTTPException):
+        ingest_routes.list_decisions(str(hidden_run.id), user, db=db)
+
+
+def test_ingest_endpoints_reject_bad_run_id():
+    """Invalid UUID strings should be rejected up front."""
+    user = type("User", (), {"id": uuid.uuid4()})()
+    db = FakeSession(items=[])
+    with pytest.raises(HTTPException):
+        ingest_routes.get_run("not-a-uuid", user, db=db)

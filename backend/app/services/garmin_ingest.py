@@ -204,7 +204,7 @@ def fetch_garmin_recent(db: Session, user) -> IngestRun:
         raise
     except Exception:
         raise HTTPException(status_code=410, detail="Garmin reauth required") if mode == "scraper" else HTTPException(status_code=502, detail="Garmin fetch failed")
-    run = dedupe.record_ingest_run(db, provider="garmin")
+    run = dedupe.record_ingest_run(db, provider="garmin", user_id=getattr(user, "id", None))
     activity_list = activities if isinstance(activities, list) else []
     _write_influx_points(db, user, run, activity_list)
     _persist_activities(db, user, run, activity_list)

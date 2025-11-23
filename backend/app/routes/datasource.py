@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from influxdb_client.client.exceptions import InfluxDBError
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, HttpUrl, field_validator
 from sqlalchemy.orm import Session
 
 from app.deps import get_current_user
 from app.db import get_db
 from app.models import DataSource, User
-from app.services.influx import get_influx_client_for_user, get_user_datasource
+from app.services.influx import (
+    assert_safe_influx_config,
+    get_influx_client_for_user,
+    get_user_datasource,
+    validate_influx_identifier,
+)
 from app.utils.security import encrypt_token
 
 
@@ -22,8 +29,15 @@ class InfluxConnectRequest(BaseModel):
     bucket: str
     token: str
 
+    @field_validator("org", "bucket")
+    @classmethod
+    def validate_identifier(cls, value: str, info):  # type: ignore[override]
+        """Reject unsafe Flux identifiers to avoid injection."""
+        return validate_influx_identifier(value, info.field_name)
+
 
 router = APIRouter(prefix="/api/datasource", tags=["datasource"])
+logger = logging.getLogger("routes.datasource")
 
 
 @router.post("/influx/connect")
@@ -35,6 +49,10 @@ def connect_influx(
     """Encrypt and persist Influx credentials for the authenticated user."""
     existing = get_user_datasource(db, user.id)
     encrypted = encrypt_token(body.token)
+    logger.info(
+        "storing influx datasource",
+        extra={"user_id": str(user.id), "url": str(body.url), "org": body.org, "bucket": body.bucket},
+    )
     if existing:
         existing.influx_url = str(body.url)
         existing.influx_org = body.org
@@ -62,6 +80,10 @@ def verify_influx(
     ds = get_user_datasource(db, user.id)
     if not ds:
         raise HTTPException(status_code=404, detail="No datasource configured")
+    try:
+        assert_safe_influx_config(ds)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     client = get_influx_client_for_user(db, user.id)
     query_api = client.query_api()
     try:
