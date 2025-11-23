@@ -223,6 +223,45 @@ def test_token_status_allows_clock_skew():
     status = providers_garmin.garmin_token_status(user=user, db=db)
     assert status["status"] == "active"
     assert status["seconds_remaining"] == 0
+    assert status["provider"] == "garmin"
+
+
+def test_token_status_respects_garmin_mode(monkeypatch):
+    """Status should return only the token matching GARMIN_MODE."""
+    db = FakeSession()
+    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    # Older garmin token
+    save_user_provider_token(
+        db,
+        ProviderTokenDetails(
+            user_id=user.id,
+            tenant_id=None,
+            provider="garmin",
+            access_token="old",
+            refresh_token="old-r",
+            expires_at=datetime.utcnow() + timedelta(days=1),
+        ),
+    )
+    # Newer scraper token
+    save_user_provider_token(
+        db,
+        ProviderTokenDetails(
+            user_id=user.id,
+            tenant_id=None,
+            provider="garmin_scraper",
+            access_token="new",
+            refresh_token=None,
+            expires_at=datetime.utcnow() + timedelta(days=2),
+        ),
+    )
+    # scraper mode should return scraper token
+    monkeypatch.setenv("GARMIN_MODE", "scraper")
+    status = providers_garmin.garmin_token_status(user=user, db=db)
+    assert status["provider"] == "garmin_scraper"
+    # oauth mode should return garmin token
+    monkeypatch.setenv("GARMIN_MODE", "oauth")
+    status = providers_garmin.garmin_token_status(user=user, db=db)
+    assert status["provider"] == "garmin"
 
 
 def test_refresh_reauth_on_failure(monkeypatch):

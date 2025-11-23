@@ -10,6 +10,7 @@ import logging
 from app.services.influx import get_influx_client_for_user
 
 logger = logging.getLogger("garmin_fetchers")
+logger.setLevel(logging.INFO)
 
 # Categories roughly mirroring the garmin-grafana FETCH_SELECTION
 CATEGORIES = [

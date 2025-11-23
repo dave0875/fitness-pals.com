@@ -28,6 +28,7 @@ from app.routes import providers_garmin
 
 
 logger = logging.getLogger("garmin_ingest")
+logger.setLevel(logging.INFO)
 
 
 def _mode() -> str:

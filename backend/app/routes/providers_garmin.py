@@ -29,6 +29,7 @@ from app.services.garmin_scheduler import fetch_all as fetch_all_users
 
 router = APIRouter(prefix="/api/providers/garmin", tags=["garmin"])
 logger = logging.getLogger("garmin.routes")
+logger.setLevel(logging.INFO)
 
 
 def _redact_token(token: Optional[str]) -> str:
@@ -224,14 +225,23 @@ def garmin_fetch_all(_: User = Depends(get_current_user), db: Session = Depends(
 def garmin_token_status(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    provider: Optional[str] = None,
+    include_all: bool = False,
 ):
     """Return metadata about the stored Garmin token for the current user."""
     tenant_id = _resolve_tenant(user)
-    token = get_user_provider_token(db, user.id, "garmin", tenant_id)
-    mode = "oauth"
-    if not token:
-        token = get_user_provider_token(db, user.id, "garmin_scraper", tenant_id)
-        mode = "scraper" if token else None
+    env_mode = (os.environ.get("GARMIN_MODE") or "oauth").lower()
+    provider_key = provider or ("garmin" if env_mode == "oauth" else "garmin_scraper")
+    token = get_user_provider_token(db, user.id, provider_key, tenant_id)
+    if include_all:
+        other = "garmin_scraper" if provider_key == "garmin" else "garmin"
+        tokens = [
+            serialize_token_status(token, provider_key, user, tenant_id),
+            serialize_token_status(
+                get_user_provider_token(db, user.id, other, tenant_id), other, user, tenant_id
+            ),
+        ]
+        return {"providers": [t for t in tokens if t is not None]}
     if not token:
         logger.info(
             "garmin token status: missing",
@@ -244,7 +254,16 @@ def garmin_token_status(
             "provider_user_id": None,
             "refresh_token_present": False,
             "mode": None,
+            "provider": provider_key,
+            "updated_at": None,
         }
+    result = serialize_token_status(token, provider_key, user, tenant_id)
+    return result
+
+
+def serialize_token_status(token, provider_key: str, user: User, tenant_id: Optional[UUID]):
+    if not token:
+        return None
     expires_dt = token.expires_at
     if expires_dt and expires_dt.tzinfo is None:
         expires_dt = expires_dt.replace(tzinfo=timezone.utc)
@@ -265,14 +284,28 @@ def garmin_token_status(
         "seconds_remaining": seconds_remaining,
         "provider_user_id": str(token.provider_user_id) if token.provider_user_id else None,
         "refresh_token_present": bool(token.refresh_token_encrypted),
-        "mode": mode,
+        "mode": "scraper" if provider_key == "garmin_scraper" else "oauth",
+        "provider": provider_key,
+        "updated_at": token.updated_at.isoformat() if getattr(token, "updated_at", None) else None,
     }
+    if status_str == "expired":
+        logger.info(
+            "garmin token expired or expiring",
+            extra={
+                "user_id": str(user.id),
+                "tenant_id": str(tenant_id) if tenant_id else None,
+                "provider": provider_key,
+                "expires_at": response["expires_at"],
+                "now": now.isoformat(),
+                "seconds_remaining": seconds_remaining,
+            },
+        )
     logger.info(
         "garmin token status",
         extra={
             "user_id": str(user.id),
             "tenant_id": str(tenant_id) if tenant_id else None,
-            "mode": mode,
+            "provider": provider_key,
             "expires_at": response["expires_at"],
             "seconds_remaining": seconds_remaining,
             "status": status_str,

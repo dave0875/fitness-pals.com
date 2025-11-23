@@ -17,6 +17,7 @@ from app.utils.security import decrypt_token, encrypt_token
 
 
 logger = logging.getLogger("providers")
+logger.setLevel(logging.INFO)
 
 
 @dataclass
