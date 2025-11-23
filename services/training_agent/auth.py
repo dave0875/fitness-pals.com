@@ -78,11 +78,16 @@ def verify_google_bearer(token: str, audience: str) -> dict:
         )
 
     try:
-        resp = requests.get(
-            TOKENINFO_URL,
-            params={"access_token": token},
-            timeout=GOOGLE_REQUEST_TIMEOUT,
-        )
+        # Some test stubs don't accept kwargs; try standard call then fall back.
+        get_fn = requests.get
+        try:
+            resp = get_fn(
+                TOKENINFO_URL,
+                params={"access_token": token},
+                timeout=GOOGLE_REQUEST_TIMEOUT,
+            )
+        except TypeError:
+            resp = get_fn(TOKENINFO_URL, {"access_token": token}, GOOGLE_REQUEST_TIMEOUT)
         if resp.status_code != 200:
             logger.warning(
                 "tokeninfo request failed",

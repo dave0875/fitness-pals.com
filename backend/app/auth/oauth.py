@@ -16,6 +16,9 @@ from app.db import get_db
 from app.models import User
 from app.utils.security import create_access_token, create_refresh_token
 
+# Ensure settings reflect current environment (tests reload this module).
+if hasattr(get_settings, "cache_clear"):
+    get_settings.cache_clear()
 settings = get_settings()
 oauth = OAuth()
 logger = logging.getLogger("auth.oauth")
