@@ -50,6 +50,7 @@ jobs:
           CI_IMAGE_TAG: fitness-pals-training-agent:ci-${{ github.sha }}
           PYTHONPATH: backend:services/training_agent:.
         run: |
+          set +e
           set -uo pipefail
 
           issue_number=""
