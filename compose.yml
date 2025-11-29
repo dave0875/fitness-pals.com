@@ -21,6 +21,7 @@ services:
       - INFLUXDB_USER=${INFLUXDB_USERNAME}
       - INFLUXDB_USER_PASSWORD=${INFLUXDB_PASSWORD}
       - INFLUXDB_DATA_INDEX_VERSION=tsi1
+      - INFLUXDB_HTTP_FLUX_ENABLED=true
       #############################################################
       # The following ENV variables are applicable for InfluxDB V3
       #############################################################
@@ -126,6 +127,7 @@ services:
       - RUNTRAINER_INFLUX_DEFAULT_URL=${RUNTRAINER_INFLUX_DEFAULT_URL}
       - RUNTRAINER_OPENAI_API_KEY=${RUNTRAINER_OPENAI_API_KEY}
       - GARMIN_MODE=${GARMIN_MODE}
+      - GARMIN_FIT_FILE=${GARMIN_FIT_FILE:-0}
     ports:
       - "8000:8000"
     depends_on:

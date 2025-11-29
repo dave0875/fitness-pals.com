@@ -5,18 +5,21 @@ from __future__ import annotations
 import os
 import logging
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Optional
 from uuid import UUID
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
+from sqlalchemy import func
+import requests
 from sqlalchemy.orm import Session
 import garth
 
 from app.deps import get_current_user
 from app.db import get_db
-from app.models import User
+from app.models import User, Activity, IngestRun, IngestDecision
 from pydantic import BaseModel
 from app.services.providers import (
     ProviderTokenDetails,
@@ -26,6 +29,10 @@ from app.services.providers import (
 )
 from app.services.garmin_ingest import fetch_garmin_recent
 from app.services.garmin_scheduler import fetch_all as fetch_all_users
+from app.services import garmin_ingest
+from app.services.influx import get_influx_client_for_user, get_user_datasource
+from app.services.garmin_fetchers import CONNECTAPI_SOURCES, STAT_FETCHERS
+from app.utils.security import decrypt_token
 
 router = APIRouter(prefix="/api/providers/garmin", tags=["garmin"])
 logger = logging.getLogger("garmin.routes")
@@ -51,6 +58,58 @@ def _config():
         or "https://connect.garmin.com/oauth/token",
         "scope": os.environ.get("GARMIN_SCOPE") or "activity profile",
     }
+
+
+def _capture_provider_user_id(
+    db: Session,
+    token_row,
+    access_token: Optional[str],
+    token_secret: Optional[str] = None,
+    fallback_provider_user_id: Optional[str] = None,
+):
+    """
+    Best-effort fetch of provider_user_id for scraper tokens so status panels show the id.
+    Non-fatal; only used for oauth1/scraper tokens.
+    """
+    if not token_row or token_row.provider_user_id or not access_token:
+        return
+    try:
+        client = garth.Client()
+        client.oauth1_token = SimpleNamespace(
+            oauth_token=access_token,
+            oauth_token_secret=token_secret or "",
+            mfa_token=None,
+            mfa_expiration_timestamp=None,
+            domain="garmin.com",
+        )
+        profile = client.connectapi("user-service/user/profile")
+        provider_user_id = (
+            profile.get("userId")
+            or profile.get("displayName")
+            or profile.get("username")
+        )
+        if provider_user_id:
+            token_row.provider_user_id = str(provider_user_id)
+            db.commit()
+            db.refresh(token_row)
+            logger.info(
+                "garmin provider_user_id captured",
+                extra={"provider_user_id": token_row.provider_user_id},
+            )
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning(
+            "failed to fetch provider_user_id for garmin token",
+            extra={"error": str(exc)},
+            exc_info=True,
+        )
+    if fallback_provider_user_id and not token_row.provider_user_id:
+        token_row.provider_user_id = str(fallback_provider_user_id)
+        db.commit()
+        db.refresh(token_row)
+        logger.info(
+            "garmin provider_user_id set from fallback",
+            extra={"provider_user_id": token_row.provider_user_id},
+        )
 
 
 def _require_env():
@@ -200,14 +259,89 @@ def garmin_refresh(user: User = Depends(get_current_user), db: Session = Depends
 
 
 @router.post("/fetch")
-def garmin_fetch(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def garmin_fetch(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    test_run: bool = False,
+):
     """Fetch recent Garmin data for the current user."""
     try:
-        run = fetch_garmin_recent(db, user)
-        return {"status": "ok", "ingested": run.summary.get("fetched", 0) if run.summary else 0}
-    except HTTPException:
+        run = fetch_garmin_recent(db, user, test_run=test_run)
+        # Build a simple integrity report
+        activities_count = (
+            db.query(Activity)
+            .filter(Activity.user_id == user.id, Activity.ingest_run_id == run.id)
+            .count()
+        )
+        summary = run.summary or {}
+        report = {
+            "activities_count": activities_count,
+            "activity_gps_written": summary.get("activity_gps_written"),
+            "timeseries_points": summary.get("timeseries_points"),
+            "sleep_daily": summary.get("sleep_daily"),
+            "vo2_daily": len(summary.get("vo2", {}).get("daily", [])) if summary.get("vo2") else 0,
+        }
+        # Optional Influx count for this run
+        try:
+            client = get_influx_client_for_user(db, user.id)
+            tag = f"TEST_{run.id}" if test_run else str(run.id)
+            flux = f'''
+from(bucket: "{client.default_bucket}")
+  |> range(start: 0)
+  |> filter(fn: (r) => r.ingest_run_id == "{tag}")
+  |> group(columns: ["_measurement"])
+  |> count()
+'''
+            tables = client.query_api().query(org=client.org, query=flux)
+            influx_counts = []
+            for table in tables:
+                for record in table.records:
+                    influx_counts.append(
+                        {"measurement": record.get_measurement(), "count": record.get_value()}
+                    )
+            report["influx_counts"] = influx_counts
+        except Exception:
+            pass
+        # Human-readable summary for logs/clients that truncate JSON
+        lines = [
+            f"Activities: {activities_count}",
+            f"ActivityGPS written: {summary.get('activity_gps_written')}",
+            f"Timeseries points: {summary.get('timeseries_points')}",
+            f"Sleep sessions: {summary.get('sleep_daily')}",
+        ]
+        influx_lines = []
+        for ic in report.get("influx_counts") or []:
+            influx_lines.append(f"{ic.get('measurement')}={ic.get('count')}")
+        if influx_lines:
+            lines.append("Influx: " + ", ".join(influx_lines))
+        report["report_pretty"] = " | ".join(lines)
+        return {
+            "status": "ok",
+            "ingested": summary.get("timeseries_points") or 0,
+            "test_run": test_run,
+            "ingest_run_tag": f"TEST_{run.id}" if test_run else str(run.id),
+            "report": report,
+        }
+    except HTTPException as exc:
+        logger.exception(
+            "garmin fetch failed (http)",
+            extra={
+                "user_id": str(getattr(user, "id", "")),
+                "test_run": test_run,
+                "status_code": getattr(exc, "status_code", None),
+                "detail": getattr(exc, "detail", None),
+            },
+        )
         raise
     except Exception as exc:  # pylint: disable=broad-except
+        logger.exception(
+            "garmin fetch failed (unexpected)",
+            extra={
+                "user_id": str(getattr(user, "id", "")),
+                "test_run": test_run,
+                "error": str(exc),
+            },
+        )
         raise HTTPException(status_code=502, detail="Garmin fetch failed") from exc
 
 
@@ -253,7 +387,7 @@ def garmin_token_status(
             "seconds_remaining": None,
             "provider_user_id": None,
             "refresh_token_present": False,
-            "mode": None,
+            "mode": env_mode,
             "provider": provider_key,
             "updated_at": None,
         }
@@ -331,7 +465,7 @@ def garmin_scraper_token(
     db: Session = Depends(get_db),
 ):
     """Store a scraper access token (no username/password accepted)."""
-    save_user_provider_token(
+    token_row = save_user_provider_token(
         db,
         ProviderTokenDetails(
             user_id=user.id,
@@ -349,6 +483,7 @@ def garmin_scraper_token(
             },
         ),
     )
+    _capture_provider_user_id(db, token_row, body.scraper_access_token, body.token_secret)
     return {"status": "ok", "provider": "garmin_scraper"}
 
 
@@ -432,7 +567,7 @@ def garmin_acquire_token(
             "scope": scope_val,
         },
     )
-    save_user_provider_token(
+    token_row = save_user_provider_token(
         db,
         ProviderTokenDetails(
             user_id=user.id,
@@ -446,6 +581,14 @@ def garmin_acquire_token(
             metadata=metadata,
         ),
     )
+    if provider_name == "garmin_scraper":
+        _capture_provider_user_id(
+            db,
+            token_row,
+            access_token,
+            token_secret,
+            fallback_provider_user_id=username,
+        )
     return {
         "status": "ok",
         "expires_at": expires_at.isoformat() if expires_at else None,
@@ -508,3 +651,268 @@ def garmin_refresh_token(
         "expires_at": expires_at.isoformat() if expires_at else None,
         "refresh_token_present": True,
     }
+
+
+@router.get("/categories")
+def list_garmin_categories(_: User = Depends(get_current_user)):
+    """List validated Garmin categories (stats + connectapi) that can be probed."""
+    stats = [{"key": k, "type": "stat"} for k in STAT_FETCHERS.keys()]
+    connect = [
+        {
+            "key": k,
+            "type": "connectapi",
+            "per_day": v.get("per_day"),
+            "path": v.get("path"),
+            "params": v.get("params"),
+            "method": v.get("method", "GET"),
+        }
+        for k, v in CONNECTAPI_SOURCES.items()
+    ]
+    return stats + connect
+
+
+@router.post("/test-category")
+def test_garmin_category(
+    payload: dict,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Probe a single Garmin category using the stored token without writing to Influx."""
+    category = payload.get("category")
+    date = payload.get("date")
+    path_override = payload.get("path")
+    params_override = payload.get("params")
+    method_override = payload.get("method")
+    start_date_override = payload.get("start_date")
+    end_date_override = payload.get("end_date")
+    if not category:
+        raise HTTPException(status_code=400, detail="category is required")
+    mode = garmin_ingest._mode()  # pylint: disable=protected-access
+    provider_key = "garmin" if mode == "oauth" else "garmin_scraper"
+    token_row = get_user_provider_token(db, user.id, provider_key, getattr(user, "tenant_id", None))
+    if not token_row:
+        raise HTTPException(status_code=410, detail="Garmin token missing for probe")
+    if mode == "oauth":
+        tokens = garmin_ingest._ensure_fresh_tokens(db, user, token_row)  # pylint: disable=protected-access
+    else:
+        tokens = decrypt_user_tokens(token_row)
+    access_token = tokens.get("access_token")
+    token_secret = None
+    meta = tokens.get("metadata") or {}
+    if mode == "scraper":
+        token_secret = meta.get("token_secret") or tokens.get("refresh_token")
+    else:
+        token_secret = meta.get("token_secret")
+    client = garmin_ingest._build_garth_client(access_token, token_secret)  # pylint: disable=protected-access
+    target_date = None
+    if date:
+        try:
+            target_date = datetime.fromisoformat(date).date()
+        except Exception as exc:  # pylint: disable=broad-except
+            raise HTTPException(status_code=400, detail="Invalid date format") from exc
+    if category in STAT_FETCHERS:
+        try:
+            data = STAT_FETCHERS[category](client, target_date or datetime.utcnow().date(), 1)
+        except Exception as exc:  # pylint: disable=broad-except
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {
+            "category": category,
+            "provider": provider_key,
+            "mode": mode,
+            "date": target_date.isoformat() if target_date else None,
+            "result_size": len(data) if isinstance(data, list) else 1,
+            "data_sample": data[:1] if isinstance(data, list) else data,
+        }
+    mapping = CONNECTAPI_SOURCES.get(category)
+    if not mapping:
+        raise HTTPException(status_code=404, detail=f"Unknown category {category}")
+    try:
+        method = (method_override or mapping.get("method") or "GET").upper()
+        path_template = path_override or mapping.get("path")
+        params_template = params_override or mapping.get("params")
+        if mapping.get("per_day", False):
+            target_date = target_date or datetime.utcnow().date()
+            path = path_template.format(date=target_date.strftime("%Y-%m-%d"))
+            params = None
+            if isinstance(params_template, dict):
+                params = {
+                    k: (v.format(date=target_date.strftime("%Y-%m-%d")) if isinstance(v, str) else v)
+                    for k, v in params_template.items()
+                }
+            data = client.connectapi(path, method=method, params=params)
+        else:
+            start_dt = datetime.fromisoformat(start_date_override).date() if start_date_override else datetime.utcnow().date()
+            end_dt = datetime.fromisoformat(end_date_override).date() if end_date_override else datetime.utcnow().date()
+            path = path_template.format(start=start_dt.strftime("%Y-%m-%d"), end=end_dt.strftime("%Y-%m-%d"))
+            params = params_override
+            data = client.connectapi(path, method=method, params=params)
+    except Exception as exc:  # pylint: disable=broad-except
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {
+        "category": category,
+        "provider": provider_key,
+        "mode": mode,
+        "date": target_date.isoformat() if target_date else None,
+        "result_size": len(data) if isinstance(data, list) else 1,
+        "data_sample": data[:1] if isinstance(data, list) else data,
+    }
+
+
+@router.get("/test-data/summary")
+def summarize_test_data(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Summarize Postgres and Influx rows tied to TEST_ ingest runs for this user."""
+    try:
+        test_runs = (
+            db.query(IngestRun)
+            .filter(
+                IngestRun.user_id == user.id,
+                IngestRun.summary["test_run"].as_boolean() == True,  # pylint: disable=singleton-comparison
+            )
+            .all()
+        )
+    except Exception:
+        test_runs = []
+    run_ids = [r.id for r in test_runs]
+    run_ids_str = [str(rid) for rid in run_ids]
+    activity_count = (
+        db.query(func.count(Activity.id))
+        .filter(Activity.user_id == user.id, Activity.ingest_run_id.in_(run_ids))
+        .scalar()
+        if run_ids
+        else 0
+    )
+    decision_count = (
+        db.query(func.count(IngestDecision.id))
+        .filter(IngestDecision.user_id == user.id, IngestDecision.ingest_run_id.in_(run_ids))
+        .scalar()
+        if run_ids
+        else 0
+    )
+
+    influx_counts = []
+    try:
+        if run_ids:
+            client = get_influx_client_for_user(db, user.id)
+            tags = [f"TEST_{rid}" for rid in run_ids_str]
+            pattern = "|".join([t.replace("-", r"\-") for t in tags])
+            predicate = f'r.ingest_run_id =~ /^({pattern})$/'
+            flux = f'''
+from(bucket: "{client.default_bucket}")
+  |> range(start: 0)
+  |> filter(fn: (r) => {predicate})
+  |> group(columns: ["_measurement"])
+  |> count()
+  |> group()
+'''
+            tables = client.query_api().query(org=client.org, query=flux)
+            for table in tables:
+                for record in table.records:
+                    influx_counts.append(
+                        {
+                            "measurement": record.get_measurement(),
+                            "count": record.get_value(),
+                        }
+                    )
+    except Exception as exc:  # pylint: disable=broad-except
+        # Flux may be disabled on Influx 1.x; attempt InfluxQL fallback.
+        try:
+            ds = get_user_datasource(db, user.id)
+            if ds and ds.influx_url and ds.influx_bucket:
+                token = decrypt_token(ds.token_encrypted)
+                auth = None
+                headers = {}
+                if ds.influx_user and token:
+                    auth = (ds.influx_user, token)
+                elif token:
+                    headers["Authorization"] = f"Token {token}"
+                meas_resp = requests.get(
+                    f"{ds.influx_url}/query",
+                    params={"db": ds.influx_bucket, "q": "SHOW MEASUREMENTS"},
+                    auth=auth,
+                    headers=headers,
+                    timeout=5,
+                )
+                if meas_resp.ok:
+                    measurements = [
+                        row[0] for row in meas_resp.json().get("results", [{}])[0].get("series", [{}])[0].get("values", [])
+                    ]
+                    for m in measurements:
+                        q = f'SELECT COUNT(*) FROM "{m}" WHERE "ingest_run_id" =~ /^({pattern})$/'
+                        cnt_resp = requests.get(
+                            f"{ds.influx_url}/query",
+                            params={"db": ds.influx_bucket, "q": q},
+                            auth=auth,
+                            headers=headers,
+                            timeout=5,
+                        )
+                        if cnt_resp.ok:
+                            res = cnt_resp.json().get("results", [{}])[0].get("series", [])
+                            if res and "values" in res[0]:
+                                vals = res[0]["values"][0]
+                                # values layout: [time, count_field1, count_field2, ...]; sum counts
+                                total = sum(v for v in vals[1:] if isinstance(v, (int, float)))
+                                influx_counts.append({"measurement": m, "count": int(total)})
+        except Exception as exc2:  # pylint: disable=broad-except
+            logger.warning(
+                "test data influx summary failed",
+                extra={"user_id": str(user.id), "error": str(exc), "fallback_error": str(exc2)},
+            )
+
+    return {
+        "test_runs": run_ids_str,
+        "activities": activity_count,
+        "ingest_decisions": decision_count,
+        "influx": influx_counts,
+    }
+
+
+@router.post("/test-data/clear")
+def clear_test_data(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Delete Postgres + Influx data tied to TEST_ ingest runs for this user."""
+    summary = summarize_test_data(user=user, db=db)
+    run_ids_str = summary.get("test_runs") or []
+    run_ids = [UUID(rid) for rid in run_ids_str]
+
+    # Postgres deletes
+    if run_ids:
+        db.query(Activity).filter(Activity.user_id == user.id, Activity.ingest_run_id.in_(run_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(IngestDecision).filter(
+            IngestDecision.user_id == user.id, IngestDecision.ingest_run_id.in_(run_ids)
+        ).delete(synchronize_session=False)
+        db.query(IngestRun).filter(IngestRun.user_id == user.id, IngestRun.id.in_(run_ids)).delete(
+            synchronize_session=False
+        )
+        db.commit()
+    # Also clean any lingering activities flagged as test_run in metadata (in case ingest_run was missing)
+    try:
+        db.query(Activity).filter(
+            Activity.user_id == user.id, Activity.metadata["test_run"].as_boolean() == True  # pylint: disable=singleton-comparison
+        ).delete(synchronize_session=False)
+        db.commit()
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning(
+            "test data activity cleanup failed",
+            extra={"user_id": str(user.id), "error": str(exc)},
+        )
+
+    # Influx deletes
+    try:
+        if run_ids:
+            client = get_influx_client_for_user(db, user.id)
+            tags = [f"TEST_{rid}" for rid in run_ids_str]
+            pattern = "|".join([t.replace("-", r"\-") for t in tags])
+            predicate = f'ingest_run_id=~/^({pattern})$/'
+            delete_api = client.delete_api()
+            delete_api.delete(
+                start="1970-01-01T00:00:00Z",
+                stop="2100-01-01T00:00:00Z",
+                predicate=predicate,
+                bucket=client.default_bucket,
+                org=client.org,
+            )
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("test data influx clear failed", extra={"user_id": str(user.id), "error": str(exc)})
+
+    return {"status": "ok", "cleared_runs": run_ids_str}

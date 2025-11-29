@@ -5,6 +5,7 @@ from .data_source import DataSource
 from .conversation import Conversation
 from .provider import ProviderApp, UserProviderToken
 from .activity import Activity, ActivitySource, IngestRun, IngestDecision
+from .sleep import SleepSession
 
 __all__ = [
     "User",
@@ -16,4 +17,5 @@ __all__ = [
     "ActivitySource",
     "IngestRun",
     "IngestDecision",
+    "SleepSession",
 ]

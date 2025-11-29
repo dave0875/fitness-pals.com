@@ -290,6 +290,154 @@ def render_action_index(
     base_url: str, api_key: str | None, google_client_id: str | None
 ) -> str:
     """Render the HTML action explorer page for the training agent harness."""
+    endpoint_block = """
+        // Garmin endpoint tester
+        const garminCategoryList = document.getElementById("garmin-category-list");
+        const garminTestResult = document.getElementById("garmin-test-result");
+        const garminCategoryRefresh = document.getElementById("garmin-category-refresh");
+
+        async function loadGarminCategories() {
+            if (!googleToken) {
+                garminCategoryList.innerHTML = "<li>Sign in with Google, then click 'Load Garmin endpoints'.</li>";
+                return;
+            }
+            const headers = { Authorization: `Bearer ${googleToken}` };
+            const apiKey = apiKeyField.value.trim();
+            if (apiKey) headers[API_KEY_HEADER] = apiKey;
+            try {
+                const res = await fetch(`${BACKEND_BASE}/api/providers/garmin/categories`, { headers });
+                if (!res.ok) return;
+                const cats = await res.json();
+                garminCategoryList.innerHTML = "";
+                if (!cats.length) {
+                    garminCategoryList.innerHTML = "<li>No Garmin endpoints available</li>";
+                }
+                cats.forEach(cat => {
+                    const li = document.createElement("li");
+                    li.style.marginBottom = "8px";
+                    const btn = document.createElement("button");
+                    btn.textContent = "Test " + cat.key;
+                    btn.style.marginRight = "6px";
+                    li.appendChild(btn);
+                    li.appendChild(document.createTextNode(" (" + (cat.type || "connectapi") + ")"));
+                    if (cat.type === "stat") {
+                        const dateInput = document.createElement("input");
+                        dateInput.type = "text";
+                        dateInput.value = new Date().toISOString().slice(0, 10);
+                        dateInput.placeholder = "YYYY-MM-DD (date)";
+                        dateInput.style.width = "130px";
+                        dateInput.style.marginLeft = "6px";
+                        btn.addEventListener("click", () => testGarminCategory(cat.key, null, null, null, dateInput.value, dateInput.value, cat.type, cat.per_day));
+                        li.appendChild(dateInput);
+                    } else {
+                        const methodInput = document.createElement("input");
+                        methodInput.type = "text";
+                        methodInput.value = cat.method || "GET";
+                        methodInput.placeholder = "method";
+                        methodInput.style.width = "70px";
+                        methodInput.style.marginRight = "6px";
+                        const pathInput = document.createElement("input");
+                        pathInput.type = "text";
+                        pathInput.value = cat.path || "";
+                        pathInput.placeholder = "path";
+                        pathInput.style.width = "320px";
+                        pathInput.style.marginRight = "6px";
+                        const paramsInput = document.createElement("input");
+                        paramsInput.type = "text";
+                        paramsInput.value = cat.params ? JSON.stringify(cat.params) : "";
+                        paramsInput.placeholder = "params JSON";
+                        paramsInput.style.width = "220px";
+                        paramsInput.style.marginRight = "6px";
+                        const endDateInput = document.createElement("input");
+                        endDateInput.type = "text";
+                        endDateInput.value = new Date().toISOString().slice(0, 10);
+                        endDateInput.placeholder = "YYYY-MM-DD (end)";
+                        endDateInput.style.width = "130px";
+                        endDateInput.style.marginRight = "6px";
+                        const startDateInput = document.createElement("input");
+                        startDateInput.type = "text";
+                        const defaultStart = new Date();
+                        defaultStart.setDate(defaultStart.getDate() - 30);
+                        startDateInput.value = defaultStart.toISOString().slice(0, 10);
+                        startDateInput.placeholder = "YYYY-MM-DD (start)";
+                        startDateInput.style.width = "130px";
+                        startDateInput.style.marginRight = "6px";
+                        btn.addEventListener("click", () =>
+                            testGarminCategory(
+                                cat.key,
+                                pathInput.value,
+                                paramsInput.value,
+                                methodInput.value,
+                                endDateInput.value,
+                                startDateInput.value,
+                                cat.type,
+                                cat.per_day
+                            )
+                        );
+                        li.appendChild(document.createTextNode(cat.per_day ? " per-day" : " range"));
+                        li.appendChild(methodInput);
+                        li.appendChild(pathInput);
+                        li.appendChild(paramsInput);
+                        li.appendChild(startDateInput);
+                        li.appendChild(endDateInput);
+                    }
+                    garminCategoryList.appendChild(li);
+                });
+            } catch (err) {
+                console.error("loadGarminCategories failed", err);
+            }
+        }
+
+        async function testGarminCategory(categoryKey, pathOverride, paramsJson, methodOverride, endDateVal, startDateVal, catType, perDay) {
+            if (!googleToken) {
+                showBanner("Sign in with Google first", "warn");
+                return;
+            }
+            const headers = { "Authorization": `Bearer ${googleToken}`, "Content-Type": "application/json" };
+            const apiKey = apiKeyField.value.trim();
+            if (apiKey) headers[API_KEY_HEADER] = apiKey;
+            let params = null;
+            if (paramsJson) {
+                try {
+                    params = JSON.parse(paramsJson);
+                } catch (_e) {}
+            }
+            const body = {
+                category: categoryKey,
+                path: pathOverride || null,
+                params: params,
+                method: methodOverride || null,
+                date: endDateVal || null,
+                start_date: startDateVal || null,
+                end_date: endDateVal || null,
+            };
+            if (catType === "stat") {
+                body.path = null;
+                body.params = null;
+                body.method = null;
+                body.start_date = null;
+            }
+            try {
+                const res = await fetch(`${BACKEND_BASE}/api/providers/garmin/test-category`, {
+                    method: "POST",
+                    headers,
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json();
+                garminTestResult.textContent = JSON.stringify(data, null, 2);
+                if (res.ok) {
+                    showBanner("Test " + categoryKey + " succeeded", "info");
+                } else {
+                    showBanner("Test " + categoryKey + " failed: " + res.status, "warn");
+                }
+            } catch (err) {
+                garminTestResult.textContent = String(err);
+                showBanner("Test " + categoryKey + " failed: " + String(err), "warn");
+            }
+        }
+        garminCategoryRefresh.addEventListener("click", loadGarminCategories);
+        document.addEventListener("DOMContentLoaded", loadGarminCategories);
+    """
     api_header_escaped = html.escape(API_KEY_NAME)
     cards_html = "\n".join(_render_action_card(spec) for spec in ACTIONS)
     escaped_base = html.escape(base_url)
@@ -518,7 +666,7 @@ def render_action_index(
     </section>
     <section class="callout">
         <div class="callout-content">
-            <div class="api-key-input">
+            <div class="api-key-input" id="garmin-cred-section">
                 <h2>Garmin credentials (ephemeral)</h2>
                 <p>Enter your Garmin username/password to generate tokens. Credentials are never stored.</p>
                 <label for="garmin-username-field">Garmin username</label>
@@ -529,7 +677,7 @@ def render_action_index(
                 <input id="garmin-cred-expires-field" type="text" placeholder="e.g., 2025-12-31T23:59:59Z" />
                 <button id="garmin-cred-button" type="button">Generate Garmin token</button>
             </div>
-            <div class="api-key-input">
+            <div class="api-key-input" id="garmin-scraper-section">
                 <h2>Garmin scraper token (manual)</h2>
                 <p>Paste a scraper access token gathered via your client-side helper.</p>
                 <label for="garmin-token-field">Scraper access token</label>
@@ -551,9 +699,29 @@ def render_action_index(
                 <div class="grid">
                     <button id="garmin-fetch-self" type="button">Fetch current user</button>
                     <button id="garmin-fetch-all" type="button">Batch fetch all users</button>
+                    <label style="display:flex;align-items:center;gap:6px;margin-left:8px;">
+                        <input id="test-run-toggle" type="checkbox" />
+                        Test run (tag Influx as TEST_*)
+                    </label>
+                    <button id="review-test-data" type="button">Review test data</button>
+                    <button id="clear-test-data" type="button">Clear test data</button>
                 </div>
+                <pre id="test-summary" style="margin-top:10px; max-height:140px; overflow:auto; background:#0d2038; padding:10px; border-radius:4px;"></pre>
                 <pre id="garmin-log" style="margin-top: 10px; max-height: 200px; overflow: auto; background: #0d2038; padding: 10px; border-radius: 4px;"></pre>
             </div>
+        </div>
+    </section>
+    <section class="callout">
+        <div class="callout-content">
+            <details id="garmin-endpoint-panel">
+                <summary><strong>Garmin endpoint tester</strong> — expand to probe individual Garmin APIs with your current token.</summary>
+                <p style="margin-top:10px;">Each button issues a live call against the selected Garmin endpoint using the stored token. Results are not written to Influx.</p>
+                <div style="margin: 8px 0;">
+                    <button id="garmin-category-refresh" type="button">Load Garmin endpoints</button>
+                </div>
+                <ul id="garmin-category-list" style="list-style: none; padding-left: 0;"></ul>
+                <pre id="garmin-test-result" style="max-height:240px; overflow:auto; background:#0d2038; padding:10px; border-radius:4px;"></pre>
+            </details>
         </div>
     </section>
     <div class="cards">
@@ -567,6 +735,15 @@ def render_action_index(
         </div>
         <pre id="response-body">Use the harness to send a request and the body will appear here.</pre>
     </section>
+    <div id="report-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; align-items:center; justify-content:center;">
+        <div style="background:#0b1c30; color:#e2e8f0; padding:16px; border-radius:8px; max-width:720px; width:90%; max-height:80%; overflow:auto; box-shadow:0 10px 30px rgba(0,0,0,0.4);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <h3 style="margin:0; font-size:1.1rem;">Ingest Report</h3>
+                <button id="report-close" type="button" style="background:#1f3655; color:#e2e8f0; border:none; padding:6px 10px; border-radius:4px; cursor:pointer;">Close</button>
+            </div>
+            <div id="report-body" style="background:#0d2038; padding:10px; border-radius:4px; white-space:normal; overflow:auto;"></div>
+        </div>
+    </div>
     <script>
         const GOOGLE_CLIENT_ID = "{google_client_id or ''}";
         const API_KEY_HEADER = "{api_header_escaped}";
@@ -579,9 +756,18 @@ def render_action_index(
         const garminPasswordField = document.getElementById("garmin-password-field");
         const garminCredExpiresField = document.getElementById("garmin-cred-expires-field");
         const garminCredButton = document.getElementById("garmin-cred-button");
+        const garminCredSection = document.getElementById("garmin-cred-section");
+        const garminScraperSection = document.getElementById("garmin-scraper-section");
         const garminFetchSelf = document.getElementById("garmin-fetch-self");
         const garminFetchAll = document.getElementById("garmin-fetch-all");
+        const testRunToggle = document.getElementById("test-run-toggle");
+        const reviewTestDataBtn = document.getElementById("review-test-data");
+        const clearTestDataBtn = document.getElementById("clear-test-data");
         const garminLog = document.getElementById("garmin-log");
+        const testSummary = document.getElementById("test-summary");
+        const reportModal = document.getElementById("report-modal");
+        const reportBody = document.getElementById("report-body");
+        const reportClose = document.getElementById("report-close");
         const googleTokenMeta = document.getElementById("google-token-meta");
         const garminTokenMeta = document.getElementById("garmin-token-meta");
         const googleRefreshButton = document.getElementById("google-refresh-btn");
@@ -595,6 +781,13 @@ def render_action_index(
         const statusBanner = document.getElementById("status-banner");
         const signOutButton = document.getElementById("sign-out-button");
         let googleToken = null;
+let garminMode = "unknown";
+
+        function checkGoogleClientConfigured() {{
+            if (!GOOGLE_CLIENT_ID) {{
+                showBanner("Missing RUNTRAINER_GOOGLE_CLIENT_ID; Google sign-in details (email/expiry) will be unavailable until configured.", "warn");
+            }}
+        }}
 
         const BACKEND_BASE = (() => {{
             try {{
@@ -619,6 +812,31 @@ function showBanner(message, level = "warn") {{
     bannerTimeout = setTimeout(() => {{
         statusBanner.classList.remove("visible");
     }}, 4000);
+}}
+
+function escapeHtml(str) {{
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}}
+
+function renderReportTable(reportObj) {{
+    if (!reportObj || typeof reportObj !== "object") {{
+        return `<pre style="margin:0; white-space:pre-wrap;">${{escapeHtml(JSON.stringify(reportObj, null, 2) || "")}}</pre>`;
+    }}
+    const rows = Object.entries(reportObj)
+        .map(([k, v]) => {{
+            const val =
+                v !== null && typeof v === "object"
+                    ? `<pre style="margin:0; white-space:pre-wrap;">${{escapeHtml(JSON.stringify(v, null, 2))}}</pre>`
+                    : escapeHtml(v);
+            return `<tr><th style="text-align:left; padding:6px 8px; vertical-align:top; font-weight:600;">${{escapeHtml(k)}}</th><td style="padding:6px 8px;">${{val}}</td></tr>`;
+        }})
+        .join("");
+    return `<table style="width:100%; border-collapse:collapse; font-size:0.95rem;"><tbody>${{rows}}</tbody></table>`;
 }}
 
         function parseJwt(token) {{
@@ -685,6 +903,7 @@ function showBanner(message, level = "warn") {{
 
         window.onload = () => {{
             updateAuthDisplay();
+            checkGoogleClientConfigured();
             initializeGoogle();
             refreshTokenStatuses();
         }};
@@ -785,6 +1004,26 @@ function showBanner(message, level = "warn") {{
             return `${{mins}}m ${{secs}}s`;
         }}
 
+        function applyGarminModeUI(mode) {{
+            garminMode = mode || "unknown";
+            // Always show both panels so scraper mode users can still mint a scraper token via username/password.
+            if (garminCredSection) {{
+                garminCredSection.style.display = "";
+            }}
+            if (garminScraperSection) {{
+                garminScraperSection.style.display = "";
+            }}
+            if (garminCredButton) {{
+                garminCredButton.disabled = false;
+                garminCredButton.title = "";
+            }}
+            const garminReconnectBtn = document.getElementById("garmin-reconnect-btn");
+            if (garminReconnectBtn) {{
+                garminReconnectBtn.disabled = false;
+                garminReconnectBtn.title = "";
+            }}
+        }}
+
         function renderGoogleTokenStatus(data) {{
             const status = data?.status || (googleToken ? "active" : "unknown");
             const email = data?.user_email || "–";
@@ -804,13 +1043,16 @@ function showBanner(message, level = "warn") {{
             const expires = data?.expires_at || "–";
             const remaining = formatDuration(data?.seconds_remaining);
             const refreshPresent = data?.refresh_token_present ? "Yes" : "No";
+            const mode = data?.mode || "unknown";
             garminTokenMeta.innerHTML = `
                 <span>Status: <span class="token-status">${{status}}</span></span>
+                <span>Mode: ${{mode}}</span>
                 <span>Provider user id: ${{providerId}}</span>
                 <span>Expires: ${{expires}}</span>
                 <span>Time remaining: ${{remaining}}</span>
                 <span>Refresh token: ${{refreshPresent}}</span>
             `;
+            applyGarminModeUI(mode);
         }}
 
         async function fetchGoogleTokenStatus() {{
@@ -861,6 +1103,7 @@ function showBanner(message, level = "warn") {{
 
         async function refreshTokenStatuses() {{
             await Promise.all([fetchGoogleTokenStatus(), fetchGarminTokenStatus()]);
+            await loadGarminCategories();
         }}
 
         setInterval(refreshTokenStatuses, 30000);
@@ -1008,11 +1251,24 @@ function showBanner(message, level = "warn") {{
                 headers[API_KEY_HEADER] = apiKey;
             }}
             try {{
-                const res = await fetch(`${{BACKEND_BASE}}${{path}}`, {{ method: "POST", headers }});
+                const url = new URL(`${{BACKEND_BASE}}${{path}}`);
+                if (testRunToggle.checked) {{
+                    url.searchParams.set("test_run", "true");
+                }}
+                const res = await fetch(url.toString(), {{ method: "POST", headers }});
                 const text = await res.text();
+                let parsed = null;
+                try {{
+                    parsed = JSON.parse(text);
+                }} catch (_e) {{}}
                 appendLog(`${{label}}: ${{res.status}} ${{text.slice(0, 300)}}`);
                 if (res.ok) {{
                     showBanner(`${{label}} succeeded`, "info");
+                    if (parsed && parsed.report) {{
+                        const tableHtml = renderReportTable(parsed.report);
+                        reportBody.innerHTML = tableHtml;
+                        reportModal.style.display = "flex";
+                    }}
                 }} else {{
                     showBanner(`${{label}} failed (${{res.status}})`, "warn");
                 }}
@@ -1021,8 +1277,71 @@ function showBanner(message, level = "warn") {{
                 showBanner(`${{label}} error`, "warn");
             }}
         }}
+
+        async function reviewTestData() {{
+            if (!googleToken) {{
+                showBanner("Sign in with Google first", "warn");
+                return;
+            }}
+            const headers = {{ Authorization: `Bearer ${{googleToken}}` }};
+            const apiKey = apiKeyField.value.trim();
+            if (apiKey) headers[API_KEY_HEADER] = apiKey;
+            try {{
+                const res = await fetch(`${{BACKEND_BASE}}/api/providers/garmin/test-data/summary`, {{ headers }});
+                const data = await res.json();
+                testSummary.textContent = JSON.stringify(data, null, 2);
+                if (res.ok) {{
+                    showBanner("Test data summary loaded", "info");
+                }} else {{
+                    showBanner(`Summary failed (${{res.status}})`, "warn");
+                }}
+            }} catch (err) {{
+                testSummary.textContent = String(err);
+                showBanner(`Summary failed: ${{String(err)}}`, "warn");
+            }}
+        }}
+
+        async function clearTestData() {{
+            if (!googleToken) {{
+                showBanner("Sign in with Google first", "warn");
+                return;
+            }}
+            await reviewTestData();
+            const snapshot = testSummary.textContent || "";
+            const proceed = window.confirm(`Clear all TEST_ data?\\n\\nCurrent summary:\\n${{snapshot}}`);
+            if (!proceed) return;
+            const headers = {{ Authorization: `Bearer ${{googleToken}}` }};
+            const apiKey = apiKeyField.value.trim();
+            if (apiKey) headers[API_KEY_HEADER] = apiKey;
+            try {{
+                const res = await fetch(`${{BACKEND_BASE}}/api/providers/garmin/test-data/clear`, {{
+                    method: "POST",
+                    headers,
+                }});
+                const data = await res.json();
+                testSummary.textContent = JSON.stringify(data, null, 2);
+                if (res.ok) {{
+                    showBanner("Test data cleared", "info");
+                }} else {{
+                    showBanner(`Clear failed (${{res.status}})`, "warn");
+                }}
+            }} catch (err) {{
+                showBanner(`Clear failed: ${{String(err)}}`, "warn");
+            }}
+        }}
+
         garminFetchSelf.addEventListener("click", () => fetchGarmin("/api/providers/garmin/fetch", "Fetch current user"));
         garminFetchAll.addEventListener("click", () => fetchGarmin("/api/providers/garmin/fetch/all", "Batch fetch all"));
+        reviewTestDataBtn.addEventListener("click", reviewTestData);
+        clearTestDataBtn.addEventListener("click", clearTestData);
+        reportClose.addEventListener("click", () => {{
+            reportModal.style.display = "none";
+        }});
+        reportModal.addEventListener("click", (e) => {{
+            if (e.target === reportModal) reportModal.style.display = "none";
+        }});
+
+        {endpoint_block}
     </script>
 </body>
 </html>"""

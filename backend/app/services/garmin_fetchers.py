@@ -1,138 +1,171 @@
 """
-Helper functions to pull multiple Garmin data categories via garth and write to Influx.
+Fetch Garmin health data using only validated endpoints from test.py.
+Provides a consolidated bundle for downstream timeseries and aggregates.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
 import logging
+from dataclasses import asdict, is_dataclass
+from datetime import date, datetime, timedelta
+from typing import Any, Callable, Dict, Iterable, List, Tuple
 
-from app.services.influx import get_influx_client_for_user
+from garth.data.hrv import HRVData
+from garth.data.sleep import SleepData
+from garth.stats.hrv import DailyHRV
+from garth.stats.intensity_minutes import DailyIntensityMinutes
+from garth.stats.sleep import DailySleep
+from garth.stats.steps import DailySteps
+from garth.stats.stress import DailyStress
+from garth.utils import camel_to_snake_dict
 
 logger = logging.getLogger("garmin_fetchers")
 logger.setLevel(logging.INFO)
 
-# Categories roughly mirroring the garmin-grafana FETCH_SELECTION
-CATEGORIES = [
-    "daily_avg",
-    "sleep",
-    "steps",
-    "heartrate",
-    "stress",
-    "breathing",
-    "HRV",
-    "fitness_age",
-    "VO2",
-    "race_prediction",
-    "body_composition",
-    "training_status",
-    "training_readiness",
-    "hill_score",
-    "endurance_score",
-    "solar_intensity",
-    "steps_epoch",
-    "distance_epoch",
-    "active_time_epoch",
-    "deep_sleep_duration",
-    "light_sleep_duration",
-    "rem_sleep_duration",
-    "awake_duration",
-    "validation_sleep",
-    "avg_stress_level",
-    "max_stress_level",
-    "stress_duration_seconds",
-    "low_stress_duration",
-    "medium_stress_duration",
-    "high_stress_duration",
-    "pulse_ox",
-    "respiration_rate",
-    "body_battery",
-    "lactate_threshold_estimate",
-    "stride_length",
-    "cadence",
-    "ground_contact_time",
-    "vertical_oscillation",
-    "elevation_gain",
-    "elevation_loss",
-]
+# ConnectAPI endpoints that were validated in the latest test run.
+CONNECTAPI_SOURCES: Dict[str, Dict[str, Any]] = {
+    "daily_stress": {"path": "wellness-service/wellness/dailyStress/{date}", "per_day": True},
+    "daily_vo2max": {"path": "metrics-service/metrics/maxmet/latest/{date}", "per_day": True},
+    "sleep_timeseries": {
+        "path": "sleep-service/sleep/dailySleepData",
+        "per_day": True,
+        "params": {"date": "{date}", "nonSleepBufferMinutes": 60},
+    },
+    "weight_range": {
+        "path": "weight-service/weight/dateRange",
+        "per_day": True,
+        "params": {"startDate": "{date}", "endDate": "{date}"},
+    },
+    "monthly_vo2max": {"path": "metrics-service/metrics/maxmet/monthly/{start}/{end}", "per_day": False},
+    "acclimation": {
+        "path": "wellness-service/stats/daily/acclimation",
+        "per_day": False,
+        "params": {"fromDate": "{start}", "untilDate": "{end}"},
+    },
+    # Activity list (summary)
+    "activities": {
+        "path": "activitylist-service/activities",
+        "per_day": False,
+        "params": {"start": 0, "limit": 20},
+    },
+}
+
+# Stats endpoints (garth helpers) that returned data.
+STAT_FETCHERS: Dict[str, Callable] = {
+    "sleep_data": lambda client, end_date, days: SleepData.list(end=end_date, days=days, client=client),
+    "sleep_score": lambda client, end_date, days: DailySleep.list(end=end_date, period=days, client=client),
+    "steps": lambda client, end_date, days: DailySteps.list(end=end_date, period=days, client=client),
+    "stress": lambda client, end_date, days: DailyStress.list(end=end_date, period=days, client=client),
+    "intensity_minutes": lambda client, end_date, days: DailyIntensityMinutes.list(end=end_date, period=days, client=client),
+    "hrv_status": lambda client, end_date, days: DailyHRV.list(end=end_date, period=days, client=client),
+    "hrv_data": lambda client, end_date, days: HRVData.list(end=end_date, days=days, client=client),
+}
 
 
-def _infer_fields(item: Dict[str, Any]) -> Dict[str, Any]:
-    """Keep numeric/string fields as-is; skip nested structures."""
-    fields: Dict[str, Any] = {}
-    for k, v in item.items():
-        if k in ("time",):
-            continue
-        if isinstance(v, (int, float, str)) or v is None:
-            fields[k] = v
-    return fields
+def _json_ready(value: Any) -> Any:
+    if is_dataclass(value):
+        return _json_ready(asdict(value))
+    if isinstance(value, dict):
+        return {k: _json_ready(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_ready(v) for v in value]
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return value
 
 
-def write_points(db, user, run, client, measurement: str, records: List[Dict[str, Any]]) -> int:
-    if not records:
-        return 0
-    write_api = client.write_api()
-    points = []
-    for item in records:
-        fields = _infer_fields(item)
-        if not fields:
-            continue
-        point = {
-            "measurement": measurement,
-            "tags": {
-                "user_id": str(user.id),
-                "ingest_run_id": str(run.id),
-                "provider": "garmin",
-            },
-            "fields": fields,
-        }
-        points.append(point)
-    if points:
-        write_api.write(bucket=client.default_bucket, org=client.org, record=points)
-    return len(points)
+def _render_params(
+    params: Dict[str, Any] | None, *, date_str: str, start_str: str, end_str: str
+) -> Dict[str, Any] | None:
+    if not params:
+        return None
+    rendered: Dict[str, Any] = {}
+    for key, value in params.items():
+        if isinstance(value, str):
+            rendered[key] = value.format(date=date_str, start=start_str, end=end_str)
+        else:
+            rendered[key] = value
+    return rendered
 
 
-def fetch_and_write_categories(db, user, run, garth_client, categories: List[str] = None) -> Dict[str, int]:
-    """Fetch each category via garth connectapi and write to Influx."""
-    categories = categories or CATEGORIES
-    summary: Dict[str, int] = {}
-    try:
-        client = get_influx_client_for_user(db, user.id)
-    except Exception:
-        # No Influx configured; skip silently
-        return summary
-    for cat in categories:
+def _date_list(end_date: date, days: int) -> Iterable[date]:
+    for i in range(days):
+        yield end_date - timedelta(days=i)
+
+
+def fetch_stats(client, end_date: date, days: int) -> Dict[str, Any]:
+    stats: Dict[str, Any] = {}
+    for name, fetcher in STAT_FETCHERS.items():
         try:
-            logger.info(
-                "garmin category fetch",
-                extra={
-                    "user_id": str(getattr(user, "id", "")),
-                    "run_id": str(getattr(run, "id", "")),
-                    "category": cat,
-                },
-            )
-            data = garth_client.connectapi(cat)
+            stats[name] = _json_ready(fetcher(client, end_date, days))
         except Exception as exc:  # pylint: disable=broad-except
-            logger.warning(
-                "garmin category fetch failed",
-                extra={
-                    "user_id": str(getattr(user, "id", "")),
-                    "run_id": str(getattr(run, "id", "")),
-                    "category": cat,
-                    "error": str(exc),
-                },
-            )
-            continue
-        records = data if isinstance(data, list) else [data]
-        written = write_points(db, user, run, client, cat, records)
-        summary[cat] = written
-        logger.info(
-            "garmin category written",
-            extra={
-                "user_id": str(getattr(user, "id", "")),
-                "run_id": str(getattr(run, "id", "")),
-                "category": cat,
-                "written": written,
-            },
-        )
-    return summary
+            logger.warning("garmin stat fetch failed", extra={"name": name, "error": str(exc)}, exc_info=True)
+            stats[name] = {"error": str(exc)}
+    return stats
+
+
+def fetch_connectapi(
+    client,
+    dates: Iterable[date],
+    start_date: date,
+    end_date: date,
+    include_extra: bool = False,
+) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Any]]:
+    per_day: Dict[str, Dict[str, Any]] = {}
+    multi_day: Dict[str, Any] = {}
+    sources = dict(CONNECTAPI_SOURCES)
+    start_str = start_date.strftime("%Y-%m-%d")
+    end_str = end_date.strftime("%Y-%m-%d")
+    for name, spec in sources.items():
+        method = spec.get("method", "GET")
+        path_template = spec["path"]
+        params_template = spec.get("params")
+        if spec.get("per_day", False):
+            for day in dates:
+                date_str = day.strftime("%Y-%m-%d")
+                path = path_template.format(date=date_str, start=start_str, end=end_str)
+                params = _render_params(params_template, date_str=date_str, start_str=start_str, end_str=end_str)
+                per_day.setdefault(date_str, {})
+                try:
+                    per_day[date_str][name] = _json_ready(client.connectapi(path, method=method, params=params))
+                except Exception as exc:  # pylint: disable=broad-except
+                    logger.warning(
+                        "garmin connectapi per-day fetch failed",
+                        extra={"name": name, "date": date_str, "error": str(exc)},
+                        exc_info=True,
+                    )
+                    per_day[date_str][name] = {"error": str(exc)}
+        else:
+            path = path_template.format(date=end_str, start=start_str, end=end_str)
+            params = _render_params(params_template, date_str=end_str, start_str=start_str, end_str=end_str)
+            try:
+                multi_day[name] = _json_ready(client.connectapi(path, method=method, params=params))
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.warning(
+                    "garmin connectapi multi-day fetch failed",
+                    extra={"name": name, "error": str(exc)},
+                    exc_info=True,
+                )
+                multi_day[name] = {"error": str(exc)}
+    return per_day, multi_day
+
+
+def fetch_health_bundle(
+    client,
+    *,
+    end_date: date,
+    days: int,
+    include_extra_connectapi: bool = False,
+) -> Dict[str, Any]:
+    """
+    Fetch all validated stats + connectapi endpoints for a date window.
+    """
+    start_date = end_date - timedelta(days=days - 1)
+    stats = fetch_stats(client, end_date, days)
+    per_day, multi_day = fetch_connectapi(client, _date_list(end_date, days), start_date, end_date, include_extra_connectapi)
+    return {
+        "fetched_at": datetime.utcnow().isoformat(),
+        "range": {"start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "days": days},
+        "stats": stats,
+        "connectapi": {"per_day": per_day, "multi_day": multi_day},
+    }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from functools import lru_cache
 from typing import Optional
@@ -71,3 +72,12 @@ def get_settings() -> Settings:
         return Settings(_env_file=".env.test")
 
     return Settings()
+
+
+# Frontend flavor: "legacy" (default) or "wellness"
+FRONTEND_FLAVOR = (os.environ.get("FRONTEND_FLAVOR") or "legacy").lower()
+
+
+def is_wellness_ui_enabled() -> bool:
+    """Return True when the wellness UI should be served."""
+    return FRONTEND_FLAVOR == "wellness"

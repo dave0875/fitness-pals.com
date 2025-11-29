@@ -40,3 +40,9 @@ app.include_router(ingest_router)
 def health():
     """Lightweight health probe for container orchestration."""
     return {"status": "ok"}
+
+
+@app.get("/api/health-check")
+def api_health_check():
+    """API-scoped health probe (mirrors /health)."""
+    return {"status": "ok"}
