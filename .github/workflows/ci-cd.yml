@@ -100,6 +100,7 @@ jobs:
             else
               eval "${status_var}='failed'"
               overall_status="failed"
+              echo "::error title=${label}::${label} failed. See ${logfile} in the CI artifact."
             fi
           }
 
@@ -115,6 +116,7 @@ jobs:
           else
             backend_typecheck_status="failed"
             overall_status="failed"
+            echo "::error title=Backend typecheck::Backend typecheck/migrations failed. See ci-logs/backend-typecheck.log in the CI artifact."
           fi
 
           echo "=== Docker build ==="
@@ -126,6 +128,7 @@ jobs:
           else
             docker_build_status="failed"
             overall_status="failed"
+            echo "::error title=Docker build::Docker build failed. See ci-logs/docker-build.log in the CI artifact."
           fi
 
           echo "=== Backend tests ==="
@@ -137,9 +140,20 @@ jobs:
           else
             backend_test_status="failed"
             overall_status="failed"
+            echo "::error title=Backend tests::Backend tests failed. See ci-logs/backend-test.log in the CI artifact."
           fi
 
           timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+          echo "=== Check summary ==="
+          echo "backend_lint: ${backend_lint_status}"
+          echo "backend_typecheck: ${backend_typecheck_status}"
+          echo "docker_build: ${docker_build_status}"
+          echo "backend_tests: ${backend_test_status}"
+          echo "frontend_build: ${frontend_build_status}"
+          echo "frontend_tests: ${frontend_test_status}"
+          echo "frontend_lint: ${frontend_lint_status}"
+          echo "overall: ${overall_status}"
 
           cat >ci-logs/summary.json <<EOF
           {
