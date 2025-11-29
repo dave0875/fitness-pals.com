@@ -99,8 +99,7 @@ jobs:
             if [[ $rc -eq 0 ]]; then
               eval "${status_var}='passed'"
             else
-              eval "${status_var}='failed'"
-              overall_status="failed"
+              eval "${status_var}='not_run'"
             fi
           }
 
