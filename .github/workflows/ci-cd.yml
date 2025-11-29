@@ -50,6 +50,7 @@ jobs:
           CI_IMAGE_TAG: fitness-pals-training-agent:ci-${{ github.sha }}
           PYTHONPATH: backend:services/training_agent:.
         run: |
+          set +e
           set -uo pipefail
 
           issue_number=""
@@ -154,6 +155,8 @@ jobs:
           echo "frontend_tests: ${frontend_test_status}"
           echo "frontend_lint: ${frontend_lint_status}"
           echo "overall: ${overall_status}"
+
+          # Do not exit non-zero here; downstream step will fail if overall_status != passed
 
           cat >ci-logs/summary.json <<EOF
           {
