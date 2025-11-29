@@ -20,6 +20,8 @@ down_revision = "0001_init"
 branch_labels = None
 depends_on = None
 
+json_type = postgresql.JSONB().with_variant(sa.JSON(), "sqlite")
+
 
 def upgrade() -> None:
     """Create provider app/token tables."""
@@ -54,7 +56,7 @@ def upgrade() -> None:
         sa.Column("refresh_token_encrypted", sa.LargeBinary(), nullable=True),
         sa.Column("scope", sa.String(), nullable=True),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("metadata", postgresql.JSONB(), nullable=True),
+        sa.Column("metadata", json_type, nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )

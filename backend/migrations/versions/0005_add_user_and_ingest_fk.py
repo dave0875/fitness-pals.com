@@ -12,7 +12,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from alembic import op
+from alembic import context, op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
@@ -24,6 +24,9 @@ depends_on = None
 
 
 def upgrade():
+    dialect_name = context.get_context().dialect.name
+    is_sqlite = dialect_name.startswith("sqlite")
+
     op.add_column(
         "ingest_runs",
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=True),
@@ -34,24 +37,52 @@ def upgrade():
     )
     op.create_index("ix_ingest_runs_user_provider", "ingest_runs", ["user_id", "provider", "started_at"])
     op.create_index("ix_activities_user_start_time", "activities", ["user_id", "start_time"])
-    op.create_foreign_key(
-        "fk_ingest_runs_user",
-        source_table="ingest_runs",
-        referent_table="users",
-        local_cols=["user_id"],
-        remote_cols=["id"],
-        ondelete="CASCADE",
-    )
-    op.create_foreign_key(
-        "fk_activities_ingest_run",
-        source_table="activities",
-        referent_table="ingest_runs",
-        local_cols=["ingest_run_id"],
-        remote_cols=["id"],
-        ondelete="SET NULL",
-    )
+
+    # In offline (--sql) runs, skip FK creation to avoid SQLite reflection requirements.
+    if context.is_offline_mode():
+        return
+
+    if is_sqlite:
+        # SQLite needs batch alterations for foreign keys when running offline/online.
+        with op.batch_alter_table("ingest_runs") as batch_op:
+            batch_op.create_foreign_key(
+                "fk_ingest_runs_user",
+                "users",
+                ["user_id"],
+                ["id"],
+                ondelete="CASCADE",
+            )
+        with op.batch_alter_table("activities") as batch_op:
+            batch_op.create_foreign_key(
+                "fk_activities_ingest_run",
+                "ingest_runs",
+                ["ingest_run_id"],
+                ["id"],
+                ondelete="SET NULL",
+            )
+    else:
+        op.create_foreign_key(
+            "fk_ingest_runs_user",
+            source_table="ingest_runs",
+            referent_table="users",
+            local_cols=["user_id"],
+            remote_cols=["id"],
+            ondelete="CASCADE",
+        )
+        op.create_foreign_key(
+            "fk_activities_ingest_run",
+            source_table="activities",
+            referent_table="ingest_runs",
+            local_cols=["ingest_run_id"],
+            remote_cols=["id"],
+            ondelete="SET NULL",
+        )
 
     conn = op.get_bind()
+
+    # Offline mode ( --sql ) has no real connection; skip data backfill/seed in that case.
+    if conn is None or context.is_offline_mode():
+        return
 
     # Resolve the canonical user (dave0875@gmail.com) if present.
     user_id = None

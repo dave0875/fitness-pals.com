@@ -20,6 +20,9 @@ down_revision = None
 branch_labels = None
 depends_on = None
 
+# Use JSONB on Postgres and JSON on SQLite to keep offline generation working.
+json_type = postgresql.JSONB().with_variant(sa.JSON(), "sqlite")
+
 
 def upgrade() -> None:
     """Create initial user, datasource, and conversation tables."""
@@ -61,7 +64,7 @@ def upgrade() -> None:
         ),
         sa.Column("question", sa.String(), nullable=False),
         sa.Column("answer", sa.String(), nullable=False),
-        sa.Column("metadata", postgresql.JSONB(), nullable=True),
+        sa.Column("metadata", json_type, nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
     op.create_index("ix_conversations_user_id", "conversations", ["user_id"])

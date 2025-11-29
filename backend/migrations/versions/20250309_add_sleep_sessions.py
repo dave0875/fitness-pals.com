@@ -1,7 +1,7 @@
 """add sleep_sessions table
 
-Revision ID: add_sleep_sessions
-Revises: 
+Revision ID: 20250309_add_sleep_sessions
+Revises: 0004_user_provider_tokens_tenant
 Create Date: 2025-03-09
 """
 from alembic import op
@@ -10,8 +10,8 @@ from sqlalchemy.dialects import postgresql
 import uuid
 
 # revision identifiers, used by Alembic.
-revision = 'add_sleep_sessions'
-down_revision = None
+revision = "20250309_add_sleep_sessions"
+down_revision = "0004_user_provider_tokens_tenant"
 branch_labels = None
 depends_on = None
 
