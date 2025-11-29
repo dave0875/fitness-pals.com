@@ -50,7 +50,6 @@ jobs:
           CI_IMAGE_TAG: fitness-pals-training-agent:ci-${{ github.sha }}
           PYTHONPATH: backend:services/training_agent:.
         run: |
-          set +e
           set -uo pipefail
 
           issue_number=""
@@ -99,7 +98,8 @@ jobs:
             if [[ $rc -eq 0 ]]; then
               eval "${status_var}='passed'"
             else
-              eval "${status_var}='not_run'"
+              eval "${status_var}='failed'"
+              overall_status="failed"
             fi
           }
 
@@ -113,7 +113,8 @@ jobs:
           if [[ $rc -eq 0 ]]; then
             backend_typecheck_status="passed"
           else
-            backend_typecheck_status="not_run"
+            backend_typecheck_status="failed"
+            overall_status="failed"
           fi
 
           echo "=== Docker build ==="
@@ -123,7 +124,8 @@ jobs:
           if [[ $rc -eq 0 ]]; then
             docker_build_status="passed"
           else
-            docker_build_status="not_run"
+            docker_build_status="failed"
+            overall_status="failed"
           fi
 
           echo "=== Backend tests ==="
@@ -133,7 +135,8 @@ jobs:
           if [[ $rc -eq 0 ]]; then
             backend_test_status="passed"
           else
-            backend_test_status="not_run"
+            backend_test_status="failed"
+            overall_status="failed"
           fi
 
           timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
