@@ -27,7 +27,7 @@ jobs:
       RUNTRAINER_APPLE_CLIENT_SECRET: ci-apple-secret
       RUNTRAINER_APPLE_REDIRECT_URI: https://example.com/auth/apple/callback
       RUNTRAINER_DATABASE_URL: sqlite:///./ci.db
-      RUNTRAINER_FERNET_KEY: ZmFrZS1mZXJuZXQta2V5LWRvLW5vdC11c2U=  # fake key for tests
+      RUNTRAINER_FERNET_KEY: 1TvhF4GaxnOIBIq74rU9VrAXaxoBZw-oTCT3vJWRTwc=
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -118,7 +118,7 @@ jobs:
           fi
 
           run_cmd "Docker build" docker_build_status "ci-logs/docker-build.log" \
-            bash -c "docker build --pull -t \"$CI_IMAGE_TAG\" ./services/training_agent; rc=$?; docker rmi \"$CI_IMAGE_TAG\" >/dev/null 2>&1 || true; exit $rc"
+            bash -c "docker build --pull -t \"$CI_IMAGE_TAG\" -f services/training_agent/Dockerfile .; rc=$?; docker rmi \"$CI_IMAGE_TAG\" >/dev/null 2>&1 || true; exit $rc"
 
           run_cmd "Backend tests" backend_test_status "ci-logs/backend-test.log" \
             bash -c "pytest -vv --maxfail=1 --disable-warnings --cov=backend --cov=services/training_agent --cov-report=term-missing backend/tests services/training_agent/tests"
