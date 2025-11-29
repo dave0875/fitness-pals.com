@@ -20,7 +20,7 @@ jobs:
           PATTERN='^Issue #[0-9]+: .+'
 
           # List commits that are in the PR but not in the base branch
-          COMMITS=$(git rev-list "$BASE"..HEAD)
+          COMMITS=$(git rev-list "$BASE".."$HEAD")
           if [ -z "$COMMITS" ]; then
             echo "No commits to check."
             exit 0
