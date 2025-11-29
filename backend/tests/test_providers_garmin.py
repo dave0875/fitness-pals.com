@@ -199,6 +199,7 @@ def test_fetch_all_batch(monkeypatch):
             return [{"id": 1}]
 
     monkeypatch.setattr(garmin_ingest, "garth", SimpleNamespace(Client=lambda: FakeClient(), auth=None))
+    db.provider_tokens.extend(tokens)
     summary = providers_garmin.garmin_fetch_all(SimpleNamespace(), db=db)
     assert summary["runs"] >= 1
     assert summary.get("errors", 0) >= 0

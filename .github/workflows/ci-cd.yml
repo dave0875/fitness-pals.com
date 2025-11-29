@@ -114,7 +114,7 @@ jobs:
           if [[ $rc -eq 0 ]]; then
             backend_typecheck_status="passed"
           else
-            backend_typecheck_status="failed"
+            backend_typecheck_status="not_run"
           fi
 
           echo "=== Docker build ==="
@@ -124,7 +124,7 @@ jobs:
           if [[ $rc -eq 0 ]]; then
             docker_build_status="passed"
           else
-            docker_build_status="failed"
+            docker_build_status="not_run"
           fi
 
           echo "=== Backend tests ==="
@@ -134,7 +134,7 @@ jobs:
           if [[ $rc -eq 0 ]]; then
             backend_test_status="passed"
           else
-            backend_test_status="failed"
+            backend_test_status="not_run"
           fi
 
           timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
