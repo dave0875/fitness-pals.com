@@ -117,11 +117,25 @@ jobs:
             backend_typecheck_status="failed"
           fi
 
-          run_cmd "Docker build" docker_build_status "ci-logs/docker-build.log" \
-            bash -c "docker build --pull -t \"$CI_IMAGE_TAG\" -f services/training_agent/Dockerfile .; rc=$?; docker rmi \"$CI_IMAGE_TAG\" >/dev/null 2>&1 || true; exit $rc"
+          echo "=== Docker build ==="
+          bash -c "docker build --pull -t \"$CI_IMAGE_TAG\" -f services/training_agent/Dockerfile .; rc=$?; docker rmi \"$CI_IMAGE_TAG\" >/dev/null 2>&1 || true; exit $rc" >"ci-logs/docker-build.log" 2>&1
+          rc=$?
+          cat "ci-logs/docker-build.log"
+          if [[ $rc -eq 0 ]]; then
+            docker_build_status="passed"
+          else
+            docker_build_status="failed"
+          fi
 
-          run_cmd "Backend tests" backend_test_status "ci-logs/backend-test.log" \
-            bash -c "pytest -vv --maxfail=1 --disable-warnings --cov=backend --cov=services/training_agent --cov-report=term-missing backend/tests services/training_agent/tests"
+          echo "=== Backend tests ==="
+          bash -c "pytest -vv --maxfail=1 --disable-warnings --cov=backend --cov=services/training_agent --cov-report=term-missing backend/tests services/training_agent/tests" >"ci-logs/backend-test.log" 2>&1
+          rc=$?
+          cat "ci-logs/backend-test.log"
+          if [[ $rc -eq 0 ]]; then
+            backend_test_status="passed"
+          else
+            backend_test_status="failed"
+          fi
 
           timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
