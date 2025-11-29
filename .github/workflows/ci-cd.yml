@@ -107,8 +107,15 @@ jobs:
           run_cmd "Backend lint" backend_lint_status "ci-logs/backend-lint.log" \
             bash -c "python -m compileall backend services/training_agent && ruff check --select=E9,F63,F7,F82 --target-version=py310 backend services/training_agent"
 
-          run_cmd "Backend typecheck + migrations (offline)" backend_typecheck_status "ci-logs/backend-typecheck.log" \
-            bash -c "mypy --ignore-missing-imports --implicit-optional backend services/training_agent && cd backend && alembic upgrade head --sql >/dev/null"
+          echo "=== Backend typecheck + migrations (offline) ==="
+          bash -c "mypy --ignore-missing-imports --implicit-optional backend services/training_agent && cd backend && alembic upgrade head --sql >/dev/null" >"ci-logs/backend-typecheck.log" 2>&1
+          rc=$?
+          cat "ci-logs/backend-typecheck.log"
+          if [[ $rc -eq 0 ]]; then
+            backend_typecheck_status="passed"
+          else
+            backend_typecheck_status="failed"
+          fi
 
           run_cmd "Docker build" docker_build_status "ci-logs/docker-build.log" \
             bash -c "docker build --pull -t \"$CI_IMAGE_TAG\" ./services/training_agent; rc=$?; docker rmi \"$CI_IMAGE_TAG\" >/dev/null 2>&1 || true; exit $rc"
