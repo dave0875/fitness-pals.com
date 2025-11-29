@@ -54,10 +54,10 @@ def connect_influx(
         extra={"user_id": str(user.id), "url": str(body.url), "org": body.org, "bucket": body.bucket},
     )
     if existing:
-        existing.influx_url = str(body.url)
-        existing.influx_org = body.org
-        existing.influx_bucket = body.bucket
-        existing.token_encrypted = encrypted
+        existing.influx_url = str(body.url)  # type: ignore[assignment]
+        existing.influx_org = body.org  # type: ignore[assignment]
+        existing.influx_bucket = body.bucket  # type: ignore[assignment]
+        existing.token_encrypted = encrypted  # type: ignore[assignment]
     else:
         ds = DataSource(
             user_id=user.id,

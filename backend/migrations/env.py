@@ -22,9 +22,10 @@ config = context.config
 settings = get_settings()
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
-fileConfig(config.config_file_name)
+config_file_name = config.config_file_name
+if config_file_name:
+    # Interpret the config file for Python logging.
+    fileConfig(config_file_name)
 
 target_metadata = Base.metadata
 
@@ -45,11 +46,8 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in online mode with an open DB connection."""
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    section = config.get_section(config.config_ini_section) or {}
+    connectable = engine_from_config(section, prefix="sqlalchemy.", poolclass=pool.NullPool)
 
     with connectable.connect() as connection:
         context.configure(

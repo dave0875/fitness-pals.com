@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import html
 import os
-from typing import List
+from typing import Any, List, cast
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
@@ -252,9 +252,10 @@ def _render_action_card(spec: ActionSpec) -> str:
     path = html.escape(str(spec["path"]))
     name = html.escape(str(spec["name"]))
     description = html.escape(str(spec.get("description", "")))
-    params = spec.get("params") or []
-    if params:
-        fields = "".join(render_field(p) for p in params)
+    params_obj = spec.get("params") or []
+    params_list = cast(List[ActionParam], params_obj) if isinstance(params_obj, list) else []
+    if params_list:
+        fields = "".join(render_field(p) for p in params_list)
         form_html = f"""
             <form class="api-form" data-endpoint="{path}">
                 <div class="fields">

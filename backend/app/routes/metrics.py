@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -94,8 +95,8 @@ def summary(user: User = Depends(get_current_user), db: Session = Depends(get_db
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     client = get_influx_client_for_user(db, user.id)
-    org = ds.influx_org
-    bucket = ds.influx_bucket
+    org = str(ds.influx_org)
+    bucket = str(ds.influx_bucket)
     query_api = client.query_api()
     mileage_totals = {
         window: _distance_sum(query_api, org, bucket, window) for window in (30, 60, 90)
@@ -155,8 +156,8 @@ def race_readiness(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     client = get_influx_client_for_user(db, user.id)
-    org = ds.influx_org
-    bucket = ds.influx_bucket
+    org = str(ds.influx_org)
+    bucket = str(ds.influx_bucket)
     miles_30 = _sum_distance(
         _query(
             client,

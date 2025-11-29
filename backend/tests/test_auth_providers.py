@@ -44,8 +44,8 @@ class FakeClient:
         """Initialize with canned metadata."""
         self.provider = provider
         self.server_metadata = {"userinfo_endpoint": "https://example.com/userinfo"}
-        self.redirects = []
-        self.access_tokens = []
+        self.redirects: list[str] = []
+        self.access_tokens: list[dict] = []
 
     async def authorize_redirect(self, _request: Request, redirect_uri: str):
         """Simulate redirect flow."""

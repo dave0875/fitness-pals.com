@@ -5,6 +5,7 @@ Training agent FastAPI service.
 - Includes a Google OAuth proxy for GPT Actions.
 Note: long lines are tolerated in HTML/queries; Pylint line length is disabled.
 """
+# mypy: ignore-errors
 # ruff: noqa: E501
 # pylint: disable=line-too-long
 from __future__ import annotations

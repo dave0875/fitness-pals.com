@@ -151,7 +151,7 @@ def get_elevation_stats(
     client: InfluxDBClient, activity_id: int
 ) -> dict[str, Optional[float]]:
     """Return ascent, descent, min, and max elevation for an activity."""
-    stats = {"ascent": None, "descent": None, "min": None, "max": None}
+    stats: dict[str, Optional[float]] = {"ascent": None, "descent": None, "min": None, "max": None}
     try:
         base = []
         for where in (
@@ -242,7 +242,7 @@ def get_temperature_stats(
     client: InfluxDBClient, activity_id: int
 ) -> dict[str, Optional[float]]:
     """Return avg/min/max temperature for an activity if available."""
-    stats = {"avg": None, "min": None, "max": None}
+    stats: dict[str, Optional[float]] = {"avg": None, "min": None, "max": None}
     try:
         temps = _query_points(
             client,

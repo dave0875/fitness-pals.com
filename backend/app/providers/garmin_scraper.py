@@ -8,10 +8,11 @@ from typing import Any
 from app.services.providers import decrypt_user_tokens
 from app.models import UserProviderToken
 
+GarminConnectClient: Any | None = None
 try:
     from garth import Client as GarminConnectClient  # type: ignore
 except ImportError:  # pragma: no cover - optional dependency
-    GarminConnectClient = None  # type: ignore[assignment]
+    GarminConnectClient = None
 
 logger = logging.getLogger("providers.garmin_scraper")
 

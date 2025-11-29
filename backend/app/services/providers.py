@@ -7,7 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 import logging
-from typing import Optional
+from typing import Optional, cast
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -60,13 +60,13 @@ def upsert_provider_app(db: Session, details: ProviderAppDetails) -> ProviderApp
         encrypt_token(details.client_secret) if details.client_secret else None
     )
     if existing:
-        existing.client_id = details.client_id
-        existing.display_name = details.display_name
-        existing.auth_url = details.auth_url
-        existing.token_url = details.token_url
-        existing.scopes = details.scopes
+        existing.client_id = details.client_id  # type: ignore[assignment]
+        existing.display_name = details.display_name  # type: ignore[assignment]
+        existing.auth_url = details.auth_url  # type: ignore[assignment]
+        existing.token_url = details.token_url  # type: ignore[assignment]
+        existing.scopes = details.scopes  # type: ignore[assignment]
         if details.client_secret:
-            existing.client_secret_encrypted = secret_encrypted
+            existing.client_secret_encrypted = secret_encrypted  # type: ignore[assignment]
         db.commit()
         db.refresh(existing)
         return existing
@@ -131,13 +131,13 @@ def save_user_provider_token(
         encrypt_token(details.refresh_token) if details.refresh_token else None
     )
     if existing:
-        existing.access_token_encrypted = encrypted_access
-        existing.refresh_token_encrypted = encrypted_refresh
-        existing.scope = details.scope
-        existing.provider_user_id = details.provider_user_id
-        existing.expires_at = details.expires_at
-        existing.metadata_json = details.metadata
-        existing.tenant_id = details.tenant_id
+        existing.access_token_encrypted = encrypted_access  # type: ignore[assignment]
+        existing.refresh_token_encrypted = encrypted_refresh  # type: ignore[assignment]
+        existing.scope = details.scope  # type: ignore[assignment]
+        existing.provider_user_id = details.provider_user_id  # type: ignore[assignment]
+        existing.expires_at = details.expires_at  # type: ignore[assignment]
+        existing.metadata_json = details.metadata  # type: ignore[assignment]
+        existing.tenant_id = details.tenant_id  # type: ignore[assignment]
         db.commit()
         db.refresh(existing)
         logger.info(
@@ -183,15 +183,15 @@ def decrypt_provider_app_secret(app: ProviderApp) -> Optional[str]:
     """Return the decrypted provider secret or None."""
     if not app.client_secret_encrypted:
         return None
-    return decrypt_token(app.client_secret_encrypted)
+    return decrypt_token(cast(bytes, app.client_secret_encrypted))
 
 
 def decrypt_user_tokens(token: UserProviderToken) -> dict:
     """Decrypt stored per-user provider credentials."""
     return {
-        "access_token": decrypt_token(token.access_token_encrypted),
+        "access_token": decrypt_token(cast(bytes, token.access_token_encrypted)),
         "refresh_token": (
-            decrypt_token(token.refresh_token_encrypted)
+            decrypt_token(cast(bytes, token.refresh_token_encrypted))
             if token.refresh_token_encrypted
             else None
         ),

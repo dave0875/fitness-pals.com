@@ -63,7 +63,7 @@ STAT_FETCHERS: Dict[str, Callable] = {
 
 
 def _json_ready(value: Any) -> Any:
-    if is_dataclass(value):
+    if is_dataclass(value) and not isinstance(value, type):
         return _json_ready(asdict(value))
     if isinstance(value, dict):
         return {k: _json_ready(v) for k, v in value.items()}
@@ -99,7 +99,7 @@ def fetch_stats(client, end_date: date, days: int) -> Dict[str, Any]:
         try:
             stats[name] = _json_ready(fetcher(client, end_date, days))
         except Exception as exc:  # pylint: disable=broad-except
-            logger.warning("garmin stat fetch failed", extra={"name": name, "error": str(exc)}, exc_info=True)
+            logger.warning("garmin stat fetch failed", extra={"stat": name, "error": str(exc)}, exc_info=True)
             stats[name] = {"error": str(exc)}
     return stats
 

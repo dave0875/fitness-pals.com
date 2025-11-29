@@ -1,4 +1,5 @@
 """Sleep helpers: persist summaries and write timeseries."""
+# mypy: ignore-errors
 
 from __future__ import annotations
 

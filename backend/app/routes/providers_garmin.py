@@ -6,14 +6,13 @@ import os
 import logging
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from typing import Optional
+from typing import Any, Dict, Optional, cast
 from uuid import UUID
 
-import requests
+import requests  # type: ignore[import-untyped]
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func
-import requests
 from sqlalchemy.orm import Session
 import garth
 
@@ -37,6 +36,11 @@ from app.utils.security import decrypt_token
 router = APIRouter(prefix="/api/providers/garmin", tags=["garmin"])
 logger = logging.getLogger("garmin.routes")
 logger.setLevel(logging.INFO)
+
+
+def _user_uuid(user: User) -> UUID:
+    """Normalize user.id to a UUID for type-checking and logging."""
+    return UUID(str(getattr(user, "id")))
 
 
 def _redact_token(token: Optional[str]) -> str:
@@ -75,7 +79,7 @@ def _capture_provider_user_id(
         return
     try:
         client = garth.Client()
-        client.oauth1_token = SimpleNamespace(
+        client.oauth1_token = SimpleNamespace(  # type: ignore[assignment]
             oauth_token=access_token,
             oauth_token_secret=token_secret or "",
             mfa_token=None,
@@ -83,10 +87,16 @@ def _capture_provider_user_id(
             domain="garmin.com",
         )
         profile = client.connectapi("user-service/user/profile")
+        profile_obj: Dict[str, Any] = {}
+        if isinstance(profile, dict):
+            profile_obj = profile
+        elif isinstance(profile, list) and profile and isinstance(profile[0], dict):
+            profile_obj = profile[0]
         provider_user_id = (
-            profile.get("userId")
-            or profile.get("displayName")
-            or profile.get("username")
+            profile_obj.get("userId")
+            or profile_obj.get("displayName")
+            or profile_obj.get("username")
+            or profile_obj.get("id")
         )
         if provider_user_id:
             token_row.provider_user_id = str(provider_user_id)
@@ -184,7 +194,7 @@ def garmin_callback(
     save_user_provider_token(
         db,
         ProviderTokenDetails(
-            user_id=user.id,
+            user_id=_user_uuid(user),
             tenant_id=_resolve_tenant(user),
             provider="garmin",
             access_token=access_token,
@@ -230,7 +240,7 @@ def _refresh_tokens(refresh_token: str):
 def garmin_refresh(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Refresh Garmin tokens or signal reauth when refresh fails or missing."""
     _require_env()
-    token = get_user_provider_token(db, user.id, "garmin", getattr(user, "tenant_id", None))
+    token = get_user_provider_token(db, _user_uuid(user), "garmin", getattr(user, "tenant_id", None))
     if not token:
         raise HTTPException(status_code=410, detail="Garmin reauth required")
     decrypted = decrypt_user_tokens(token)
@@ -244,7 +254,7 @@ def garmin_refresh(user: User = Depends(get_current_user), db: Session = Depends
     save_user_provider_token(
         db,
         ProviderTokenDetails(
-            user_id=user.id,
+            user_id=_user_uuid(user),
             tenant_id=getattr(user, "tenant_id", None),
             provider="garmin",
             access_token=access_token,
@@ -263,18 +273,23 @@ def garmin_fetch(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     test_run: bool = False,
-):
+    ):
     """Fetch recent Garmin data for the current user."""
     try:
         run = fetch_garmin_recent(db, user, test_run=test_run)
         # Build a simple integrity report
-        activities_count = (
-            db.query(Activity)
-            .filter(Activity.user_id == user.id, Activity.ingest_run_id == run.id)
-            .count()
-        )
-        summary = run.summary or {}
-        report = {
+        summary = cast(Dict[str, Any], run.summary or {})
+        try:
+            user_uuid = _user_uuid(user)
+            activities_count = (
+                db.query(Activity)
+                .filter(Activity.user_id == user_uuid, Activity.ingest_run_id == run.id)
+                .count()
+            )
+        except Exception:
+            activities_count = summary.get("activities") or 0
+        ingested_count = activities_count if activities_count is not None else (summary.get("timeseries_points") or 0)
+        report: Dict[str, Any] = {
             "activities_count": activities_count,
             "activity_gps_written": summary.get("activity_gps_written"),
             "timeseries_points": summary.get("timeseries_points"),
@@ -283,7 +298,7 @@ def garmin_fetch(
         }
         # Optional Influx count for this run
         try:
-            client = get_influx_client_for_user(db, user.id)
+            client = get_influx_client_for_user(db, _user_uuid(user))
             tag = f"TEST_{run.id}" if test_run else str(run.id)
             flux = f'''
 from(bucket: "{client.default_bucket}")
@@ -317,7 +332,7 @@ from(bucket: "{client.default_bucket}")
         report["report_pretty"] = " | ".join(lines)
         return {
             "status": "ok",
-            "ingested": summary.get("timeseries_points") or 0,
+            "ingested": ingested_count,
             "test_run": test_run,
             "ingest_run_tag": f"TEST_{run.id}" if test_run else str(run.id),
             "report": report,
@@ -366,13 +381,14 @@ def garmin_token_status(
     tenant_id = _resolve_tenant(user)
     env_mode = (os.environ.get("GARMIN_MODE") or "oauth").lower()
     provider_key = provider or ("garmin" if env_mode == "oauth" else "garmin_scraper")
-    token = get_user_provider_token(db, user.id, provider_key, tenant_id)
+    user_uuid = _user_uuid(user)
+    token = get_user_provider_token(db, user_uuid, provider_key, tenant_id)
     if include_all:
         other = "garmin_scraper" if provider_key == "garmin" else "garmin"
         tokens = [
             serialize_token_status(token, provider_key, user, tenant_id),
             serialize_token_status(
-                get_user_provider_token(db, user.id, other, tenant_id), other, user, tenant_id
+                get_user_provider_token(db, user_uuid, other, tenant_id), other, user, tenant_id
             ),
         ]
         return {"providers": [t for t in tokens if t is not None]}
@@ -468,7 +484,7 @@ def garmin_scraper_token(
     token_row = save_user_provider_token(
         db,
         ProviderTokenDetails(
-            user_id=user.id,
+            user_id=_user_uuid(user),
             tenant_id=getattr(user, "tenant_id", None),
             provider="garmin_scraper",
             access_token=body.scraper_access_token,
@@ -570,7 +586,7 @@ def garmin_acquire_token(
     token_row = save_user_provider_token(
         db,
         ProviderTokenDetails(
-            user_id=user.id,
+            user_id=_user_uuid(user),
             tenant_id=_resolve_tenant(user),
             provider=provider_name,
             access_token=access_token,
@@ -603,7 +619,7 @@ def garmin_refresh_token(
 ):
     """Refresh the stored Garmin OAuth token when refresh_token is present."""
     tenant_id = _resolve_tenant(user)
-    token_row = get_user_provider_token(db, user.id, "garmin", tenant_id)
+    token_row = get_user_provider_token(db, _user_uuid(user), "garmin", tenant_id)
     if not token_row or not token_row.refresh_token_encrypted:
         raise HTTPException(status_code=400, detail="No refresh token stored")
     tokens = decrypt_user_tokens(token_row)
@@ -627,28 +643,28 @@ def garmin_refresh_token(
     access_token = payload.get("access_token")
     new_refresh = payload.get("refresh_token") or refresh_token
     expires_in = payload.get("expires_in")
-    expires_at = token_row.expires_at
+    expires_at_val = cast(Optional[datetime], token_row.expires_at)
     if isinstance(expires_in, (int, float)):
-        expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))
+        expires_at_val = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))
     if not access_token:
         raise HTTPException(status_code=400, detail="Garmin refresh missing access token")
     save_user_provider_token(
         db,
         ProviderTokenDetails(
-            user_id=user.id,
+            user_id=_user_uuid(user),
             tenant_id=tenant_id,
             provider="garmin",
             access_token=access_token,
             refresh_token=new_refresh,
             scope=payload.get("scope") or tokens.get("scope"),
-            provider_user_id=token_row.provider_user_id,
-            expires_at=expires_at,
+            provider_user_id=cast(Optional[str], token_row.provider_user_id),
+            expires_at=expires_at_val,
             metadata={"token_received_at": datetime.utcnow().isoformat()},
         ),
     )
     return {
         "status": "ok",
-        "expires_at": expires_at.isoformat() if expires_at else None,
+        "expires_at": expires_at_val.isoformat() if expires_at_val else None,
         "refresh_token_present": True,
     }
 
@@ -689,7 +705,7 @@ def test_garmin_category(
         raise HTTPException(status_code=400, detail="category is required")
     mode = garmin_ingest._mode()  # pylint: disable=protected-access
     provider_key = "garmin" if mode == "oauth" else "garmin_scraper"
-    token_row = get_user_provider_token(db, user.id, provider_key, getattr(user, "tenant_id", None))
+    token_row = get_user_provider_token(db, _user_uuid(user), provider_key, getattr(user, "tenant_id", None))
     if not token_row:
         raise HTTPException(status_code=410, detail="Garmin token missing for probe")
     if mode == "oauth":
@@ -697,6 +713,8 @@ def test_garmin_category(
     else:
         tokens = decrypt_user_tokens(token_row)
     access_token = tokens.get("access_token")
+    if not isinstance(access_token, str) or not access_token:
+        raise HTTPException(status_code=410, detail="Garmin token missing")
     token_secret = None
     meta = tokens.get("metadata") or {}
     if mode == "scraper":
@@ -729,6 +747,8 @@ def test_garmin_category(
     try:
         method = (method_override or mapping.get("method") or "GET").upper()
         path_template = path_override or mapping.get("path")
+        if not path_template:
+            raise HTTPException(status_code=400, detail="Category path missing")
         params_template = params_override or mapping.get("params")
         if mapping.get("per_day", False):
             target_date = target_date or datetime.utcnow().date()
@@ -762,10 +782,11 @@ def test_garmin_category(
 def summarize_test_data(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Summarize Postgres and Influx rows tied to TEST_ ingest runs for this user."""
     try:
+        user_uuid = _user_uuid(user)
         test_runs = (
             db.query(IngestRun)
             .filter(
-                IngestRun.user_id == user.id,
+                IngestRun.user_id == user_uuid,
                 IngestRun.summary["test_run"].as_boolean() == True,  # pylint: disable=singleton-comparison
             )
             .all()
@@ -776,14 +797,14 @@ def summarize_test_data(user: User = Depends(get_current_user), db: Session = De
     run_ids_str = [str(rid) for rid in run_ids]
     activity_count = (
         db.query(func.count(Activity.id))
-        .filter(Activity.user_id == user.id, Activity.ingest_run_id.in_(run_ids))
+        .filter(Activity.user_id == _user_uuid(user), Activity.ingest_run_id.in_(run_ids))
         .scalar()
         if run_ids
         else 0
     )
     decision_count = (
         db.query(func.count(IngestDecision.id))
-        .filter(IngestDecision.user_id == user.id, IngestDecision.ingest_run_id.in_(run_ids))
+        .filter(IngestDecision.user_id == _user_uuid(user), IngestDecision.ingest_run_id.in_(run_ids))
         .scalar()
         if run_ids
         else 0
@@ -792,7 +813,7 @@ def summarize_test_data(user: User = Depends(get_current_user), db: Session = De
     influx_counts = []
     try:
         if run_ids:
-            client = get_influx_client_for_user(db, user.id)
+            client = get_influx_client_for_user(db, _user_uuid(user))
             tags = [f"TEST_{rid}" for rid in run_ids_str]
             pattern = "|".join([t.replace("-", r"\-") for t in tags])
             predicate = f'r.ingest_run_id =~ /^({pattern})$/'
@@ -818,7 +839,7 @@ from(bucket: "{client.default_bucket}")
         try:
             ds = get_user_datasource(db, user.id)
             if ds and ds.influx_url and ds.influx_bucket:
-                token = decrypt_token(ds.token_encrypted)
+                token = decrypt_token(cast(bytes, ds.token_encrypted))
                 auth = None
                 headers = {}
                 if ds.influx_user and token:
@@ -875,20 +896,20 @@ def clear_test_data(user: User = Depends(get_current_user), db: Session = Depend
 
     # Postgres deletes
     if run_ids:
-        db.query(Activity).filter(Activity.user_id == user.id, Activity.ingest_run_id.in_(run_ids)).delete(
+        db.query(Activity).filter(Activity.user_id == _user_uuid(user), Activity.ingest_run_id.in_(run_ids)).delete(
             synchronize_session=False
         )
         db.query(IngestDecision).filter(
-            IngestDecision.user_id == user.id, IngestDecision.ingest_run_id.in_(run_ids)
+            IngestDecision.user_id == _user_uuid(user), IngestDecision.ingest_run_id.in_(run_ids)
         ).delete(synchronize_session=False)
-        db.query(IngestRun).filter(IngestRun.user_id == user.id, IngestRun.id.in_(run_ids)).delete(
+        db.query(IngestRun).filter(IngestRun.user_id == _user_uuid(user), IngestRun.id.in_(run_ids)).delete(
             synchronize_session=False
         )
         db.commit()
     # Also clean any lingering activities flagged as test_run in metadata (in case ingest_run was missing)
     try:
         db.query(Activity).filter(
-            Activity.user_id == user.id, Activity.metadata["test_run"].as_boolean() == True  # pylint: disable=singleton-comparison
+            Activity.user_id == _user_uuid(user), Activity.metadata["test_run"].as_boolean() == True  # pylint: disable=singleton-comparison
         ).delete(synchronize_session=False)
         db.commit()
     except Exception as exc:  # pylint: disable=broad-except
@@ -900,7 +921,7 @@ def clear_test_data(user: User = Depends(get_current_user), db: Session = Depend
     # Influx deletes
     try:
         if run_ids:
-            client = get_influx_client_for_user(db, user.id)
+            client = get_influx_client_for_user(db, _user_uuid(user))
             tags = [f"TEST_{rid}" for rid in run_ids_str]
             pattern = "|".join([t.replace("-", r"\-") for t in tags])
             predicate = f'ingest_run_id=~/^({pattern})$/'

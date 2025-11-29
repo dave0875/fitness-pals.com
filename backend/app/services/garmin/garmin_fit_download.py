@@ -53,7 +53,8 @@ def fetch_activity_metadata(client, activity_id) -> Optional[Dict[str, Any]]:
     """Fetch activity detail JSON; return None on failure."""
     path = f"activity-service/activity/{activity_id}"
     try:
-        return client.connectapi(path)
+        data = client.connectapi(path)
+        return data if isinstance(data, dict) else {}
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning(
             "fit metadata fetch failed",

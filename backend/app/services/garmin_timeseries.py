@@ -23,9 +23,18 @@ def _point(measurement: str, time: Any, fields: Dict[str, Any], tags: Dict[str, 
 
 def _hrv_readings_points(bundle: dict, tags: Dict[str, str]) -> List[Dict[str, Any]]:
     readings: List[Dict[str, Any]] = []
-    hrv_days = bundle.get("stats", {}).get("hrv_data") or []
+    hrv_days = bundle.get("stats", {}).get("hrv_data")
+    if not isinstance(hrv_days, list):
+        return readings
     for day in hrv_days:
-        for reading in day.get("hrv_readings", []) or []:
+        if not isinstance(day, dict):
+            continue
+        hrv_values = day.get("hrv_readings") or []
+        if not isinstance(hrv_values, list):
+            continue
+        for reading in hrv_values:
+            if not isinstance(reading, dict):
+                continue
             time_val = reading.get("reading_time_gmt") or reading.get("reading_time_local")
             readings.append(
                 _point(
@@ -40,9 +49,18 @@ def _hrv_readings_points(bundle: dict, tags: Dict[str, str]) -> List[Dict[str, A
 
 def _sleep_movement_points(bundle: dict, tags: Dict[str, str]) -> List[Dict[str, Any]]:
     points: List[Dict[str, Any]] = []
-    sleep_days = bundle.get("stats", {}).get("sleep_data") or []
+    sleep_days = bundle.get("stats", {}).get("sleep_data")
+    if not isinstance(sleep_days, list):
+        return points
     for day in sleep_days:
-        for mv in day.get("sleep_movement") or []:
+        if not isinstance(day, dict):
+            continue
+        movements = day.get("sleep_movement") or []
+        if not isinstance(movements, list):
+            continue
+        for mv in movements:
+            if not isinstance(mv, dict):
+                continue
             points.append(
                 _point(
                     "garmin_sleep_movement",
@@ -56,7 +74,12 @@ def _sleep_movement_points(bundle: dict, tags: Dict[str, str]) -> List[Dict[str,
 
 def _sleep_summary_points(bundle: dict, tags: Dict[str, str]) -> List[Dict[str, Any]]:
     points: List[Dict[str, Any]] = []
-    for day in bundle.get("stats", {}).get("sleep_data") or []:
+    sleep_days = bundle.get("stats", {}).get("sleep_data")
+    if not isinstance(sleep_days, list):
+        return points
+    for day in sleep_days:
+        if not isinstance(day, dict):
+            continue
         dto = day.get("daily_sleep_dto") or {}
         cal = dto.get("calendar_date")
         fields = {
@@ -73,7 +96,12 @@ def _sleep_summary_points(bundle: dict, tags: Dict[str, str]) -> List[Dict[str, 
 
 def _daily_list_points(bundle: dict, key: str, measurement: str, field_map: Dict[str, str], tags: Dict[str, str]) -> List[Dict[str, Any]]:
     points: List[Dict[str, Any]] = []
-    for day in bundle.get("stats", {}).get(key) or []:
+    day_list = bundle.get("stats", {}).get(key)
+    if not isinstance(day_list, list):
+        return points
+    for day in day_list:
+        if not isinstance(day, dict):
+            continue
         cal = day.get("calendar_date")
         fields = {out: day.get(inp) for inp, out in field_map.items()}
         points.append(_point(measurement, cal, fields, tags))
@@ -115,17 +143,32 @@ def _weight_points(bundle: dict, tags: Dict[str, str]) -> List[Dict[str, Any]]:
 
 
 def _acclimation_points(bundle: dict, tags: Dict[str, str]) -> List[Dict[str, Any]]:
-    data = bundle.get("connectapi", {}).get("multi_day", {}).get("acclimation")
-    if not data or isinstance(data, dict) and data.get("error"):
+    raw = bundle.get("connectapi", {}).get("multi_day", {}).get("acclimation")
+    if not raw or (isinstance(raw, dict) and raw.get("error")):
         return []
-    descriptor = data.get("monitoringEnvironmentValueDescriptorList") or []
-    idx_map = {item["monEnvValueDescIndex"]: item["monEnvValueDescKey"] for item in descriptor if "monEnvValueDescIndex" in item}
-    values = data.get("monitoringEnvironmentValuesArray") or []
+
+    descriptor: List[Dict[str, Any]] = []
+    values: list = []
+    if isinstance(raw, dict):
+        descriptor = raw.get("monitoringEnvironmentValueDescriptorList") or []
+        val = raw.get("monitoringEnvironmentValuesArray") or raw.get("acclimationValues")
+        if isinstance(val, list):
+            values = val
+    elif isinstance(raw, list):
+        values = raw
+    else:
+        return []
+
+    idx_map = {item["monEnvValueDescIndex"]: item["monEnvValueDescKey"] for item in descriptor if isinstance(item, dict) and "monEnvValueDescIndex" in item}
+
     points: List[Dict[str, Any]] = []
     for row in values:
-        if not isinstance(row, list) or len(row) < 2:
+        if isinstance(row, list):
+            payload = {idx_map.get(i, f"v{i}"): row[i] for i in range(len(row))}
+        elif isinstance(row, dict):
+            payload = row
+        else:
             continue
-        payload = {idx_map.get(i, f"v{i}"): row[i] for i in range(len(row))}
         ts = payload.get("timestamp")
         points.append(_point("garmin_acclimation", ts, payload, tags))
     return points

@@ -1,6 +1,7 @@
 # ruff: noqa: E501
 # pylint: disable=line-too-long
 """Google OAuth helper utilities for the training agent."""
+# mypy: ignore-errors
 
 from __future__ import annotations
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, HttpUrl
@@ -121,10 +122,11 @@ def connect_provider(
         raise HTTPException(
             status_code=404, detail=f"No provider app configured for {provider_key}"
         )
+    user_uuid = UUID(str(user.id))
     token: UserProviderToken = save_user_provider_token(
         db,
         ProviderTokenDetails(
-            user_id=user.id,
+            user_id=user_uuid,
             provider=provider_key,
             access_token=body.access_token,
             refresh_token=body.refresh_token,

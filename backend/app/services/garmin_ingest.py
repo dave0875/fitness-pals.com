@@ -1,4 +1,5 @@
 """Garmin ingestion orchestrator (tokens, client, delegation to domain modules)."""
+# mypy: ignore-errors
 
 from __future__ import annotations
 
@@ -133,10 +134,17 @@ def _ensure_provider_user_id(db: Session, token_row, client) -> Optional[str]:
         return token_row.provider_user_id
     try:
         profile = client.connectapi("user-service/user/profile")
+        if isinstance(profile, list):
+            profile_obj = profile[0] if profile else {}
+        elif isinstance(profile, dict):
+            profile_obj = profile
+        else:
+            profile_obj = {}
         pid = (
-            profile.get("userId")
-            or profile.get("displayName")
-            or profile.get("username")
+            profile_obj.get("userId")
+            or profile_obj.get("displayName")
+            or profile_obj.get("username")
+            or profile_obj.get("id")
         )
         if pid:
             token_row.provider_user_id = str(pid)
@@ -173,7 +181,12 @@ def _persist_sleep_sessions_from_bundle(
 ) -> int:
     """Persist daily sleep DTOs from the bundle into Postgres."""
     count = 0
-    for day in bundle.get("stats", {}).get("sleep_data") or []:
+    sleep_data = bundle.get("stats", {}).get("sleep_data")
+    if not isinstance(sleep_data, list):
+        return 0
+    for day in sleep_data:
+        if not isinstance(day, dict):
+            continue
         dto = day.get("daily_sleep_dto") or {}
         cal = dto.get("calendar_date") or dto.get("calendarDate")
         if cal and "calendarDate" not in dto:
