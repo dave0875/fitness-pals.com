@@ -25,9 +25,9 @@ fi
 
 # Update this list if job names change; they must match the GitHub check names exactly.
 CONTEXTS=(
-  "Branch name check / branch-name"
-  "Commit message check / commit-messages"
-  "CI/CD / Lint & Test"
+  "branch-name"
+  "commit-messages"
+  "Lint & Test"
 )
 
 echo "Setting branch protection on $OWNER/$REPO:$BRANCH"
