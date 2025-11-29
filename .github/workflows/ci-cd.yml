@@ -147,10 +147,6 @@ jobs:
           echo "frontend_lint_status=${frontend_lint_status}" >> "$GITHUB_OUTPUT"
           echo "docker_build_status=${docker_build_status}" >> "$GITHUB_OUTPUT"
 
-          if [[ "${overall_status}" != "passed" ]]; then
-            exit 1
-          fi
-
       - name: Upload CI logs artifact
         if: always() && steps.run_checks.outputs.issue_number != ''
         uses: actions/upload-artifact@v4
@@ -230,6 +226,10 @@ jobs:
               issue_number: issueNumber,
               body
             });
+
+      - name: Fail if checks failed
+        if: always() && steps.run_checks.outputs.overall_status != 'passed'
+        run: exit 1
 
   deploy-dev:
     name: Deploy to Dev
