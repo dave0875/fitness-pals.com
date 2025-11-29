@@ -1,0 +1,32 @@
+name: Tag validation
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  validate-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check tag name and message
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          NAME_RE='^v[0-9]{8}-[a-z0-9-]+-issue-[0-9]+$'
+          MSG_RE='^Issue #[0-9]+: .+'
+
+          if ! [[ "$TAG" =~ $NAME_RE ]]; then
+            echo "Tag '$TAG' violates name pattern $NAME_RE"
+            exit 1
+          fi
+
+          msg="$(git tag -l --format='%(contents)' "$TAG" | head -n1)"
+          if ! [[ "$msg" =~ $MSG_RE ]]; then
+            echo "Tag message for '$TAG' violates pattern $MSG_RE"
+            exit 1
+          fi
