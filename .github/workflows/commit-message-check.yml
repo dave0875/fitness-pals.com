@@ -15,8 +15,8 @@ jobs:
 
       - name: Validate commit messages
         run: |
-          BASE="origin/${{ github.base_ref }}"
-          HEAD="origin/${{ github.head_ref }}"
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
           PATTERN='^Issue #[0-9]+: .+'
 
           # List commits that are in the PR but not in the base branch
