@@ -17,16 +17,18 @@ jobs:
       - name: Check tag name and message
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          NAME_RE='^v[0-9]{8}-[a-z0-9-]+-[0-9]+$'
-          MSG_RE='^Issue #[0-9]+: .+'
+          NAME_RE='^v([0-9]{8})-([a-z0-9-]+)-issue-([0-9]+)$'
+          MSG_RE_PREFIX='^Issue #'
 
-          if ! [[ "$TAG" =~ $NAME_RE ]]; then
-            echo "Tag '$TAG' violates name pattern $NAME_RE"
+          if [[ "$TAG" =~ $NAME_RE ]]; then
+            issue_id="${BASH_REMATCH[3]}"
+          else
+            echo "Tag '$TAG' violates name pattern $NAME_RE (must include issue number)"
             exit 1
           fi
 
           msg="$(git tag -l --format='%(contents)' "$TAG" | head -n1)"
-          if ! [[ "$msg" =~ $MSG_RE ]]; then
-            echo "Tag message for '$TAG' violates pattern $MSG_RE"
+          if ! [[ "$msg" =~ ${MSG_RE_PREFIX}${issue_id}: ]]; then
+            echo "Tag message for '$TAG' must start with 'Issue #${issue_id}: ...'"
             exit 1
           fi
