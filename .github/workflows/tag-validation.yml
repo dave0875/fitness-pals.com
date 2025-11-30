@@ -17,7 +17,7 @@ jobs:
       - name: Check tag name and message
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          NAME_RE='^v[0-9]{8}-[a-z0-9-]+-issue-[0-9]+$'
+          NAME_RE='^v[0-9]{8}-[a-z0-9-]+-[0-9]+$'
           MSG_RE='^Issue #[0-9]+: .+'
 
           if ! [[ "$TAG" =~ $NAME_RE ]]; then
