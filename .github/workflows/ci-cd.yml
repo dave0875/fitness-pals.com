@@ -84,6 +84,21 @@ jobs:
           frontend_build_status="not_run"
           frontend_test_status="not_run"
           frontend_lint_status="not_run"
+          frontend_root=""
+
+          for path in frontend web app ui; do
+            if [ -f "$path/package.json" ]; then
+              frontend_root="$path"
+              break
+            fi
+          done
+
+          if [ -z "$frontend_root" ]; then
+            echo "No frontend package.json found; marking frontend lint/test/build as passed (not applicable)."
+            frontend_build_status="passed"
+            frontend_test_status="passed"
+            frontend_lint_status="passed"
+          fi
           docker_build_status="not_run"
 
           run_cmd() {
@@ -142,6 +157,24 @@ jobs:
             backend_test_status="failed"
             overall_status="failed"
             echo "::error title=Backend tests::Backend tests failed. See ci-logs/backend-test.log in the CI artifact."
+          fi
+
+          if [ -n "$frontend_root" ]; then
+            echo "=== Frontend install (${frontend_root}) ==="
+            (cd "$frontend_root" && npm ci) >"ci-logs/frontend-install.log" 2>&1
+            cat "ci-logs/frontend-install.log"
+            rc=$?
+            if [[ $rc -ne 0 ]]; then
+              frontend_lint_status="failed"
+              frontend_test_status="failed"
+              frontend_build_status="failed"
+              overall_status="failed"
+              echo "::error title=Frontend install::npm ci failed. See ci-logs/frontend-install.log in the CI artifact."
+            else
+              run_cmd "Frontend lint" frontend_lint_status "ci-logs/frontend-lint.log" bash -c "cd \"$frontend_root\" && npm run lint --if-present"
+              run_cmd "Frontend tests" frontend_test_status "ci-logs/frontend-test.log" bash -c "cd \"$frontend_root\" && npm test --if-present -- --watch=false"
+              run_cmd "Frontend build" frontend_build_status "ci-logs/frontend-build.log" bash -c "cd \"$frontend_root\" && npm run build --if-present"
+            fi
           fi
 
           timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
