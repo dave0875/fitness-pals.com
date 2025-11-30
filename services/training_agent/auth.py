@@ -1,8 +1,6 @@
 # ruff: noqa: E501
 # pylint: disable=line-too-long
 """Google OAuth helper utilities for the training agent."""
-# mypy: ignore-errors
-
 from __future__ import annotations
 
 import json
@@ -10,7 +8,7 @@ import logging
 import os
 from typing import Optional
 
-import requests
+import requests  # type: ignore[import-untyped]
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from google.auth import exceptions as google_exceptions

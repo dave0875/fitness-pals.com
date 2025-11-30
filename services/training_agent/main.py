@@ -5,15 +5,14 @@ Training agent FastAPI service.
 - Includes a Google OAuth proxy for GPT Actions.
 Note: long lines are tolerated in HTML/queries; Pylint line length is disabled.
 """
-# mypy: ignore-errors
 # ruff: noqa: E501
 # pylint: disable=line-too-long
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import Any, Optional, cast
 
-import requests
+import requests  # type: ignore[import-untyped]
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import Response
 from google.oauth2 import id_token
@@ -62,12 +61,13 @@ app.include_router(metrics_module.router)
 
 # Allow metrics routes to rely on overridable helpers from this module (dynamic lookup for tests).
 # pylint: disable=unnecessary-lambda
-metrics_module.get_influx_client = lambda: get_influx_client()
-metrics_module.get_average_cadence = lambda client, row: get_average_cadence(client, row)
-metrics_module.get_elevation_gain = lambda client, activity_id: get_elevation_gain(client, activity_id)
-metrics_module.get_elevation_stats = lambda client, activity_id: get_elevation_stats(client, activity_id)
-metrics_module.get_temperature_stats = lambda client, activity_id: get_temperature_stats(client, activity_id)
-metrics_module.get_max_cadence = lambda client, activity_id: get_max_cadence(client, activity_id)
+metrics_module_typed = cast(Any, metrics_module)
+metrics_module_typed.get_influx_client = lambda: get_influx_client()
+metrics_module_typed.get_average_cadence = lambda client, row: get_average_cadence(client, row)
+metrics_module_typed.get_elevation_gain = lambda client, activity_id: get_elevation_gain(client, activity_id)
+metrics_module_typed.get_elevation_stats = lambda client, activity_id: get_elevation_stats(client, activity_id)
+metrics_module_typed.get_temperature_stats = lambda client, activity_id: get_temperature_stats(client, activity_id)
+metrics_module_typed.get_max_cadence = lambda client, activity_id: get_max_cadence(client, activity_id)
 # pylint: enable=unnecessary-lambda
 
 
