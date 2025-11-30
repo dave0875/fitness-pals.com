@@ -161,7 +161,11 @@ jobs:
 
           if [ -n "$frontend_root" ]; then
             echo "=== Frontend install (${frontend_root}) ==="
-            (cd "$frontend_root" && npm ci) >"ci-logs/frontend-install.log" 2>&1
+            install_cmd="npm ci"
+            if [ ! -f "$frontend_root/package-lock.json" ] && [ ! -f "$frontend_root/npm-shrinkwrap.json" ]; then
+              install_cmd="npm install"
+            fi
+            (cd "$frontend_root" && $install_cmd) >"ci-logs/frontend-install.log" 2>&1
             cat "ci-logs/frontend-install.log"
             rc=$?
             if [[ $rc -ne 0 ]]; then
