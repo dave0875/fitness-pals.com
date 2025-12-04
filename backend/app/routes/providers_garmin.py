@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import logging
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -10,7 +11,7 @@ from typing import Annotated, Any, Dict, Optional, cast
 from uuid import UUID
 
 import requests  # type: ignore[import-untyped]
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -139,17 +140,28 @@ def garmin_login(
 ):
     """Redirect the authenticated user to Garmin OAuth."""
     cfg = _require_env()
+    state = secrets.token_urlsafe(16)
     params = {
         "response_type": "code",
         "client_id": cfg["client_id"],
         "redirect_uri": cfg["redirect_uri"],
         "scope": cfg["scope"],
+        "state": state,
     }
     prepped = requests.Request("GET", cfg["auth_url"], params=params).prepare()
     url = prepped.url
     if url is None:
         raise HTTPException(status_code=500, detail="Failed to build Garmin auth URL")
-    return RedirectResponse(url)
+    resp = RedirectResponse(url)
+    resp.set_cookie(
+        "garmin_oauth_state",
+        state,
+        max_age=300,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+    )
+    return resp
 
 
 def _resolve_tenant(user: CurrentUserLike) -> Optional[UUID]:
@@ -159,8 +171,10 @@ def _resolve_tenant(user: CurrentUserLike) -> Optional[UUID]:
 
 @router.get("/callback")
 def garmin_callback(
+    request: Request = None,
     code: Optional[str] = None,
     error: Optional[str] = None,
+    state: Optional[str] = None,
     user: CurrentUserLike = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -170,6 +184,14 @@ def garmin_callback(
         raise HTTPException(status_code=400, detail=f"Garmin auth failed: {error}")
     if not code:
         raise HTTPException(status_code=400, detail="Missing authorization code")
+    if request is not None:
+        stored_state = None
+        try:
+            stored_state = request.cookies.get("garmin_oauth_state")
+        except Exception:
+            stored_state = None
+        if not state or not stored_state or state != stored_state:
+            raise HTTPException(status_code=400, detail="Invalid state for Garmin auth")
 
     data = {
         "grant_type": "authorization_code",
