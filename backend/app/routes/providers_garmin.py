@@ -171,7 +171,7 @@ def _resolve_tenant(user: CurrentUserLike) -> Optional[UUID]:
 
 @router.get("/callback")
 def garmin_callback(
-    request: Request = None,
+    request: Request,
     code: Optional[str] = None,
     error: Optional[str] = None,
     state: Optional[str] = None,
@@ -184,14 +184,13 @@ def garmin_callback(
         raise HTTPException(status_code=400, detail=f"Garmin auth failed: {error}")
     if not code:
         raise HTTPException(status_code=400, detail="Missing authorization code")
-    if request is not None:
+    stored_state = None
+    try:
+        stored_state = request.cookies.get("garmin_oauth_state")
+    except Exception:
         stored_state = None
-        try:
-            stored_state = request.cookies.get("garmin_oauth_state")
-        except Exception:
-            stored_state = None
-        if not state or not stored_state or state != stored_state:
-            raise HTTPException(status_code=400, detail="Invalid state for Garmin auth")
+    if not state or not stored_state or state != stored_state:
+        raise HTTPException(status_code=400, detail="Invalid state for Garmin auth")
 
     data = {
         "grant_type": "authorization_code",

@@ -93,6 +93,7 @@ def test_callback_happy_path(monkeypatch):
     db = FakeSession()
     user = _fake_user()
     token_url = _test_token_url()
+    fake_request = SimpleNamespace(cookies={"garmin_oauth_state": "abc"})
     with requests_mock.Mocker() as m:
         m.post(
             token_url,
@@ -103,10 +104,10 @@ def test_callback_happy_path(monkeypatch):
                 "scope": "activity",
                 "user_id": "garmin-user",
             },
-            status_code=200,
-            headers={"content-type": "application/json"},
-        )
-        result = providers_garmin.garmin_callback(code="abc", user=user, db=db)
+                status_code=200,
+                headers={"content-type": "application/json"},
+            )
+        result = providers_garmin.garmin_callback(request=fake_request, code="abc", state="abc", user=user, db=db)
     assert result["status"] == "connected"
     assert db.items, "Token should be saved"
     stored = db.items[0]
@@ -122,8 +123,9 @@ def test_callback_missing_code(monkeypatch):
     monkeypatch.setenv("GARMIN_CLIENT_ID", "cid")
     monkeypatch.setenv("GARMIN_CLIENT_SECRET", "secret")
     monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
+    fake_request = SimpleNamespace(cookies={"garmin_oauth_state": "abc"})
     with pytest.raises(HTTPException):
-        providers_garmin.garmin_callback(code=None, user=_fake_user(), db=FakeSession())
+        providers_garmin.garmin_callback(request=fake_request, code=None, state="abc", user=_fake_user(), db=FakeSession())
 
 
 def test_refresh_happy_path(monkeypatch):
