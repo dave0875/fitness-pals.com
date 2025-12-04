@@ -20,6 +20,8 @@ down_revision = "0002_multi_tenant_providers"
 branch_labels = None
 depends_on = None
 
+json_type = postgresql.JSONB().with_variant(sa.JSON(), "sqlite")
+
 
 def upgrade() -> None:
     """Create activities, sources, and ingest audit tables."""
@@ -38,7 +40,7 @@ def upgrade() -> None:
         sa.Column("sport", sa.String(), nullable=True),
         sa.Column("status", sa.String(), nullable=False, default="new"),
         sa.Column("fingerprint_hash", sa.String(), nullable=False),
-        sa.Column("metadata", postgresql.JSONB(), nullable=True),
+        sa.Column("metadata", json_type, nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )
@@ -63,8 +65,8 @@ def upgrade() -> None:
         sa.Column("raw_hash", sa.String(), nullable=True),
         sa.Column("decision", sa.String(), nullable=False, default="new"),
         sa.Column("reason", sa.String(), nullable=True),
-        sa.Column("chosen_fields", postgresql.JSONB(), nullable=True),
-        sa.Column("raw_payload", postgresql.JSONB(), nullable=True),
+        sa.Column("chosen_fields", json_type, nullable=True),
+        sa.Column("raw_payload", json_type, nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )
@@ -80,7 +82,7 @@ def upgrade() -> None:
         sa.Column("status", sa.String(), nullable=False, default="running"),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("summary", postgresql.JSONB(), nullable=True),
+        sa.Column("summary", json_type, nullable=True),
     )
     op.create_index("ix_ingest_runs_provider", "ingest_runs", ["provider"])
 
@@ -109,9 +111,9 @@ def upgrade() -> None:
         ),
         sa.Column("decision", sa.String(), nullable=False),
         sa.Column("reason", sa.String(), nullable=True),
-        sa.Column("fingerprint", postgresql.JSONB(), nullable=True),
-        sa.Column("tolerances", postgresql.JSONB(), nullable=True),
-        sa.Column("chosen_fields", postgresql.JSONB(), nullable=True),
+        sa.Column("fingerprint", json_type, nullable=True),
+        sa.Column("tolerances", json_type, nullable=True),
+        sa.Column("chosen_fields", json_type, nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
     op.create_index(

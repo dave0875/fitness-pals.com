@@ -1,0 +1,34 @@
+name: Tag validation
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  validate-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check tag name and message
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          NAME_RE='^v([0-9]{8})-([a-z0-9-]+)-issue-([0-9]+)$'
+          MSG_RE_PREFIX='^Issue #'
+
+          if [[ "$TAG" =~ $NAME_RE ]]; then
+            issue_id="${BASH_REMATCH[3]}"
+          else
+            echo "Tag '$TAG' violates name pattern $NAME_RE (must include issue number)"
+            exit 1
+          fi
+
+          msg="$(git tag -l --format='%(contents)' "$TAG" | head -n1)"
+          if ! [[ "$msg" =~ ${MSG_RE_PREFIX}${issue_id}: ]]; then
+            echo "Tag message for '$TAG' must start with 'Issue #${issue_id}: ...'"
+            exit 1
+          fi

@@ -4,87 +4,59 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any, Dict
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, JSON, String
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
+from app.models.mixins import PrimaryUUIDMixin, TimestampMixin, UserOwnedMixin
 
 
-class Activity(Base):  # pylint: disable=too-few-public-methods
+class Activity(PrimaryUUIDMixin, UserOwnedMixin, TimestampMixin, Base):  # pylint: disable=too-few-public-methods
     """
     Canonical activity record after de-duplication. One per workout per user.
     """
 
     __tablename__ = "activities"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    ingest_run_id = Column(
+    ingest_run_id: Mapped[UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("ingest_runs.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
-    start_time = Column(DateTime(timezone=True), nullable=False, index=True)
-    duration_seconds = Column(Integer, nullable=True)
-    distance_m = Column(Float, nullable=True)
-    sport = Column(String, nullable=True, index=True)
-    status = Column(String, nullable=False, default="new")  # new | merged | conflict
-    fingerprint_hash = Column(String, nullable=False, index=True)
-    metadata_json = Column("metadata", JSON, nullable=True)
-    created_at = Column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
-    )
-    updated_at = Column(
-        DateTime(timezone=True),
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
-        nullable=False,
-    )
+    start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    distance_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sport: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="new")  # new | merged | conflict
+    fingerprint_hash: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    metadata_json: Mapped[Dict[str, Any] | None] = mapped_column("metadata", JSON, nullable=True)
 
 
-class ActivitySource(Base):  # pylint: disable=too-few-public-methods
+class ActivitySource(PrimaryUUIDMixin, TimestampMixin, Base):  # pylint: disable=too-few-public-methods
     """
     Link back to provider-specific representations for auditability and traceability.
     """
 
     __tablename__ = "activity_sources"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    activity_id = Column(
+    activity_id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("activities.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    provider = Column(String, nullable=False, index=True)
-    provider_activity_id = Column(String, nullable=False)
-    raw_hash = Column(String, nullable=True)
-    decision = Column(
-        String, nullable=False, default="new"
-    )  # new | merged | duplicate | conflict
-    reason = Column(String, nullable=True)
-    chosen_fields = Column(
-        JSON, nullable=True
-    )  # what fields were taken from this source
-    raw_payload = Column(
-        JSON, nullable=True
-    )  # optional trimmed payload for transparency
-    created_at = Column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
-    )
-    updated_at = Column(
-        DateTime(timezone=True),
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
-        nullable=False,
-    )
+    provider: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    provider_activity_id: Mapped[str] = mapped_column(String, nullable=False)
+    raw_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    decision: Mapped[str] = mapped_column(String, nullable=False, default="new")  # new | merged | duplicate | conflict
+    reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    chosen_fields: Mapped[Dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # what fields were taken
+    raw_payload: Mapped[Dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # optional trimmed payload
+    # timestamps provided by mixin
 
 
 class IngestRun(Base):  # pylint: disable=too-few-public-methods
@@ -94,17 +66,13 @@ class IngestRun(Base):  # pylint: disable=too-few-public-methods
 
     __tablename__ = "ingest_runs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    provider = Column(String, nullable=False, index=True)
-    status = Column(
-        String, nullable=False, default="running"
-    )  # running | completed | failed
-    started_at = Column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
-    )
-    finished_at = Column(DateTime(timezone=True), nullable=True)
-    summary = Column(JSON, nullable=True)
-    user_id = Column(
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    provider: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="running")  # running | completed | failed
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    summary: Mapped[Dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    user_id: Mapped[UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=True,
@@ -112,41 +80,31 @@ class IngestRun(Base):  # pylint: disable=too-few-public-methods
     )
 
 
-class IngestDecision(Base):  # pylint: disable=too-few-public-methods
+class IngestDecision(PrimaryUUIDMixin, UserOwnedMixin, TimestampMixin, Base):  # pylint: disable=too-few-public-methods
     """
     Fine-grained per-activity ingest decisions for transparency/audit.
     """
 
     __tablename__ = "ingest_decisions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    ingest_run_id = Column(
+    ingest_run_id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("ingest_runs.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    user_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    provider = Column(String, nullable=False, index=True)
-    provider_activity_id = Column(String, nullable=True)
-    activity_id = Column(
+    provider: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    provider_activity_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    activity_id: Mapped[UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("activities.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
-    decision = Column(
+    decision: Mapped[str] = mapped_column(
         String, nullable=False
     )  # new | merged | duplicate | conflict | skipped_primary
-    reason = Column(String, nullable=True)
-    fingerprint = Column(JSON, nullable=True)
-    tolerances = Column(JSON, nullable=True)
-    chosen_fields = Column(JSON, nullable=True)
-    created_at = Column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
-    )
+    reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    fingerprint: Mapped[Dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    tolerances: Mapped[Dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    chosen_fields: Mapped[Dict[str, Any] | None] = mapped_column(JSON, nullable=True)

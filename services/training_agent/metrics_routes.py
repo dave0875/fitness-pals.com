@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from .influx_utils import (
     RUN_TYPE_LABELS,
@@ -28,14 +28,20 @@ def weekly_summary(days: int = 7):
     """Aggregated distance and calories from activity summary within the window."""
     window = max(days, 1)
     client = get_influx_client()
-    query = (
+    distance_query = (
         'SELECT SUM("distance") AS distance, SUM("calories") AS calories '
         f'FROM "garmin_activity_summary" WHERE time >= now() - {window}d'
     )
-    row = _mean(query, client)
+    row = _mean(distance_query, client)
+    rhr_query = (
+        'SELECT MEAN("resting_hr") AS rhr '
+        f'FROM "garmin_sleep_summary" WHERE time >= now() - {window}d'
+    )
+    rhr_row = _mean(rhr_query, client)
     return {
         "distance": row.get("distance"),
         "calories": row.get("calories"),
+        "resting_hr": rhr_row.get("rhr"),
         "window_days": window,
     }
 
@@ -113,6 +119,15 @@ def last_run():
     if not result:
         return {}
     row = result[0]
+    row = {
+        **row,
+        "activity_id": row.get("activity_id") or row.get("Activity_ID") or row.get("activityId") or row.get("id"),
+        "sport_type": row.get("sport_type") or row.get("activityType"),
+        "stride_length": row.get("stride_length") or row.get("strideLength"),
+        "elapsed_duration": row.get("elapsed_duration") or row.get("elapsedDuration"),
+        "moving_duration": row.get("moving_duration") or row.get("movingDuration"),
+        "average_hr": row.get("average_hr") or row.get("averageHR"),
+    }
     activity_id = row.get("activity_id")
     if not activity_id:
         return {}
@@ -176,7 +191,7 @@ def last_run():
         "device_id": row.get("device_id"),
         "manufacturer": row.get("manufacturer"),
     }
-    return {"activity_id": activity_id, "activity": summary}
+    return {"activity_id": activity_id, "average_cadence": avg_cad, "activity": summary}
 
 
 @router.get("/recovery-score")
@@ -187,11 +202,142 @@ def recovery_score():
     """
     client = get_influx_client()
     query = (
-        'SELECT LAST("avg_sleep_stress") AS sleep_stress '
+        'SELECT LAST("body_battery") AS body_battery_change, LAST("avg_sleep_stress") AS sleep_stress '
         'FROM "garmin_sleep_summary" WHERE time >= now() - 7d'
     )
     row = _mean(query, client)
     return {
-        "body_battery_change": None,
-        "sleep_stress": row.get("sleep_stress"),
+        "body_battery_change": row.get("body_battery_change") or row.get("body_battery"),
+        "sleep_stress": row.get("sleep_stress") or row.get("sleep_stress_avg"),
     }
+
+
+@router.get("/training-load")
+def training_load():
+    """Latest aerobic/anaerobic training load components."""
+    client = get_influx_client()
+    query = (
+        'SELECT LAST("low") AS low, LAST("high") AS high, LAST("anaerobic") AS anaerobic '
+        'FROM "garmin_training_load" WHERE time >= now() - 7d'
+    )
+    row = _mean(query, client)
+    return {
+        "low": row.get("low"),
+        "high": row.get("high"),
+        "anaerobic": row.get("anaerobic"),
+    }
+
+
+@router.get("/running-dynamics")
+def running_dynamics():
+    """Latest running dynamics sample (cadence, stride, contact time)."""
+    client = get_influx_client()
+    query = 'SELECT * FROM "garmin_running_dynamics" ORDER BY time DESC LIMIT 1'
+    row = _mean(query, client)
+    return {
+        "activity_id": row.get("activity_id") or row.get("activityId"),
+        "average_cadence": row.get("averageRunCadence") or row.get("average_cadence") or row.get("cadence"),
+        "stride_length": row.get("strideLength") or row.get("stride_length"),
+        "vertical_oscillation": row.get("verticalOscillation") or row.get("vertical_oscillation"),
+        "ground_contact_time": row.get("groundContactTime") or row.get("ground_contact_time"),
+    }
+
+
+@router.get("/recovery-time")
+def recovery_time():
+    """Latest recommended recovery time."""
+    client = get_influx_client()
+    query = 'SELECT LAST("hours") AS hours FROM "garmin_recovery_time"'
+    row = _mean(query, client)
+    return {"recovery_time_hours": row.get("hours") or row.get("recovery_time_hours")}
+
+
+@router.get("/sleep-metrics")
+def sleep_metrics():
+    """Sleep summary metrics (avg/deep/light/rem/awake)."""
+    client = get_influx_client()
+    query = 'SELECT * FROM "garmin_sleep_summary" ORDER BY time DESC LIMIT 1'
+    row = _mean(query, client)
+    return {
+        "sleep": row.get("sleep") or row.get("sleepTimeSeconds"),
+        "deep": row.get("deep") or row.get("deepSleepSeconds"),
+        "light": row.get("light") or row.get("lightSleepSeconds"),
+        "rem": row.get("rem") or row.get("remSleepSeconds"),
+        "awake": row.get("awake"),
+        "score": row.get("score"),
+        "resting_hr": row.get("rhr") or row.get("resting_hr"),
+    }
+
+
+@router.get("/stress-battery")
+def stress_battery():
+    """Stress/battery summary."""
+    client = get_influx_client()
+    query = 'SELECT LAST("stress") AS stress FROM "garmin_stress_battery"'
+    row = _mean(query, client)
+    return {"stress_percentage": row.get("stress")}
+
+
+@router.get("/lactate-threshold")
+def lactate_threshold():
+    """Latest lactate threshold metrics."""
+    client = get_influx_client()
+    query = 'SELECT LAST("heart_rate") AS heart_rate, LAST("pace") AS pace FROM "garmin_lactate_threshold"'
+    row = _mean(query, client)
+    return {"heart_rate": row.get("heart_rate"), "pace": row.get("pace")}
+
+
+@router.get("/race-predictions")
+def race_predictions():
+    """Race prediction times (5k/10k/half/marathon)."""
+    client = get_influx_client()
+    query = 'SELECT * FROM "garmin_race_predictions" ORDER BY time DESC LIMIT 1'
+    row = _mean(query, client)
+    return {
+        "time5K": row.get("time5K"),
+        "time10K": row.get("time10K"),
+        "half": row.get("half"),
+        "marathon": row.get("marathon"),
+    }
+
+
+@router.get("/race-schedule")
+def race_schedule():
+    """Upcoming race schedule entries."""
+    client = get_influx_client()
+    query = 'SELECT * FROM "garmin_race_schedule" ORDER BY time DESC LIMIT 20'
+    rows = list(client.query(query).get_points())
+    return {"entries": rows}
+
+
+@router.get("/training-log")
+def training_log(days: int = 42):
+    """Recent training log entries with simple dedupe and pace calc."""
+    window = max(days, 1)
+    client = get_influx_client()
+    query = (
+        'SELECT * FROM "garmin_activity_summary" '
+        f"WHERE time >= now() - {window}d ORDER BY time DESC"
+    )
+    rows = list(client.query(query).get_points())
+    seen = set()
+    entries = []
+    for row in rows:
+        activity_id = row.get("activity_id") or row.get("Activity_ID") or row.get("activityId") or row.get("id")
+        if activity_id in seen:
+            continue
+        seen.add(activity_id)
+        distance = row.get("distance")
+        speed = row.get("averageSpeed") or row.get("average_speed") or row.get("average_speed_mps")
+        pace = (1000.0 / speed) if speed and speed > 0 else None
+        run_label = "Outdoor run" if str(row.get("activityType") or row.get("sport_type") or "").lower().startswith("run") else "Activity"
+        entries.append(
+            {
+                "activity_id": activity_id,
+                "time": row.get("time"),
+                "distance_m": distance,
+                "avg_pace_sec_per_km": pace,
+                "run_label": run_label,
+            }
+        )
+    return {"window_days": window, "entries": entries}

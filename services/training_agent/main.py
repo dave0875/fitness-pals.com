@@ -9,18 +9,17 @@ Note: long lines are tolerated in HTML/queries; Pylint line length is disabled.
 # pylint: disable=line-too-long
 from __future__ import annotations
 
-import os
-from typing import Optional
+from typing import Any, cast
 
-import requests
-from fastapi import FastAPI, Header, HTTPException
+import requests  # type: ignore[import-untyped]
+from fastapi import Depends, FastAPI
 from fastapi.responses import Response
 from google.oauth2 import id_token
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from services.training_agent import auth as auth_module
 from services.training_agent import metrics_routes as metrics_module
-from services.training_agent.auth import GOOGLE_CLIENT_ID, router as auth_router
+from services.training_agent.auth import GOOGLE_CLIENT_ID, require_google_auth, router as auth_router
 from services.training_agent.influx_utils import (
     get_influx_client,
     get_average_cadence,
@@ -36,37 +35,22 @@ from services.training_agent.ui import router as ui_router
 
 verify_google_bearer = auth_module.verify_google_bearer
 
-def require_google_auth(authorization: Optional[str] = Header(None, alias="Authorization")) -> dict:
-    """Dependency to enforce a valid Google bearer token on protected endpoints."""
-    client_id = (
-        GOOGLE_CLIENT_ID
-        or os.environ.get("RUNTRAINER_GOOGLE_CLIENT_ID")
-        or os.environ.get("GOOGLE_CLIENT_ID")
-    )
-    if not client_id:
-        raise HTTPException(status_code=500, detail="Server missing RUNTRAINER_GOOGLE_CLIENT_ID env")
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="Missing bearer token")
-    token = authorization.split(" ", 1)[1].strip()
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing bearer token")
-    return verify_google_bearer(token, client_id)
-
 
 app = FastAPI(title="Garmin Training API", version="0.1.0")
 app.middleware("http")(metrics_middleware)
 app.include_router(ui_router)
 app.include_router(auth_router)
-app.include_router(metrics_module.router)
+app.include_router(metrics_module.router, dependencies=[Depends(require_google_auth)])
 
 # Allow metrics routes to rely on overridable helpers from this module (dynamic lookup for tests).
 # pylint: disable=unnecessary-lambda
-metrics_module.get_influx_client = lambda: get_influx_client()
-metrics_module.get_average_cadence = lambda client, row: get_average_cadence(client, row)
-metrics_module.get_elevation_gain = lambda client, activity_id: get_elevation_gain(client, activity_id)
-metrics_module.get_elevation_stats = lambda client, activity_id: get_elevation_stats(client, activity_id)
-metrics_module.get_temperature_stats = lambda client, activity_id: get_temperature_stats(client, activity_id)
-metrics_module.get_max_cadence = lambda client, activity_id: get_max_cadence(client, activity_id)
+metrics_module_typed = cast(Any, metrics_module)
+metrics_module_typed.get_influx_client = lambda: get_influx_client()
+metrics_module_typed.get_average_cadence = lambda client, row: get_average_cadence(client, row)
+metrics_module_typed.get_elevation_gain = lambda client, activity_id: get_elevation_gain(client, activity_id)
+metrics_module_typed.get_elevation_stats = lambda client, activity_id: get_elevation_stats(client, activity_id)
+metrics_module_typed.get_temperature_stats = lambda client, activity_id: get_temperature_stats(client, activity_id)
+metrics_module_typed.get_max_cadence = lambda client, activity_id: get_max_cadence(client, activity_id)
 # pylint: enable=unnecessary-lambda
 
 

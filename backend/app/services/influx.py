@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Optional
+from typing import Optional, cast
+from uuid import UUID
 
 from influxdb_client import InfluxDBClient
 from sqlalchemy.orm import Session
 
+from app.types import InfluxClientLike
 from app.models import DataSource
 from app.utils.security import decrypt_token, encrypt_token
 
@@ -29,12 +31,12 @@ def validate_influx_identifier(value: str, field_name: str) -> str:
 
 def assert_safe_influx_config(ds: DataSource) -> DataSource:
     """Validate persisted org/bucket names before issuing queries."""
-    validate_influx_identifier(ds.influx_org, "org")
-    validate_influx_identifier(ds.influx_bucket, "bucket")
+    validate_influx_identifier(str(ds.influx_org), "org")
+    validate_influx_identifier(str(ds.influx_bucket), "bucket")
     return ds
 
 
-def get_user_datasource(db: Session, user_id) -> Optional[DataSource]:
+def get_user_datasource(db: Session, user_id: UUID) -> Optional[DataSource]:
     """Fetch a user's Influx datasource definition."""
     return (
         db.query(DataSource)
@@ -43,17 +45,17 @@ def get_user_datasource(db: Session, user_id) -> Optional[DataSource]:
     )
 
 
-def get_influx_client_for_user(db: Session, user_id) -> InfluxDBClient:
+def get_influx_client_for_user(db: Session, user_id: UUID) -> InfluxClientLike:
     """Instantiate an Influx client using the stored encrypted token."""
     ds = get_user_datasource(db, user_id)
     if not ds:
         raise ValueError("User has no InfluxDB datasource")
     assert_safe_influx_config(ds)
-    token = decrypt_token(ds.token_encrypted)
+    token = decrypt_token(cast(bytes, ds.token_encrypted))
     client = InfluxDBClient(url=ds.influx_url, org=ds.influx_org, token=token)
     # Stash defaults for writers
-    client.default_bucket = ds.influx_bucket
-    return client
+    client.default_bucket = ds.influx_bucket  # type: ignore[attr-defined]
+    return cast(InfluxClientLike, client)
 
 
 def ensure_user_datasource(db: Session, user_id) -> None:

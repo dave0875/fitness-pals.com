@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.deps import get_current_user
 from app.db import get_db
-from app.models import DataSource, User
+from app.models import DataSource
+from app.types import CurrentUserLike, InfluxClientLike
 from app.services.influx import (
     assert_safe_influx_config,
     get_influx_client_for_user,
@@ -43,7 +44,7 @@ logger = logging.getLogger("routes.datasource")
 @router.post("/influx/connect")
 def connect_influx(
     body: InfluxConnectRequest,
-    user: User = Depends(get_current_user),
+    user: CurrentUserLike = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Encrypt and persist Influx credentials for the authenticated user."""
@@ -54,10 +55,10 @@ def connect_influx(
         extra={"user_id": str(user.id), "url": str(body.url), "org": body.org, "bucket": body.bucket},
     )
     if existing:
-        existing.influx_url = str(body.url)
-        existing.influx_org = body.org
-        existing.influx_bucket = body.bucket
-        existing.token_encrypted = encrypted
+        existing.influx_url = str(body.url)  # type: ignore[assignment]
+        existing.influx_org = body.org  # type: ignore[assignment]
+        existing.influx_bucket = body.bucket  # type: ignore[assignment]
+        existing.token_encrypted = encrypted  # type: ignore[assignment]
     else:
         ds = DataSource(
             user_id=user.id,
@@ -74,7 +75,7 @@ def connect_influx(
 
 @router.get("/influx/verify")
 def verify_influx(
-    user: User = Depends(get_current_user), db: Session = Depends(get_db)
+    user: CurrentUserLike = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     """Ensure a stored Influx connection is still usable."""
     ds = get_user_datasource(db, user.id)
@@ -84,7 +85,7 @@ def verify_influx(
         assert_safe_influx_config(ds)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    client = get_influx_client_for_user(db, user.id)
+    client: InfluxClientLike = get_influx_client_for_user(db, user.id)
     query_api = client.query_api()
     try:
         query_api.query(

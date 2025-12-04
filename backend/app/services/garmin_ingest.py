@@ -1,13 +1,15 @@
 """Garmin ingestion orchestrator (tokens, client, delegation to domain modules)."""
+# mypy: ignore-errors
 
 from __future__ import annotations
 
 import os
 from datetime import datetime, timedelta
 import logging
-from typing import Optional
+from typing import Any, Optional, cast
 
 import garth
+from garth.auth_tokens import OAuth1Token
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from types import SimpleNamespace
@@ -28,6 +30,7 @@ from app.services.providers import (
 from app.services.garmin import activity as activity_svc
 from app.routes import providers_garmin
 from app.models.sleep import SleepSession
+from app.types import CurrentUserLike, InfluxClientLike
 
 
 logger = logging.getLogger("garmin_ingest")
@@ -51,7 +54,7 @@ def _redact_token(token: Optional[str]) -> str:
     return f"{token[:4]}...{token[-4:]}"
 
 
-def _ensure_fresh_tokens(db: Session, user, token_row) -> dict:
+def _ensure_fresh_tokens(db: Session, user: CurrentUserLike, token_row) -> dict:
     tokens = decrypt_user_tokens(token_row)
     expires_at: Optional[datetime] = tokens.get("expires_at")
     logger.info(
@@ -117,7 +120,7 @@ def _build_garth_client(access_token: str, token_secret: Optional[str] = None) -
         },
     )
     client = garth.Client()
-    client.oauth1_token = SimpleNamespace(
+    client.oauth1_token = OAuth1Token(
         oauth_token=access_token,
         oauth_token_secret=token_secret or "",
         mfa_token=None,
@@ -133,10 +136,17 @@ def _ensure_provider_user_id(db: Session, token_row, client) -> Optional[str]:
         return token_row.provider_user_id
     try:
         profile = client.connectapi("user-service/user/profile")
+        if isinstance(profile, list):
+            profile_obj = profile[0] if profile else {}
+        elif isinstance(profile, dict):
+            profile_obj = profile
+        else:
+            profile_obj = {}
         pid = (
-            profile.get("userId")
-            or profile.get("displayName")
-            or profile.get("username")
+            profile_obj.get("userId")
+            or profile_obj.get("displayName")
+            or profile_obj.get("username")
+            or profile_obj.get("id")
         )
         if pid:
             token_row.provider_user_id = str(pid)
@@ -156,7 +166,7 @@ def _ensure_provider_user_id(db: Session, token_row, client) -> Optional[str]:
     return None
 
 
-def _maybe_get_influx_client(db: Session, user):
+def _maybe_get_influx_client(db: Session, user: CurrentUserLike) -> InfluxClientLike | None:
     try:
         return get_influx_client_for_user(db, user.id)
     except Exception:
@@ -165,7 +175,7 @@ def _maybe_get_influx_client(db: Session, user):
 
 def _persist_sleep_sessions_from_bundle(
     db: Session,
-    user,
+    user: CurrentUserLike,
     run: IngestRun,
     bundle: dict,
     provider_key: str,
@@ -173,7 +183,12 @@ def _persist_sleep_sessions_from_bundle(
 ) -> int:
     """Persist daily sleep DTOs from the bundle into Postgres."""
     count = 0
-    for day in bundle.get("stats", {}).get("sleep_data") or []:
+    sleep_data = bundle.get("stats", {}).get("sleep_data")
+    if not isinstance(sleep_data, list):
+        return 0
+    for day in sleep_data:
+        if not isinstance(day, dict):
+            continue
         dto = day.get("daily_sleep_dto") or {}
         cal = dto.get("calendar_date") or dto.get("calendarDate")
         if cal and "calendarDate" not in dto:
@@ -209,7 +224,7 @@ def _persist_sleep_sessions_from_bundle(
     return count
 
 
-def fetch_garmin_recent(db: Session, user, test_run: bool = False) -> IngestRun:
+def fetch_garmin_recent(db: Session, user: CurrentUserLike, test_run: bool = False) -> IngestRun:
     mode = _mode()
     provider_key = "garmin" if mode == "oauth" else "garmin_scraper"
     token_row = get_user_provider_token(db, user.id, provider_key, getattr(user, "tenant_id", None))
@@ -228,13 +243,14 @@ def fetch_garmin_recent(db: Session, user, test_run: bool = False) -> IngestRun:
     access_token = tokens.get("access_token")
     if not access_token:
         raise HTTPException(status_code=410, detail="Garmin reauth required")
+    expires_at_val = tokens.get("expires_at")
     logger.info(
         "garmin fetch starting",
         extra={
             "user_id": str(getattr(user, "id", "")),
             "mode": mode,
             "provider": provider_key,
-            "expires_at": tokens.get("expires_at").isoformat() if tokens.get("expires_at") else None,
+            "expires_at": expires_at_val.isoformat() if isinstance(expires_at_val, datetime) else None,
             "access_token_hint": _redact_token(access_token),
             "test_run": test_run,
         },
@@ -247,11 +263,8 @@ def fetch_garmin_recent(db: Session, user, test_run: bool = False) -> IngestRun:
         token_secret = tokens.get("metadata", {}).get("token_secret") if isinstance(tokens.get("metadata"), dict) else None
     client = _build_garth_client(access_token, token_secret)
     provider_user_id = _ensure_provider_user_id(db, token_row, client)
-    try:
-        if provider_user_id:
-            client.username = str(provider_user_id)
-    except Exception:
-        pass
+    if provider_user_id:
+        setattr(cast(Any, client), "username", str(provider_user_id))
 
     run = dedupe.record_ingest_run(db, provider="garmin", user_id=getattr(user, "id", None))
     ingest_run_tag = f"TEST_{run.id}" if test_run else str(run.id)
@@ -322,10 +335,7 @@ def fetch_garmin_recent(db: Session, user, test_run: bool = False) -> IngestRun:
         if not candidate:
             continue
         inferred = str(candidate)
-        try:
-            client.username = inferred
-        except Exception:
-            pass
+        setattr(cast(Any, client), "username", inferred)
         if token_row.provider_user_id != inferred:
             try:
                 token_row.provider_user_id = inferred

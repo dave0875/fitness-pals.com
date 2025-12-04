@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -15,7 +14,7 @@ from app.services.influx import (
     get_influx_client_for_user,
     get_user_datasource,
 )
-from app.models import User
+from app.types import CurrentUserLike, InfluxClientLike, InfluxQueryApiLike
 
 
 class RaceReadinessRequest(BaseModel):
@@ -28,7 +27,7 @@ class RaceReadinessRequest(BaseModel):
 router = APIRouter(prefix="/api/metrics", tags=["metrics"])
 
 
-def _query(client, org: str, query: str):
+def _query(client: InfluxClientLike, org: str, query: str):
     """Run a Flux query."""
     return client.query_api().query(org=org, query=query)
 
@@ -42,7 +41,7 @@ def _sum_distance(points) -> float:
     return total
 
 
-def _distance_sum(query_api, org: str, bucket: str, days: int) -> float:
+def _distance_sum(query_api: InfluxQueryApiLike, org: str, bucket: str, days: int) -> float:
     """Aggregate distance for the specified window."""
     query = (
         f'from(bucket: "{bucket}") |> range(start: -{days}d) |> '
@@ -52,7 +51,7 @@ def _distance_sum(query_api, org: str, bucket: str, days: int) -> float:
     return _sum_distance(query_api.query(org=org, query=query))
 
 
-def _fetch_scalar(query_api, org: str, query: str):
+def _fetch_scalar(query_api: InfluxQueryApiLike, org: str, query: str):
     """Return the first scalar result from a Flux query."""
     result = query_api.query(org=org, query=query)
     for table in result:
@@ -61,7 +60,7 @@ def _fetch_scalar(query_api, org: str, query: str):
     return None
 
 
-def _fetch_histogram(query_api, org: str, query: str):
+def _fetch_histogram(query_api: InfluxQueryApiLike, org: str, query: str):
     """Return histogram-style results."""
     response = query_api.query(org=org, query=query)
     histogram = []
@@ -73,7 +72,7 @@ def _fetch_histogram(query_api, org: str, query: str):
     return histogram
 
 
-def _fetch_training_load(query_api, org: str, query: str):
+def _fetch_training_load(query_api: InfluxQueryApiLike, org: str, query: str):
     """Return load metrics keyed by field name."""
     response = query_api.query(org=org, query=query)
     load = []
@@ -84,7 +83,7 @@ def _fetch_training_load(query_api, org: str, query: str):
 
 
 @router.post("/summary")
-def summary(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def summary(user: CurrentUserLike = Depends(get_current_user), db: Session = Depends(get_db)):
     """Aggregate several readiness metrics from the user's Influx data."""
     ds = get_user_datasource(db, user.id)
     if not ds:
@@ -93,9 +92,9 @@ def summary(user: User = Depends(get_current_user), db: Session = Depends(get_db
         assert_safe_influx_config(ds)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    client = get_influx_client_for_user(db, user.id)
-    org = ds.influx_org
-    bucket = ds.influx_bucket
+    client: InfluxClientLike = get_influx_client_for_user(db, user.id)
+    org = str(ds.influx_org)
+    bucket = str(ds.influx_bucket)
     query_api = client.query_api()
     mileage_totals = {
         window: _distance_sum(query_api, org, bucket, window) for window in (30, 60, 90)
@@ -143,7 +142,7 @@ def summary(user: User = Depends(get_current_user), db: Session = Depends(get_db
 @router.post("/race_readiness")
 def race_readiness(
     body: RaceReadinessRequest,
-    user: User = Depends(get_current_user),
+    user: CurrentUserLike = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Heuristic readiness estimate based on last 30 days of mileage."""
@@ -155,8 +154,8 @@ def race_readiness(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     client = get_influx_client_for_user(db, user.id)
-    org = ds.influx_org
-    bucket = ds.influx_bucket
+    org = str(ds.influx_org)
+    bucket = str(ds.influx_bucket)
     miles_30 = _sum_distance(
         _query(
             client,

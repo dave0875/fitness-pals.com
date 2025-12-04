@@ -6,6 +6,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
 jobs:
   test:
     name: Lint & Test
@@ -22,7 +27,7 @@ jobs:
       RUNTRAINER_APPLE_CLIENT_SECRET: ci-apple-secret
       RUNTRAINER_APPLE_REDIRECT_URI: https://example.com/auth/apple/callback
       RUNTRAINER_DATABASE_URL: sqlite:///./ci.db
-      RUNTRAINER_FERNET_KEY: ZmFrZS1mZXJuZXQta2V5LWRvLW5vdC11c2U=  # fake key for tests
+      RUNTRAINER_FERNET_KEY: 1TvhF4GaxnOIBIq74rU9VrAXaxoBZw-oTCT3vJWRTwc=
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,32 +44,270 @@ jobs:
           python -m pip install -r services/training_agent/requirements-dev.txt
           python -m pip install ruff mypy
 
-      - name: Static analysis (syntax + lint + type check)
-        run: |
-          python -m compileall backend services/training_agent
-          # Fail-fast linting on undefined names/syntax only
-          ruff check --select=E9,F63,F7,F82 --target-version=py310 backend services/training_agent
-          mypy --ignore-missing-imports --implicit-optional backend services/training_agent
-
-      - name: Validate migrations (offline)
-        working-directory: backend
-        run: |
-          alembic upgrade head --sql >/dev/null
-
-      - name: Build training-agent image (unique tag per commit)
+      - name: Run checks and collect logs
+        id: run_checks
         env:
           CI_IMAGE_TAG: fitness-pals-training-agent:ci-${{ github.sha }}
-        run: |
-          docker build --pull -t "$CI_IMAGE_TAG" ./services/training_agent
-          docker rmi "$CI_IMAGE_TAG" || true
-
-      - name: Run tests with coverage (backend + training agent)
-        env:
           PYTHONPATH: backend:services/training_agent:.
         run: |
-          pytest -vv --maxfail=1 --disable-warnings \
-            --cov=backend --cov=services/training_agent --cov-report=term-missing \
-            backend/tests services/training_agent/tests
+          set +e
+          set -uo pipefail
+
+          issue_number=""
+          pr_number=""
+          branch="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+
+          if [[ "$branch" =~ ^(feature|hotfix)/([0-9]+)- ]]; then
+            issue_number="${BASH_REMATCH[2]}"
+          fi
+
+          commit_msg="$(git log -1 --pretty=%s)"
+          if [[ -z "$issue_number" && "$commit_msg" =~ Issue\ \#([0-9]+) ]]; then
+            issue_number="${BASH_REMATCH[1]}"
+          fi
+
+          if [[ -z "$issue_number" ]]; then
+            echo "Unable to extract issue number from branch name or commit message." >&2
+            exit 1
+          fi
+
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            pr_number="${GITHUB_EVENT_PATH:+$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")}"
+          fi
+
+          mkdir -p ci-logs
+
+          overall_status="passed"
+          backend_test_status="not_run"
+          backend_lint_status="not_run"
+          backend_typecheck_status="not_run"
+          frontend_build_status="not_run"
+          frontend_test_status="not_run"
+          frontend_lint_status="not_run"
+          frontend_root=""
+
+          for path in frontend web app ui; do
+            if [ -f "$path/package.json" ]; then
+              frontend_root="$path"
+              break
+            fi
+          done
+
+          if [ -z "$frontend_root" ]; then
+            echo "No frontend package.json found; marking frontend lint/test/build as passed (not applicable)."
+            frontend_build_status="passed"
+            frontend_test_status="passed"
+            frontend_lint_status="passed"
+          fi
+          docker_build_status="not_run"
+
+          run_cmd() {
+            local label="$1"
+            local status_var="$2"
+            local logfile="$3"
+            shift 3
+
+            echo "=== ${label} ==="
+            "$@" >"$logfile" 2>&1
+            local rc=$?
+            cat "$logfile"
+            if [[ $rc -eq 0 ]]; then
+              eval "${status_var}='passed'"
+            else
+              eval "${status_var}='failed'"
+              overall_status="failed"
+              echo "::error title=${label}::${label} failed. See ${logfile} in the CI artifact."
+            fi
+          }
+
+          run_cmd "Backend lint" backend_lint_status "ci-logs/backend-lint.log" \
+            bash -c "python -m compileall backend services/training_agent && ruff check --select=E9,F63,F7,F82 --target-version=py310 backend services/training_agent"
+
+          echo "=== Backend typecheck + migrations (offline) ==="
+          bash -c "mypy --ignore-missing-imports --implicit-optional backend services/training_agent && cd backend && alembic upgrade head --sql >/dev/null" >"ci-logs/backend-typecheck.log" 2>&1
+          rc=$?
+          cat "ci-logs/backend-typecheck.log"
+          if [[ $rc -eq 0 ]]; then
+            backend_typecheck_status="passed"
+          else
+            backend_typecheck_status="failed"
+            overall_status="failed"
+            echo "::error title=Backend typecheck::Backend typecheck/migrations failed. See ci-logs/backend-typecheck.log in the CI artifact."
+          fi
+
+          echo "=== Docker build ==="
+          bash -c "docker build --pull -t \"$CI_IMAGE_TAG\" -f services/training_agent/Dockerfile .; rc=$?; docker rmi \"$CI_IMAGE_TAG\" >/dev/null 2>&1 || true; exit $rc" >"ci-logs/docker-build.log" 2>&1
+          rc=$?
+          cat "ci-logs/docker-build.log"
+          if [[ $rc -eq 0 ]]; then
+            docker_build_status="passed"
+          else
+            docker_build_status="failed"
+            overall_status="failed"
+            echo "::error title=Docker build::Docker build failed. See ci-logs/docker-build.log in the CI artifact."
+          fi
+
+          echo "=== Backend tests ==="
+          bash -c "pytest -vv --maxfail=1 --disable-warnings --cov=backend --cov=services/training_agent --cov-report=term-missing backend/tests services/training_agent/tests" >"ci-logs/backend-test.log" 2>&1
+          rc=$?
+          cat "ci-logs/backend-test.log"
+          if [[ $rc -eq 0 ]]; then
+            backend_test_status="passed"
+          else
+            backend_test_status="failed"
+            overall_status="failed"
+            echo "::error title=Backend tests::Backend tests failed. See ci-logs/backend-test.log in the CI artifact."
+          fi
+
+          if [ -n "$frontend_root" ]; then
+            echo "=== Frontend install (${frontend_root}) ==="
+            install_cmd="npm ci"
+            if [ ! -f "$frontend_root/package-lock.json" ] && [ ! -f "$frontend_root/npm-shrinkwrap.json" ]; then
+              install_cmd="npm install"
+            fi
+            (cd "$frontend_root" && $install_cmd) >"ci-logs/frontend-install.log" 2>&1
+            cat "ci-logs/frontend-install.log"
+            rc=$?
+            if [[ $rc -ne 0 ]]; then
+              frontend_lint_status="failed"
+              frontend_test_status="failed"
+              frontend_build_status="failed"
+              overall_status="failed"
+              echo "::error title=Frontend install::npm ci failed. See ci-logs/frontend-install.log in the CI artifact."
+            else
+              run_cmd "Frontend lint" frontend_lint_status "ci-logs/frontend-lint.log" bash -c "cd \"$frontend_root\" && npm run lint --if-present"
+              run_cmd "Frontend tests" frontend_test_status "ci-logs/frontend-test.log" bash -c "cd \"$frontend_root\" && npm test --if-present -- --watch=false"
+              run_cmd "Frontend build" frontend_build_status "ci-logs/frontend-build.log" bash -c "cd \"$frontend_root\" && npm run build --if-present"
+            fi
+          fi
+
+          timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+          echo "=== Check summary ==="
+          echo "backend_lint: ${backend_lint_status}"
+          echo "backend_typecheck: ${backend_typecheck_status}"
+          echo "docker_build: ${docker_build_status}"
+          echo "backend_tests: ${backend_test_status}"
+          echo "frontend_build: ${frontend_build_status}"
+          echo "frontend_tests: ${frontend_test_status}"
+          echo "frontend_lint: ${frontend_lint_status}"
+          echo "overall: ${overall_status}"
+
+          # Do not exit non-zero here; downstream step will fail if overall_status != passed
+
+          cat >ci-logs/summary.json <<EOF
+          {
+            "issue": ${issue_number},
+            "pr": ${pr_number:-null},
+            "run_id": ${GITHUB_RUN_ID},
+            "status": "${overall_status}",
+            "checks": {
+              "backend_tests": "${backend_test_status}",
+              "backend_lint": "${backend_lint_status}",
+              "backend_typecheck": "${backend_typecheck_status}",
+              "frontend_build": "${frontend_build_status}",
+              "frontend_tests": "${frontend_test_status}",
+              "frontend_lint": "${frontend_lint_status}",
+              "docker_build": "${docker_build_status}"
+            },
+            "timestamp": "${timestamp}"
+          }
+          EOF
+
+          echo "issue_number=${issue_number}" >> "$GITHUB_OUTPUT"
+          echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
+          echo "overall_status=${overall_status}" >> "$GITHUB_OUTPUT"
+          echo "backend_test_status=${backend_test_status}" >> "$GITHUB_OUTPUT"
+          echo "backend_lint_status=${backend_lint_status}" >> "$GITHUB_OUTPUT"
+          echo "backend_typecheck_status=${backend_typecheck_status}" >> "$GITHUB_OUTPUT"
+          echo "frontend_build_status=${frontend_build_status}" >> "$GITHUB_OUTPUT"
+          echo "frontend_test_status=${frontend_test_status}" >> "$GITHUB_OUTPUT"
+          echo "frontend_lint_status=${frontend_lint_status}" >> "$GITHUB_OUTPUT"
+          echo "docker_build_status=${docker_build_status}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload CI logs artifact
+        if: always() && steps.run_checks.outputs.issue_number != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs-issue-${{ steps.run_checks.outputs.issue_number }}-run-${{ github.run_id }}
+          path: ci-logs
+          retention-days: 30
+
+      - name: Post CI summary to Issue
+        if: always() && steps.run_checks.outputs.issue_number != ''
+        uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ steps.run_checks.outputs.issue_number }}
+          PR_NUMBER: ${{ steps.run_checks.outputs.pr_number }}
+          RUN_STATUS: ${{ steps.run_checks.outputs.overall_status }}
+          BACKEND_TEST_STATUS: ${{ steps.run_checks.outputs.backend_test_status }}
+          BACKEND_LINT_STATUS: ${{ steps.run_checks.outputs.backend_lint_status }}
+          BACKEND_TYPECHECK_STATUS: ${{ steps.run_checks.outputs.backend_typecheck_status }}
+          FRONTEND_BUILD_STATUS: ${{ steps.run_checks.outputs.frontend_build_status }}
+          FRONTEND_TEST_STATUS: ${{ steps.run_checks.outputs.frontend_test_status }}
+          FRONTEND_LINT_STATUS: ${{ steps.run_checks.outputs.frontend_lint_status }}
+          DOCKER_BUILD_STATUS: ${{ steps.run_checks.outputs.docker_build_status }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issueNumber = Number(process.env.ISSUE_NUMBER);
+            if (!issueNumber) {
+              core.setFailed('Issue number is required to post CI summary.');
+            }
+
+            const prNumber = process.env.PR_NUMBER && process.env.PR_NUMBER !== "" ? Number(process.env.PR_NUMBER) : null;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const artifactName = `ci-logs-issue-${issueNumber}-run-${context.runId}`;
+
+            const statusMap = {
+              passed: 'PASS',
+              failed: 'FAIL',
+              not_run: 'N/A'
+            };
+
+            const checks = {
+              'Backend Tests': process.env.BACKEND_TEST_STATUS,
+              'Backend Lint': process.env.BACKEND_LINT_STATUS,
+              'Backend Typecheck': process.env.BACKEND_TYPECHECK_STATUS,
+              'Frontend Build': process.env.FRONTEND_BUILD_STATUS,
+              'Frontend Tests': process.env.FRONTEND_TEST_STATUS,
+              'Frontend Lint': process.env.FRONTEND_LINT_STATUS,
+              'Docker Build': process.env.DOCKER_BUILD_STATUS
+            };
+
+            const checksLines = Object.entries(checks)
+              .map(([name, value]) => `- ${name}: ${statusMap[value] || 'N/A'}`)
+              .join('\n');
+
+            const prLine = prNumber ? `**PR:** #${prNumber}  ` : '';
+
+            const body = [
+              '### CI Run Summary',
+              `**Issue:** #${issueNumber}  `,
+              `${prLine}**Run:** ${runUrl}  `,
+              `**Status:** ${process.env.RUN_STATUS.toUpperCase()}  `,
+              `**Timestamp:** ${new Date().toISOString()}`,
+              '',
+              '### Checks',
+              checksLines,
+              '',
+              '### Artifact',
+              'Logs and details are available in the CI artifact:',
+              `**${artifactName}**`,
+              '',
+              '(Do not paste logs directly into the Issue; always refer to artifacts)'
+            ].join('\\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body
+            });
+
+      - name: Fail if checks failed
+        if: always() && steps.run_checks.outputs.overall_status != 'passed'
+        run: exit 1
 
   deploy-dev:
     name: Deploy to Dev

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Optional, cast
+from typing import Any, Callable, Optional, cast
 
 from influxdb import InfluxDBClient
 from influxdb.exceptions import InfluxDBClientError, InfluxDBServerError
@@ -147,31 +147,41 @@ def first_non_null(*values):
     return None
 
 
+def _first_match(where_clauses: tuple[str, ...], builder: Callable[[str], list[dict]]) -> list[dict]:
+    """Return the first non-empty query result built from the given where clauses."""
+    for clause in where_clauses:
+        result = builder(clause)
+        if result:
+            return result
+    return []
+
+
 def get_elevation_stats(
     client: InfluxDBClient, activity_id: int
 ) -> dict[str, Optional[float]]:
     """Return ascent, descent, min, and max elevation for an activity."""
-    stats = {"ascent": None, "descent": None, "min": None, "max": None}
+    stats: dict[str, Optional[float]] = {"ascent": None, "descent": None, "min": None, "max": None}
+    where_clauses = (
+        f'"Activity_ID" = {int(activity_id)}',
+        f'"ActivityID" = {int(activity_id)}',
+        f'"activity_id" = \'{int(activity_id)}\'',
+    )
+    summary_where = f'"Activity_ID" = {int(activity_id)} OR "activityId" = {int(activity_id)}'
     try:
-        base = []
-        for where in (
-            f'"Activity_ID" = {int(activity_id)}',
-            f'"ActivityID" = {int(activity_id)}',
-            f'"activity_id" = \'{int(activity_id)}\'',
-        ):
-            base = _query_points(
+        base = _first_match(
+            where_clauses,
+            lambda where: _query_points(
                 client,
                 f'SELECT MIN("Altitude") AS min_alt, MAX("Altitude") AS max_alt FROM "ActivityGPS" WHERE {where}',
-            )
-            if base:
-                break
+            ),
+        )
         if base:
             stats["min"] = base[0].get("min_alt")
             stats["max"] = base[0].get("max_alt")
         if stats["min"] is None or stats["max"] is None:
             summary_minmax = _query_points(
                 client,
-                f'SELECT "minElevation","maxElevation" FROM "ActivitySummary" WHERE "Activity_ID" = {int(activity_id)} OR "activityId" = {int(activity_id)} LIMIT 1',
+                f'SELECT "minElevation","maxElevation" FROM "ActivitySummary" WHERE {summary_where} LIMIT 1',
             )
             if summary_minmax:
                 if stats["min"] is None:
@@ -179,53 +189,47 @@ def get_elevation_stats(
                 if stats["max"] is None:
                     stats["max"] = summary_minmax[0].get("maxElevation")
 
-        ascent = []
-        for where in (
-            f'"Activity_ID" = {int(activity_id)}',
-            f'"ActivityID" = {int(activity_id)}',
-            f'"activity_id" = \'{int(activity_id)}\'',
-        ):
-            ascent_q = (
-                'SELECT SUM("alt_diff") AS gain FROM ('
-                'SELECT DIFFERENCE("Altitude") AS alt_diff FROM "ActivityGPS" '
-                f'WHERE {where}'
-                ") WHERE alt_diff > 0"
-            )
-            ascent = _query_points(client, ascent_q)
-            if ascent:
-                break
+        ascent = _first_match(
+            where_clauses,
+            lambda where: _query_points(
+                client,
+                (
+                    'SELECT SUM("alt_diff") AS gain FROM ('
+                    'SELECT DIFFERENCE("Altitude") AS alt_diff FROM "ActivityGPS" '
+                    f'WHERE {where}'
+                    ") WHERE alt_diff > 0"
+                ),
+            ),
+        )
         if ascent:
             stats["ascent"] = ascent[0].get("gain")
         if stats["ascent"] is None:
             summary_gain = _query_points(
                 client,
-                f'SELECT "totalElevationGain","elevationGain" FROM "ActivitySummary" WHERE "Activity_ID" = {int(activity_id)} OR "activityId" = {int(activity_id)} LIMIT 1',
+                f'SELECT "totalElevationGain","elevationGain" FROM "ActivitySummary" WHERE {summary_where} LIMIT 1',
             )
             if summary_gain:
                 stats["ascent"] = summary_gain[0].get("totalElevationGain") or summary_gain[0].get("elevationGain")
 
-        descent = []
-        for where in (
-            f'"Activity_ID" = {int(activity_id)}',
-            f'"ActivityID" = {int(activity_id)}',
-            f'"activity_id" = \'{int(activity_id)}\'',
-        ):
-            descent_q = (
-                'SELECT SUM("alt_diff") AS loss FROM ('
-                'SELECT DIFFERENCE("Altitude") AS alt_diff FROM "ActivityGPS" '
-                f'WHERE {where}'
-                ") WHERE alt_diff < 0"
-            )
-            descent = _query_points(client, descent_q)
-            if descent:
-                break
+        descent = _first_match(
+            where_clauses,
+            lambda where: _query_points(
+                client,
+                (
+                    'SELECT SUM("alt_diff") AS loss FROM ('
+                    'SELECT DIFFERENCE("Altitude") AS alt_diff FROM "ActivityGPS" '
+                    f'WHERE {where}'
+                    ") WHERE alt_diff < 0"
+                ),
+            ),
+        )
         if descent:
             loss = descent[0].get("loss")
             stats["descent"] = abs(loss) if loss is not None else None
         if stats["descent"] is None:
             summary_loss = _query_points(
                 client,
-                f'SELECT "elevationLoss" FROM "ActivitySummary" WHERE "Activity_ID" = {int(activity_id)} OR "activityId" = {int(activity_id)} LIMIT 1',
+                f'SELECT "elevationLoss" FROM "ActivitySummary" WHERE {summary_where} LIMIT 1',
             )
             if summary_loss:
                 stats["descent"] = summary_loss[0].get("elevationLoss")
@@ -242,7 +246,7 @@ def get_temperature_stats(
     client: InfluxDBClient, activity_id: int
 ) -> dict[str, Optional[float]]:
     """Return avg/min/max temperature for an activity if available."""
-    stats = {"avg": None, "min": None, "max": None}
+    stats: dict[str, Optional[float]] = {"avg": None, "min": None, "max": None}
     try:
         temps = _query_points(
             client,

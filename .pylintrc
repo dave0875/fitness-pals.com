@@ -1,2 +1,18 @@
+[MASTER]
+init-hook=
+    import sys, os;
+    sys.path.insert(0, os.path.abspath("backend"))
+
+# No load-plugins needed; Pylint 3.x integrates them differently
+load-plugins=
+
+ignore=tests
+
 [MESSAGES CONTROL]
-disable=duplicate-code
+disable=
+    missing-docstring,
+    broad-exception-caught,
+    line-too-long
+
+[FORMAT]
+max-line-length=120

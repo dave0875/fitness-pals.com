@@ -91,9 +91,9 @@ def finish_ingest_run(
     summary: Optional[dict] = None,
 ) -> IngestRun:
     """Mark the ingest run as finished and store summary data."""
-    run.status = status
-    run.finished_at = run.finished_at or datetime.utcnow()
-    run.summary = summary
+    run.status = status  # type: ignore[assignment]
+    run.finished_at = run.finished_at or datetime.utcnow()  # type: ignore[assignment]
+    run.summary = summary  # type: ignore[assignment]
     db.commit()
     db.refresh(run)
     return run

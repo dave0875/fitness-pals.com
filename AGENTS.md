@@ -1,20 +1,23 @@
 # **AGENTS.md**
 
-### *Trunk-Based Development + SUPER PROMPT Governance Model*
+## *Trunk-Based Development + SUPER PROMPT Governance Model*
 
 > **Purpose:**
-> This document defines the required workflow for all contributors—humans and AI agents—to ensure the repository remains **stable, traceable, auditable, incrementally improving, and operationally safe**.
+> This document defines the required workflow for all contributors—humans
+> and AI agents—and ensures the repository remains **stable, traceable,
+> auditable, incrementally improving, and operationally safe**.
 
 This document is binding.
 
 ---
 
-# 🔒 **1. Core Principles**
+## 🔒 **1. Core Principles**
 
 ## **1.1 Trunk-Based Development**
 
 * The repository uses a **single protected trunk branch: `main`**.
-* All work occurs in **short-lived feature branches** branched from `main`, named `feature/<issue-number>-<kebab-topic>` (Issue ID required).
+* All work happens in **short-lived feature branches** based on `main` and named
+  `feature/<issue-number>-<kebab-topic>` (Issue ID required).
 * All PRs target `main`.
 * There is no `develop` branch or long-lived integration branches.
 
@@ -51,7 +54,8 @@ Required:
 
 1. The Issue MUST contain the full SUPER PROMPT text verbatim.
 2. The Issue MUST belong to a **GitHub Project** representing the larger initiative.
-3. If no relevant Project exists, a **human must create one**, then add the Issue to it.
+3. If no relevant Project exists, a **human must create one**,
+   then add the Issue to it.
 
 Work cannot begin until:
 
@@ -70,15 +74,15 @@ Every output of this workflow MUST reference the associated Issue:
 * **PR title and description**
 * **Annotated tags**
 
-### Commit message format example:
+### Commit message format example
 
-```
+```text
 Issue #42: Implement RR parsing logic
 ```
 
-### Tag name and message examples:
+### Tag name and message examples
 
-```
+```text
 Tag name: v20251201-fit-rr-issue-42
 Tag message: Issue #42: Implement RR parsing logic and export readiness data
 ```
@@ -103,7 +107,9 @@ Only then is the Issue moved to **Done**.
 ## **1.6 CI Logs MUST Be Standardized and Recorded in the Issue (Revised)**
 
 Every PR triggers one or more CI workflows.
-**Each workflow execution (pass or fail) MUST produce logs stored in a standardized location and format and linked into the Issue via a structured Issue comment.**
+**Each workflow execution (pass or fail) MUST produce logs stored in a
+standardized location and format and linked into the Issue via a
+structured Issue comment.**
 
 ### **1.6.1 Required Log Storage Format**
 
@@ -113,9 +119,10 @@ All CI logs MUST be stored using these rules:
 
    * Artifact name format:
 
-     ```
+     ```text
      ci-logs-issue-<issue-number>-run-<run-id>
      ```
+
    * Contents:
 
      * `backend-test.log`
@@ -133,15 +140,18 @@ All CI logs MUST be stored using these rules:
 3. **Logs MUST NOT be pasted directly in-line** into the Issue.
    Only the structured comment (below) is allowed.
 
-4. If a scope does not run (e.g., no frontend changes), omit the corresponding log file and record `"<scope>_*": "not_run"` in `summary.json` (e.g., `frontend_build: "not_run"`).
+4. If a scope does not run (e.g., no frontend changes), omit the corresponding log
+   file and record `"<scope>_*": "not_run"`
+   in `summary.json` (e.g., `frontend_build: "not_run"`).
 
 ---
 
 ### **1.6.2 Required Issue Comment Format**
 
-For each CI run (pass or fail), a comment MUST be posted to the Issue using this exact template:
+For each CI run (pass or fail), a comment MUST be posted to the Issue using
+this exact template:
 
-```
+```text
 ### CI Run Summary
 **Issue:** #<issue-number>  
 **PR:** <link-to-pr>  
@@ -167,7 +177,8 @@ Logs and details are available in the CI artifact:
 
 This ensures Issues remain readable, while preserving deep-dive logs when needed.
 
-If a check did not run, mark it as `N/A` in the comment and ensure the matching entry in `summary.json` is `"not_run"`.
+If a check did not run, mark it as `N/A` in the comment and ensure
+the matching entry in `summary.json` is `"not_run"`.
 
 ---
 
@@ -240,7 +251,8 @@ This ensures that:
 
 ## **1.7 Required Mechanical Enforcement (Commit, Tag, Branch, PR Validation)**
 
-To ensure the mandatory traceability between SUPER PROMPT Issues, commits, tags, and PRs, the following protections and automated checks are REQUIRED.
+To ensure the mandatory traceability between SUPER PROMPT Issues, commits,
+tags, and PRs, the following protections and automated checks are REQUIRED.
 
 These protections must be enabled at the repository level — **this is not optional.**
 Agents and humans MUST rely on these protections.
@@ -249,7 +261,7 @@ Agents and humans MUST rely on these protections.
 
 ## **1.7.1 Required Branch Protection Rules**
 
-### The `main` branch MUST be protected with:
+### The `main` branch MUST be protected
 
 1. **Require status checks to pass before merging**
 
@@ -277,41 +289,43 @@ Agents and humans MUST rely on these protections.
 
 All feature and hotfix branches MUST follow this exact format:
 
-```
+```text
 feature/<issue-number>-<kebab-topic>
 hotfix/<issue-number>-<kebab-topic>
 ```
 
-### Required GitHub branch name pattern (RegEx):
+### Required GitHub branch name pattern (RegEx)
 
-```
+```text
 ^(feature|hotfix)\/[0-9]+-[a-z0-9\-]+$
 ```
 
-This ensures the Issue number is mechanically extractable for CI.
+This ensures the Issue number is mechanically extractable
+for CI.
 
 GitHub branch protection MUST enforce this pattern.
 
 ---
 
-## **1.7.3 Required Commit Message Format (Enforced by GitHub Action + server-side hooks)**
+## **1.7.3 Required Commit Message Format (GitHub Action + server hooks)**
 
 Every commit MUST reference the Issue, using:
 
-```
+```text
 Issue #<issue-number>: <description>
 ```
 
-### Required commit regex:
+### Required commit regex
 
-```
+```text
 ^Issue #[0-9]+: .+
 ```
 
 This MUST be enforced by:
 
 * A GitHub Action that **fails the PR** if any commit does not match
-* (Optional but recommended) a server-side `pre-receive` hook for GitHub Enterprise environments
+* (Optional but recommended) a server-side `pre-receive` hook for GitHub
+  Enterprise environments
 
 ---
 
@@ -321,13 +335,13 @@ Every merged change MUST be tagged using the following rules:
 
 ### **Tag Name Format (Required, Enforced by Regex)**
 
-```
+```text
 vYYYYMMDD-<kebab-topic>-issue-<issue-number>
 ```
 
 Examples:
 
-```
+```text
 v20251201-fit-rr-issue-42
 v20260115-frontend-cors-update-issue-87
 v20250203-fix-docker-build-issue-5
@@ -337,15 +351,16 @@ v20250203-fix-docker-build-issue-5
 
 The annotated tag message MUST begin with:
 
-```
+```text
 Issue #<issue-number>: <short description>
 ```
 
-The description must briefly state how the tagged release satisfies the referenced Issue.
+The description must briefly state how the tagged release satisfies
+the referenced Issue.
 
 Example:
 
-```
+```text
 Issue #42: Implement RR FIT parsing and update tests
 Merged to main with CI passing. See Issue #42 for full context.
 ```
@@ -365,15 +380,15 @@ This ensures:
 
 ## **1.7.5 Required Regex Enforcement**
 
-### Tag Name Regex:
+### Tag Name Regex
 
-```
+```text
 ^v[0-9]{8}-[a-z0-9\-]+-issue-[0-9]+$
 ```
 
-### Tag Message Regex:
+### Tag Message Regex
 
-```
+```text
 ^Issue #[0-9]+: .+
 ```
 
@@ -381,7 +396,9 @@ If a tag does **not** match both patterns:
 
 * It MUST NOT be allowed to remain in the repo
 * The CI tag validation workflow MUST fail
-* The release owner or repo admin MUST delete the bad tag (`git tag -d <tag> && git push origin :refs/tags/<tag>`) and recreate it with the correct format before release continues
+* The release owner or repo admin MUST delete the bad tag
+  (`git tag -d <tag> && git push origin :refs/tags/<tag>`) and recreate it
+  with the correct format before release continues
 
 ---
 
@@ -392,7 +409,7 @@ A PR **must not be allowed to merge** unless:
 1. **PR title includes Issue number**
    Example:
 
-   ```
+   ```text
    Issue #42 — Add RR interval FIT parsing
    ```
 
@@ -438,14 +455,14 @@ This ensures **zero drift** between Issue → Branch → Commit → PR → Tag.
 
 Contributors may install optional local hooks for convenience:
 
-### `commit-msg` hook:
+### `commit-msg` hook
 
 Validates:
 
 * Issue syntax
 * Regex patterns
 
-### `pre-push` hook:
+### `pre-push` hook
 
 Validates:
 
@@ -496,7 +513,7 @@ Before beginning new work:
 
 ---
 
-# 🧪 **2. CI Gatekeeping**
+## 🧪 **2. CI Gatekeeping**
 
 ## **2.1 CI Is Mandatory**
 
@@ -580,7 +597,7 @@ Each CI run (pass or fail) requires logs to be saved into the Issue for:
 
 ---
 
-# 🔁 **3. The Full Workflow**
+## 🔁 **3. The Full Workflow**
 
 ## **Step 0 — Write SUPER PROMPT**
 
@@ -593,7 +610,7 @@ Assign to a GitHub Project.
 
 ## **Step 2 — Create Feature Branch**
 
-```
+```bash
 git checkout main
 git pull origin main
 git checkout -b feature/<issue-number>-<kebab-topic>
@@ -607,7 +624,7 @@ Follow the SUPER PROMPT strictly.
 
 Backend:
 
-```
+```bash
 make test
 make lint
 make typecheck
@@ -615,7 +632,7 @@ make typecheck
 
 Frontend:
 
-```
+```bash
 npm run lint
 npm run test
 npm run build
@@ -623,13 +640,13 @@ npm run build
 
 ## **Step 5 — Commit (reference Issue!)**
 
-```
+```bash
 git commit -m "Issue #42: Add RR parsing"
 ```
 
 ## **Step 6 — Push**
 
-```
+```bash
 git push origin feature/<issue-number>-<kebab-topic>
 ```
 
@@ -650,8 +667,9 @@ Include:
 
 ## **Step 10 — Create Annotated Tag (must reference Issue)**
 
-```
-git tag -a vYYYYMMDD-<kebab-topic>-issue-<issue-number> -m "Issue #<issue-number>: <how this tag satisfies the Issue>"
+```bash
+git tag -a vYYYYMMDD-<kebab-topic>-issue-<issue-number> \
+  -m "Issue #<issue-number>: <how this tag satisfies the Issue>"
 git push origin --tags
 ```
 
@@ -666,17 +684,19 @@ Only once:
 
 ---
 
-# 🔧 **4. Branching Model**
+## 🔧 **4. Branching Model**
 
 * `main` — protected trunk, always deployable
 * `feature/<issue-number>-<kebab-topic>` — short-lived, one per SUPER PROMPT
-* `hotfix/<issue-number>-<kebab-topic>` — urgent fixes from main (production incident exception flow will be defined when live; until then follow the standard workflow)
+* `hotfix/<issue-number>-<kebab-topic>` — urgent fixes from main
+  (production incident exception flow will be defined when live;
+   until then follow the standard workflow)
 
 No long-lived branches.
 
 ---
 
-# 🤖 **5. AI Agent Rules (Strict)**
+## 🤖 **5. AI Agent Rules (Strict)**
 
 AI agents MUST:
 
@@ -697,7 +717,7 @@ AGENTS.md is a **non-negotiable contract**.
 
 ---
 
-# 🧭 **6. Summary**
+## 🧭 **6. Summary**
 
 * Trunk-based development
 * SUPER PROMPT → Issue → Project is mandatory
@@ -707,6 +727,7 @@ AGENTS.md is a **non-negotiable contract**.
 * CI logs must be posted to the Issue
 * Merge → tag → CI pass → then close Issue
 
-This model creates a **high-stability, high-auditability, low-friction, AI-compatible development environment**.
+This model creates a **high-stability, high-auditability, low-friction,
+AI-compatible development environment**.
 
 ---

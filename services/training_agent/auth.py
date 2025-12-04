@@ -1,7 +1,6 @@
 # ruff: noqa: E501
 # pylint: disable=line-too-long
 """Google OAuth helper utilities for the training agent."""
-
 from __future__ import annotations
 
 import json
@@ -9,7 +8,7 @@ import logging
 import os
 from typing import Optional
 
-import requests
+import requests  # type: ignore[import-untyped]
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from google.auth import exceptions as google_exceptions
@@ -65,10 +64,15 @@ def verify_google_bearer(token: str, audience: str) -> dict:
     - ID tokens are verified locally via google.oauth2.id_token.
     - Access tokens are verified by calling Google's tokeninfo endpoint.
     """
+    # Allow tests to monkeypatch tokens/HTTP via the main module.
+    from services.training_agent import main as training_main  # pylint: disable=import-outside-toplevel
+
+    token_verifier = getattr(training_main, "id_token", id_token)
+    requests_module = getattr(training_main, "requests", requests)
     request_obj = google_requests.Request()
 
     try:
-        claims = id_token.verify_oauth2_token(token, request_obj, audience=audience)
+        claims = token_verifier.verify_oauth2_token(token, request_obj, audience=audience)
         claims["_token_type"] = "id_token"
         return claims
     except (ValueError, google_exceptions.GoogleAuthError) as err:
@@ -78,16 +82,15 @@ def verify_google_bearer(token: str, audience: str) -> dict:
         )
 
     try:
-        # Some test stubs don't accept kwargs; try standard call then fall back.
-        get_fn = requests.get
         try:
-            resp = get_fn(
+            resp = requests_module.get(
                 TOKENINFO_URL,
                 params={"access_token": token},
                 timeout=GOOGLE_REQUEST_TIMEOUT,
             )
         except TypeError:
-            resp = get_fn(TOKENINFO_URL, {"access_token": token}, GOOGLE_REQUEST_TIMEOUT)
+            # Test doubles may not accept keyword args; retry positionally.
+            resp = requests_module.get(TOKENINFO_URL, {"access_token": token}, GOOGLE_REQUEST_TIMEOUT)
         if resp.status_code != 200:
             logger.warning(
                 "tokeninfo request failed",
@@ -127,21 +130,20 @@ def require_google_auth(
     authorization: Optional[str] = Header(None, alias="Authorization")
 ) -> dict:
     """Dependency to enforce a valid Google bearer token on protected endpoints."""
-    client_id = (
-        GOOGLE_CLIENT_ID
-        or os.environ.get("RUNTRAINER_GOOGLE_CLIENT_ID")
-        or os.environ.get("GOOGLE_CLIENT_ID")
-    )
+    from services.training_agent import main as training_main  # pylint: disable=import-outside-toplevel
+    env_client_id = os.environ.get("RUNTRAINER_GOOGLE_CLIENT_ID") or os.environ.get("GOOGLE_CLIENT_ID")
+    client_id = getattr(training_main, "GOOGLE_CLIENT_ID", None) or env_client_id
     if not client_id:
         raise HTTPException(
             status_code=500, detail="Server missing RUNTRAINER_GOOGLE_CLIENT_ID env"
-        )
+    )
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
     token = authorization.split(" ", 1)[1].strip()
     if not token:
         raise HTTPException(status_code=401, detail="Missing bearer token")
-    return verify_google_bearer(token, client_id)
+    verifier = getattr(training_main, "verify_google_bearer", verify_google_bearer)
+    return verifier(token, client_id)
 
 
 @router.get("/oauth/google/auth")
