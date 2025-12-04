@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Annotated, Any, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.deps import get_current_user
 from app.db import get_db
-from app.models import ProviderApp, User, UserProviderToken
+from app.models import ProviderApp, UserProviderToken
+from app.types import CurrentUserLike
 from app.services.providers import (
     ProviderAppDetails,
     ProviderTokenDetails,
@@ -61,7 +62,7 @@ router = APIRouter(prefix="/api/providers", tags=["providers"])
 
 
 @router.get("/apps")
-def list_apps(_: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_apps(_: Annotated[Any, Depends(get_current_user)], db: Session = Depends(get_db)):
     """List provider apps visible to the authenticated operator."""
     # NOTE: restrict this to admins once the RBAC story is in place.
     apps = list_provider_apps(db)
@@ -85,7 +86,7 @@ def list_apps(_: User = Depends(get_current_user), db: Session = Depends(get_db)
 @router.post("/apps")
 def create_or_update_app(
     body: ProviderAppRequest,
-    _: User = Depends(get_current_user),
+    _: Annotated[Any, Depends(get_current_user)],
     db: Session = Depends(get_db),
 ):
     """Create or update the credentials for a provider app."""
@@ -112,7 +113,7 @@ def create_or_update_app(
 def connect_provider(
     provider: str,
     body: ProviderTokenRequest,
-    user: User = Depends(get_current_user),
+    user: CurrentUserLike = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Store a user's OAuth tokens for a provider."""
@@ -142,7 +143,7 @@ def connect_provider(
 @router.post("/garmin/scraper/connect")
 def connect_garmin_scraper(
     body: GarminScraperConnectRequest,
-    user: User = Depends(get_current_user),
+    user: CurrentUserLike = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -158,7 +159,7 @@ def connect_garmin_scraper(
 
 @router.get("/me")
 def list_user_connections(
-    user: User = Depends(get_current_user), db: Session = Depends(get_db)
+    user: CurrentUserLike = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     """List the providers the current user has connected."""
     tokens = (
@@ -180,7 +181,7 @@ def list_user_connections(
 
 @router.get("/{provider}/app")
 def get_app(
-    provider: str, _: User = Depends(get_current_user), db: Session = Depends(get_db)
+    provider: str, _: Annotated[Any, Depends(get_current_user)], db: Session = Depends(get_db)
 ):
     """Fetch the configured provider application metadata."""
     app = get_provider_app(db, provider.lower())

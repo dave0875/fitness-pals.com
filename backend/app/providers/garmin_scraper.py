@@ -8,11 +8,11 @@ from typing import Any
 from app.services.providers import decrypt_user_tokens
 from app.models import UserProviderToken
 
-GarminConnectClient: Any | None = None
+garmin_connect_client_cls: Any | None = None
 try:
-    from garth import Client as GarminConnectClient  # type: ignore
+    from garth import Client as garmin_connect_client_cls  # type: ignore
 except ImportError:  # pragma: no cover - optional dependency
-    GarminConnectClient = None
+    garmin_connect_client_cls = None
 
 logger = logging.getLogger("providers.garmin_scraper")
 
@@ -30,10 +30,11 @@ class GarminScraperClient:
 
     def login(self):
         """Authenticate with Garmin Connect using stored credentials."""
-        if GarminConnectClient is None:
+        if garmin_connect_client_cls is None:
             raise RuntimeError("garth client not installed; cannot use Garmin scraper")
 
-        self._client = GarminConnectClient()
+        self._client = garmin_connect_client_cls()
+        assert self._client is not None
         self._client.login(self.username, self.password)
         return self._client
 

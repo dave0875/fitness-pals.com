@@ -7,6 +7,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Tuple
 
+from app.types import InfluxClientLike
+
 
 def _base_tags(user, run, ingest_run_tag: str) -> Dict[str, str]:
     return {
@@ -255,7 +257,7 @@ def build_timeseries(bundle: dict, user, run, ingest_run_tag: str) -> List[Dict[
     return [p for p in points if p.get("fields")]
 
 
-def write_timeseries(client, points: List[Dict[str, Any]]):
+def write_timeseries(client: InfluxClientLike, points: List[Dict[str, Any]]):
     """Write a list of points to Influx."""
     if not points:
         return 0

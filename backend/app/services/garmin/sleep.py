@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Any, Dict, Optional, Tuple, cast
+
+from app.types import CurrentUserLike, InfluxClientLike
 
 from sqlalchemy.orm import Session
 
@@ -18,7 +20,7 @@ if not logger.handlers:
 logger.propagate = True
 
 
-def split_sleep_payload(payload: Dict[str, any]) -> tuple[Dict[str, any], Dict[str, list]]:
+def split_sleep_payload(payload: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, list]]:
     """Split sleep payload into summary DTO and timeseries arrays."""
     dto = payload.get("dailySleepDTO") or {}
     series = {k: v for k, v in payload.items() if k != "dailySleepDTO" and isinstance(v, list)}
@@ -29,7 +31,7 @@ def persist_sleep_session(
     db: Session,
     user_id,
     provider: str,
-    dto: Dict[str, any],
+    dto: Dict[str, Any],
     ingest_run_id=None,
     test_run: bool = False,
 ):
@@ -59,8 +61,8 @@ def persist_sleep_session(
         .first()
     )
     if existing:
-        existing.calendar_date = calendar_date
-        existing.summary_json = dto
+        existing.calendar_date = cast(Any, calendar_date)
+        existing.summary_json = cast(Any, dto)
         existing.ingest_run_id = ingest_run_id or existing.ingest_run_id
         existing.updated_at = datetime.utcnow()
         db.commit()
@@ -81,8 +83,8 @@ def persist_sleep_session(
 
 
 def write_sleep_series(
-    client,
-    user,
+    client: InfluxClientLike,
+    user: CurrentUserLike,
     sleep_id,
     series: Dict[str, list],
     run,

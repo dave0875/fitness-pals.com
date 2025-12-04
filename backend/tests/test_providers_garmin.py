@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -12,8 +13,8 @@ from fastapi import HTTPException
 
 from app.routes import providers_garmin
 from app.services import garmin_ingest
-from app.models.provider import UserProviderToken
 from app.services.providers import ProviderTokenDetails, save_user_provider_token
+from app.types import CurrentUserLike
 
 
 class FakeQuery:
@@ -56,12 +57,28 @@ class FakeSession:
         return None
 
 
+def _fake_user(tenant_id=None) -> CurrentUserLike:
+    class FakeUser:
+        def __init__(self, tenant=None):
+            self.id = uuid.uuid4()
+            self.tenant_id = tenant
+
+    return FakeUser(tenant_id)
+
+
+GARMIN_DEFAULT_TOKEN_URL = "https://connect.garmin.com/oauth/token"
+
+
+def _test_token_url():
+    return os.environ.get("GARMIN_TOKEN_URL", GARMIN_DEFAULT_TOKEN_URL)
+
+
 def test_login_builds_redirect(monkeypatch):
     """Login endpoint should build a Garmin auth URL with configured env."""
     monkeypatch.setenv("GARMIN_CLIENT_ID", "cid")
     monkeypatch.setenv("GARMIN_CLIENT_SECRET", "secret")
     monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
-    resp = providers_garmin.garmin_login(SimpleNamespace())
+    resp = providers_garmin.garmin_login(_fake_user())
     assert resp.status_code in (302, 307)
     assert "response_type=code" in resp.headers["location"]
     assert "client_id=cid" in resp.headers["location"]
@@ -74,8 +91,8 @@ def test_callback_happy_path(monkeypatch):
     monkeypatch.setenv("GARMIN_CLIENT_SECRET", "secret")
     monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
     db = FakeSession()
-    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
-    token_url = providers_garmin._config()["token_url"]
+    user = _fake_user()
+    token_url = _test_token_url()
     with requests_mock.Mocker() as m:
         m.post(
             token_url,
@@ -106,7 +123,7 @@ def test_callback_missing_code(monkeypatch):
     monkeypatch.setenv("GARMIN_CLIENT_SECRET", "secret")
     monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
     with pytest.raises(HTTPException):
-        providers_garmin.garmin_callback(code=None, user=SimpleNamespace(), db=FakeSession())
+        providers_garmin.garmin_callback(code=None, user=_fake_user(), db=FakeSession())
 
 
 def test_refresh_happy_path(monkeypatch):
@@ -115,7 +132,7 @@ def test_refresh_happy_path(monkeypatch):
     monkeypatch.setenv("GARMIN_CLIENT_SECRET", "secret")
     monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
     db = FakeSession()
-    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    user = _fake_user()
     # Seed existing token
     providers_garmin.save_user_provider_token(
         db,
@@ -127,7 +144,7 @@ def test_refresh_happy_path(monkeypatch):
             refresh_token="old-rt",
         ),
     )
-    token_url = providers_garmin._config()["token_url"]
+    token_url = _test_token_url()
     with requests_mock.Mocker() as m:
         m.post(
             token_url,
@@ -147,7 +164,7 @@ def test_refresh_reauth_when_missing_refresh(monkeypatch):
     monkeypatch.setenv("GARMIN_CLIENT_SECRET", "secret")
     monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
     db = FakeSession()
-    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    user = _fake_user()
     providers_garmin.save_user_provider_token(
         db,
         providers_garmin.ProviderTokenDetails(
@@ -170,8 +187,8 @@ def test_fetch_all_batch(monkeypatch):
     monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
     monkeypatch.setenv("GARMIN_API_BASE", "https://mock.garmin")
     db = FakeSession()
-    user1 = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
-    user2 = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    user1 = _fake_user()
+    user2 = _fake_user()
     providers_garmin.save_user_provider_token(
         db,
         providers_garmin.ProviderTokenDetails(
@@ -194,12 +211,12 @@ def test_fetch_all_batch(monkeypatch):
             expires_at=datetime.utcnow() + timedelta(hours=1),
         ),
     )
-    class FakeClient:
+    class FakeClient:  # pylint: disable=too-few-public-methods
         def connectapi(self, *_args, **_kwargs):
             return [{"id": 1}]
 
-    monkeypatch.setattr(garmin_ingest, "garth", SimpleNamespace(Client=lambda: FakeClient(), auth=None))
-    summary = providers_garmin.garmin_fetch_all(SimpleNamespace(), db=db)
+    monkeypatch.setattr(garmin_ingest, "garth", SimpleNamespace(Client=FakeClient, auth=None))
+    summary = providers_garmin.garmin_fetch_all(_fake_user(), db=db)
     assert summary["runs"] >= 1
     assert summary.get("errors", 0) >= 0
 
@@ -207,7 +224,7 @@ def test_fetch_all_batch(monkeypatch):
 def test_token_status_allows_clock_skew():
     """Token status should not immediately report expired when slightly in the past."""
     db = FakeSession()
-    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    user = _fake_user()
     # Seed a token that expired 1 minute ago; should still be considered active due to grace period.
     save_user_provider_token(
         db,
@@ -229,7 +246,7 @@ def test_token_status_allows_clock_skew():
 def test_token_status_respects_garmin_mode(monkeypatch):
     """Status should return only the token matching GARMIN_MODE."""
     db = FakeSession()
-    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    user = _fake_user()
     # Older garmin token
     save_user_provider_token(
         db,
@@ -270,7 +287,7 @@ def test_refresh_reauth_on_failure(monkeypatch):
     monkeypatch.setenv("GARMIN_CLIENT_SECRET", "secret")
     monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
     db = FakeSession()
-    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    user = _fake_user()
     providers_garmin.save_user_provider_token(
         db,
         providers_garmin.ProviderTokenDetails(
@@ -281,7 +298,7 @@ def test_refresh_reauth_on_failure(monkeypatch):
             refresh_token="old-rt",
         ),
     )
-    token_url = providers_garmin._config()["token_url"]
+    token_url = _test_token_url()
     with requests_mock.Mocker() as m:
         m.post(token_url, status_code=400)
         with pytest.raises(HTTPException) as exc:
@@ -296,7 +313,7 @@ def test_fetch_happy_path(monkeypatch):
     monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
     monkeypatch.setenv("GARMIN_API_BASE", "https://mock.garmin")
     db = FakeSession()
-    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    user = _fake_user()
     providers_garmin.save_user_provider_token(
         db,
         providers_garmin.ProviderTokenDetails(
@@ -308,26 +325,37 @@ def test_fetch_happy_path(monkeypatch):
             expires_at=datetime.utcnow() + timedelta(hours=1),
         ),
     )
-    class FakeClient:
+    class FakeClient:  # pylint: disable=too-few-public-methods
         def connectapi(self, *_args, **_kwargs):
             return [{"id": 1}, {"id": 2}]
 
-    monkeypatch.setattr(garmin_ingest, "garth", SimpleNamespace(Client=lambda: FakeClient(), auth=None))
-    class FakeWriteAPI:
+    monkeypatch.setattr(garmin_ingest, "garth", SimpleNamespace(Client=FakeClient, auth=None))
+    class FakeWriteAPI:  # pylint: disable=too-few-public-methods
         def __init__(self):
             self.records = []
 
         def write(self, bucket=None, org=None, record=None):  # pylint: disable=unused-argument
             self.records.extend(record or [])
 
-    fake_influx = SimpleNamespace(
-        org="org",
-        default_bucket="bucket",
-        write_api_obj=FakeWriteAPI(),
-        write_api=lambda: None,
-    )
-    fake_influx.write_api = lambda: fake_influx.write_api_obj
-    monkeypatch.setattr(garmin_ingest, "get_influx_client_for_user", lambda _db, _uid: fake_influx)
+    class FakeInfluxClient:  # pylint: disable=too-few-public-methods
+        def __init__(self):
+            self.org = "org"
+            self.default_bucket = "bucket"
+            self.write_api_obj = FakeWriteAPI()
+
+        def write_api(self):
+            return self.write_api_obj
+
+        def query_api(self):
+            return SimpleNamespace(query=lambda **_kwargs: [])
+
+        def delete_api(self):
+            return SimpleNamespace(delete=lambda **_kwargs: None)
+
+    def fake_influx_client(_db, _uid):  # pylint: disable=unused-argument
+        return FakeInfluxClient()
+
+    monkeypatch.setattr(garmin_ingest, "get_influx_client_for_user", fake_influx_client)
 
     resp = providers_garmin.garmin_fetch(user=user, db=db)
     assert resp["status"] == "ok"
@@ -341,7 +369,7 @@ def test_fetch_reauth_when_missing_token(monkeypatch):
     monkeypatch.setenv("GARMIN_CLIENT_SECRET", "secret")
     monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
     db = FakeSession()
-    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    user = _fake_user()
     with pytest.raises(HTTPException) as exc:
         providers_garmin.garmin_fetch(user=user, db=db)
     assert exc.value.status_code == 410
@@ -354,7 +382,7 @@ def test_fetch_reauth_on_401(monkeypatch):
     monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
     monkeypatch.setenv("GARMIN_API_BASE", "https://mock.garmin")
     db = FakeSession()
-    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    user = _fake_user()
     providers_garmin.save_user_provider_token(
         db,
         providers_garmin.ProviderTokenDetails(
@@ -366,20 +394,20 @@ def test_fetch_reauth_on_401(monkeypatch):
             expires_at=datetime.utcnow() + timedelta(hours=1),
         ),
     )
-    class FakeClient:
+    class FakeClient:  # pylint: disable=too-few-public-methods
         def connectapi(self, *_args, **_kwargs):
             raise HTTPException(status_code=410, detail="Garmin reauth required")
 
-    monkeypatch.setattr(garmin_ingest, "garth", SimpleNamespace(Client=lambda: FakeClient(), auth=None))
+    monkeypatch.setattr(garmin_ingest, "garth", SimpleNamespace(Client=FakeClient, auth=None))
     with pytest.raises(HTTPException) as exc:
         providers_garmin.garmin_fetch(user=user, db=db)
     assert exc.value.status_code == 410
 
 
-def test_scraper_token_endpoint(monkeypatch):
+def test_scraper_token_endpoint():
     """Scraper token endpoint should store access token without credentials."""
     db = FakeSession()
-    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    user = _fake_user()
     req = providers_garmin.ScraperTokenRequest(scraper_access_token="scraper-at", token_secret="scraper-secret")
     resp = providers_garmin.garmin_scraper_token(body=req, user=user, db=db)
     assert resp["status"] == "ok"
@@ -392,7 +420,7 @@ def test_scraper_fetch_happy_path(monkeypatch):
     """Scraper mode fetch should use stored scraper token and succeed."""
     monkeypatch.setenv("GARMIN_MODE", "scraper")
     db = FakeSession()
-    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    user = _fake_user()
     providers_garmin.save_user_provider_token(
         db,
         providers_garmin.ProviderTokenDetails(
@@ -402,11 +430,11 @@ def test_scraper_fetch_happy_path(monkeypatch):
             access_token="scraper-at",
         ),
     )
-    class FakeClient:
+    class FakeClient:  # pylint: disable=too-few-public-methods
         def connectapi(self, *_args, **_kwargs):
             return [{"id": 1}]
 
-    monkeypatch.setattr(garmin_ingest, "garth", SimpleNamespace(Client=lambda: FakeClient(), auth=None))
+    monkeypatch.setattr(garmin_ingest, "garth", SimpleNamespace(Client=FakeClient, auth=None))
     resp = providers_garmin.garmin_fetch(user=user, db=db)
     assert resp["status"] == "ok"
     assert resp["ingested"] == 1
@@ -416,7 +444,7 @@ def test_scraper_fetch_reauth_missing_token(monkeypatch):
     """Scraper mode should require reauth when no scraper token is stored."""
     monkeypatch.setenv("GARMIN_MODE", "scraper")
     db = FakeSession()
-    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    user = _fake_user()
     with pytest.raises(HTTPException) as exc:
         providers_garmin.garmin_fetch(user=user, db=db)
     assert exc.value.status_code == 410
@@ -426,7 +454,7 @@ def test_scraper_fetch_reauth_on_401(monkeypatch):
     """Scraper mode should require reauth when Garmin returns 401."""
     monkeypatch.setenv("GARMIN_MODE", "scraper")
     db = FakeSession()
-    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    user = _fake_user()
     providers_garmin.save_user_provider_token(
         db,
         providers_garmin.ProviderTokenDetails(
@@ -436,11 +464,11 @@ def test_scraper_fetch_reauth_on_401(monkeypatch):
             access_token="scraper-at",
         ),
     )
-    class FakeClient:
+    class FakeClient:  # pylint: disable=too-few-public-methods
         def connectapi(self, *_args, **_kwargs):
             raise HTTPException(status_code=410, detail="Garmin reauth required")
 
-    monkeypatch.setattr(garmin_ingest, "garth", SimpleNamespace(Client=lambda: FakeClient(), auth=None))
+    monkeypatch.setattr(garmin_ingest, "garth", SimpleNamespace(Client=FakeClient, auth=None))
     with pytest.raises(HTTPException) as exc:
         providers_garmin.garmin_fetch(user=user, db=db)
     assert exc.value.status_code == 410
@@ -449,9 +477,9 @@ def test_scraper_fetch_reauth_on_401(monkeypatch):
 def test_garmin_acquire_token(monkeypatch):
     """Acquire token should login via garth and store encrypted tokens."""
     db = FakeSession()
-    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    user = _fake_user()
 
-    class FakeOAuth2:
+    class FakeOAuth2:  # pylint: disable=too-few-public-methods
         access_token = "at"
         refresh_token = "rt"
         expires_in = 3600
@@ -460,7 +488,7 @@ def test_garmin_acquire_token(monkeypatch):
         def get(self, key, default=None):
             return getattr(self, key, default)
 
-    class FakeClient:
+    class FakeClient:  # pylint: disable=too-few-public-methods
         def __init__(self):
             self.oauth2_token = FakeOAuth2()
 
@@ -468,7 +496,7 @@ def test_garmin_acquire_token(monkeypatch):
             assert username == "user"
             assert password == "pass"
 
-    monkeypatch.setattr(providers_garmin, "garth", SimpleNamespace(Client=lambda: FakeClient()))
+    monkeypatch.setattr(providers_garmin, "garth", SimpleNamespace(Client=FakeClient))
     body = providers_garmin.GarminAcquireTokenRequest(username="user", password="pass", expires_at=None)
     resp = providers_garmin.garmin_acquire_token(body=body, user=user, db=db)
     assert resp["status"] == "ok"
@@ -480,13 +508,13 @@ def test_garmin_acquire_token_scraper(monkeypatch):
     """Scraper mode should store oauth1 token/secret under garmin_scraper."""
     monkeypatch.setenv("GARMIN_MODE", "scraper")
     db = FakeSession()
-    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    user = _fake_user()
 
-    class FakeOAuth1:
+    class FakeOAuth1:  # pylint: disable=too-few-public-methods
         oauth_token = "ot"
         oauth_token_secret = "secret"
 
-    class FakeClient:
+    class FakeClient:  # pylint: disable=too-few-public-methods
         def __init__(self):
             self.oauth1_token = FakeOAuth1()
             self.oauth2_token = None
@@ -495,7 +523,7 @@ def test_garmin_acquire_token_scraper(monkeypatch):
             assert username == "user"
             assert password == "pass"
 
-    monkeypatch.setattr(providers_garmin, "garth", SimpleNamespace(Client=lambda: FakeClient()))
+    monkeypatch.setattr(providers_garmin, "garth", SimpleNamespace(Client=FakeClient))
     body = providers_garmin.GarminAcquireTokenRequest(username="user", password="pass", expires_at=None)
     resp = providers_garmin.garmin_acquire_token(body=body, user=user, db=db)
     assert resp["status"] == "ok"
@@ -510,7 +538,7 @@ def test_garmin_refresh_token_endpoint(monkeypatch):
     monkeypatch.setenv("GARMIN_CLIENT_SECRET", "secret")
     monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
     db = FakeSession()
-    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    user = _fake_user()
     providers_garmin.save_user_provider_token(
         db,
         providers_garmin.ProviderTokenDetails(
@@ -530,7 +558,7 @@ def test_garmin_refresh_token_endpoint(monkeypatch):
 
     monkeypatch.setattr(providers_garmin, "get_user_provider_token", fake_get)
     def fake_post(url, data, timeout):  # pylint: disable=unused-argument
-        class Resp:
+        class Resp:  # pylint: disable=too-few-public-methods
             status_code = 200
             def json(self):
                 return {"access_token": "new-at", "refresh_token": "new-rt", "expires_in": 7200}

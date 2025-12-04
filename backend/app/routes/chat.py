@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.deps import get_current_user
 from app.db import get_db
-from app.models import Conversation, User
+from app.models import Conversation
+from app.types import CurrentUserLike
 from app.routes.metrics import summary
 from app.llm.client import run_coach_prompt
 
@@ -23,7 +24,7 @@ router = APIRouter(prefix="/api", tags=["chat"])
 
 
 @router.post("/chat")
-def chat(body: ChatRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def chat(body: ChatRequest, user: CurrentUserLike = Depends(get_current_user), db: Session = Depends(get_db)):
     """Call the LLM after fetching the latest metrics snapshot."""
     metrics = summary(user=user, db=db)
     reply = run_coach_prompt(body.message, metrics)

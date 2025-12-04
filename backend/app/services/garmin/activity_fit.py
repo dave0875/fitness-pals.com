@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, cast
 
 import io
 
@@ -152,10 +152,11 @@ def parse_fit_file_to_timeseries(fit_bytes: bytes, activity_id, activity_name: O
 
     for msg in fit.get_messages("record"):
         try:
-            ts = msg.get_value("timestamp")
+            msg_any = cast(Any, msg)
+            ts = msg_any.get_value("timestamp")
             ts_ns = _to_ns(ts) or last_record_ts_ns
-            fields = _extract_record_fields(msg)
-            dev_fields = _extract_developer_fields(msg)
+            fields = _extract_record_fields(msg_any)
+            dev_fields = _extract_developer_fields(msg_any)
             fields.update(dev_fields)
             if activity_id:
                 fields["ActivityID"] = activity_id
@@ -169,7 +170,8 @@ def parse_fit_file_to_timeseries(fit_bytes: bytes, activity_id, activity_name: O
 
     for msg in fit.get_messages("hrv"):
         try:
-            rr_list = msg.get_value("time") or []
+            msg_any = cast(Any, msg)
+            rr_list = msg_any.get_value("time") or []
             if not isinstance(rr_list, list):
                 continue
             base_ts_ns = last_record_ts_ns or _to_ns(start_time)
@@ -178,7 +180,7 @@ def parse_fit_file_to_timeseries(fit_bytes: bytes, activity_id, activity_name: O
                     rr_ms = float(rr) * 1000.0
                 except Exception:
                     continue
-                fields = {"RR": rr_ms}
+                fields: Dict[str, Any] = {"RR": rr_ms}
                 if activity_id:
                     fields["ActivityID"] = activity_id
                 if activity_name:

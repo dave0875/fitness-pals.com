@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 import threading
 import time
+from dataclasses import dataclass
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -12,6 +13,15 @@ from sqlalchemy.orm import Session
 from app.models import UserProviderToken
 from app.services.garmin_ingest import fetch_garmin_recent
 from app.db import SESSION_FACTORY
+from app.types import CurrentUserLike
+
+
+@dataclass
+class _UserCtx:
+    """Lightweight user protocol implementation for scheduler."""
+
+    id: Any
+    tenant_id: Any = None
 
 
 def fetch_all(db: Session) -> dict:
@@ -21,7 +31,7 @@ def fetch_all(db: Session) -> dict:
     tokens = db.query(UserProviderToken).filter(UserProviderToken.provider == "garmin").all()
     for token in tokens:
         try:
-            user_ctx = SimpleNamespace(id=token.user_id, tenant_id=getattr(token, "tenant_id", None))
+            user_ctx = _UserCtx(id=token.user_id, tenant_id=getattr(token, "tenant_id", None))
             run = fetch_garmin_recent(db, user_ctx)
             runs += 1 if run else 0
         except HTTPException:

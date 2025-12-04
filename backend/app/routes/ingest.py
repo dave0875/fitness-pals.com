@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.deps import get_current_user
 from app.db import get_db
-from app.models import IngestDecision, IngestRun, User
+from app.models import IngestDecision, IngestRun
+from app.types import CurrentUserLike
 
 
 router = APIRouter(prefix="/api/ingest", tags=["ingest"])
@@ -38,14 +39,14 @@ def _user_run_ids(db: Session, user_id: UUID) -> set[UUID]:
     }
 
 
-def _run_visible_to_user(run: IngestRun, user: User, decision_run_ids: set[UUID]) -> bool:
+def _run_visible_to_user(run: IngestRun, user: CurrentUserLike, decision_run_ids: set[UUID]) -> bool:
     """Check whether a run is associated with the given user."""
     run_user_id = UUID(str(run.user_id)) if getattr(run, "user_id", None) else None
     return (run_user_id == user.id) or (run.id in decision_run_ids)
 
 
 @router.get("/runs")
-def list_runs(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_runs(user: CurrentUserLike = Depends(get_current_user), db: Session = Depends(get_db)):
     """Return recent ingest runs."""
     user_uuid = UUID(str(user.id))
     decision_run_ids = _user_run_ids(db, user_uuid)
@@ -59,7 +60,7 @@ def list_runs(user: User = Depends(get_current_user), db: Session = Depends(get_
 
 @router.get("/runs/{run_id}")
 def get_run(
-    run_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+    run_id: str, user: CurrentUserLike = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     """Return metadata for a specific ingest run."""
     run_uuid = _parse_run_id(run_id)
@@ -74,7 +75,7 @@ def get_run(
 
 @router.get("/runs/{run_id}/decisions")
 def list_decisions(
-    run_id: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+    run_id: str, user: CurrentUserLike = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     """Return fine-grained decisions for an ingest batch."""
     run_uuid = _parse_run_id(run_id)

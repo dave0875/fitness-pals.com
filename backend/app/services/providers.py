@@ -140,13 +140,14 @@ def save_user_provider_token(
         existing.tenant_id = details.tenant_id  # type: ignore[assignment]
         db.commit()
         db.refresh(existing)
+        expires_at_val = existing.expires_at
         logger.info(
             "provider token updated",
             extra={
                 "user_id": str(details.user_id),
                 "tenant_id": str(details.tenant_id) if details.tenant_id else None,
                 "provider": details.provider,
-                "expires_at": existing.expires_at.isoformat() if existing.expires_at else None,
+                "expires_at": expires_at_val.isoformat() if expires_at_val is not None else None,
                 "has_refresh": bool(details.refresh_token),
             },
         )
@@ -172,7 +173,7 @@ def save_user_provider_token(
             "user_id": str(details.user_id),
             "tenant_id": str(details.tenant_id) if details.tenant_id else None,
             "provider": details.provider,
-            "expires_at": token.expires_at.isoformat() if token.expires_at else None,
+            "expires_at": token.expires_at.isoformat() if token.expires_at is not None  else None,
             "has_refresh": bool(details.refresh_token),
         },
     )
@@ -181,7 +182,7 @@ def save_user_provider_token(
 
 def decrypt_provider_app_secret(app: ProviderApp) -> Optional[str]:
     """Return the decrypted provider secret or None."""
-    if not app.client_secret_encrypted:
+    if app.client_secret_encrypted is None:
         return None
     return decrypt_token(cast(bytes, app.client_secret_encrypted))
 
@@ -192,7 +193,7 @@ def decrypt_user_tokens(token: UserProviderToken) -> dict:
         "access_token": decrypt_token(cast(bytes, token.access_token_encrypted)),
         "refresh_token": (
             decrypt_token(cast(bytes, token.refresh_token_encrypted))
-            if token.refresh_token_encrypted
+            if token.refresh_token_encrypted is not None
             else None
         ),
         "scope": token.scope,
