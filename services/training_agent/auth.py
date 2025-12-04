@@ -131,9 +131,9 @@ def require_google_auth(
 ) -> dict:
     """Dependency to enforce a valid Google bearer token on protected endpoints."""
     from services.training_agent import main as training_main  # pylint: disable=import-outside-toplevel
-
     client_id = (
-        GOOGLE_CLIENT_ID
+        getattr(training_main, "GOOGLE_CLIENT_ID", None)
+        or GOOGLE_CLIENT_ID
         or os.environ.get("RUNTRAINER_GOOGLE_CLIENT_ID")
         or os.environ.get("GOOGLE_CLIENT_ID")
     )
