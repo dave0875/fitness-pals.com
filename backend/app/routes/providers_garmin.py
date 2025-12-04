@@ -780,20 +780,21 @@ def test_garmin_category(
             data = client.connectapi(path, method=method, params=params)
     except Exception as exc:  # pylint: disable=broad-except
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    connectapi_sample: Any
     if isinstance(data, list):
         data_list = cast(list[Any], data)
         result_size = len(data_list)
-        data_sample = data_list[:1]
+        connectapi_sample = data_list[:1]
     else:
         result_size = 1
-        data_sample = data
+        connectapi_sample = data
     return {
         "category": category,
         "provider": provider_key,
         "mode": mode,
         "date": target_date.isoformat() if target_date else None,
         "result_size": result_size,
-        "data_sample": data_sample,
+        "data_sample": connectapi_sample,
     }
 
 

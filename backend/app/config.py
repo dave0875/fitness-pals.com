@@ -68,7 +68,7 @@ def get_settings() -> Settings:
     Runtime settings loader.
     Uses .env.test automatically during pytest runs.
     """
-    if "pytest" in sys.modules:
+    if "pytest" in sys.modules and os.path.exists(".env.test"):
         return Settings(_env_file=".env.test")  # type: ignore[call-arg]
 
     return Settings()  # type: ignore[call-arg]

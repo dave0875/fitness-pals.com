@@ -180,12 +180,12 @@ def parse_fit_file_to_timeseries(fit_bytes: bytes, activity_id, activity_name: O
                     rr_ms = float(rr) * 1000.0
                 except Exception:
                     continue
-                fields: Dict[str, Any] = {"RR": rr_ms}
+                rr_fields: Dict[str, Any] = {"RR": rr_ms}
                 if activity_id:
-                    fields["ActivityID"] = activity_id
+                    rr_fields["ActivityID"] = activity_id
                 if activity_name:
-                    fields["ActivityName"] = activity_name
-                samples.append({"time": base_ts_ns, "fields": fields})
+                    rr_fields["ActivityName"] = activity_name
+                samples.append({"time": base_ts_ns, "fields": rr_fields})
         except Exception:
             continue
 
