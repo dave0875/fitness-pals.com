@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 import requests  # type: ignore[import-untyped]
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import Response
 from google.oauth2 import id_token
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
@@ -40,7 +40,7 @@ app = FastAPI(title="Garmin Training API", version="0.1.0")
 app.middleware("http")(metrics_middleware)
 app.include_router(ui_router)
 app.include_router(auth_router)
-app.include_router(metrics_module.router)
+app.include_router(metrics_module.router, dependencies=[Depends(require_google_auth)])
 
 # Allow metrics routes to rely on overridable helpers from this module (dynamic lookup for tests).
 # pylint: disable=unnecessary-lambda
