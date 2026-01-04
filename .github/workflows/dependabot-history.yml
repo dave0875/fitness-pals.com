@@ -1,0 +1,56 @@
+name: Dependabot History
+
+on:
+  pull_request:
+    types: [opened, closed, reopened]
+
+permissions:
+  issues: write
+  pull-requests: read
+
+jobs:
+  log:
+    name: Log to Dependabot Issue
+    runs-on: ubuntu-latest
+    steps:
+      - name: Append PR event to rolling issue
+        if: github.event.pull_request.user.login == 'dependabot[bot]'
+        uses: actions/github-script@v7
+        env:
+          DEPENDABOT_TRACKING_ISSUE: ${{ vars.DEPENDABOT_TRACKING_ISSUE }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const trackingIssue = process.env.DEPENDABOT_TRACKING_ISSUE
+              ? Number(process.env.DEPENDABOT_TRACKING_ISSUE)
+              : null;
+
+            if (!trackingIssue) {
+              core.setFailed("Missing repository variable DEPENDABOT_TRACKING_ISSUE.");
+              return;
+            }
+
+            const pr = context.payload.pull_request;
+            const prUrl = pr.html_url;
+            const title = pr.title;
+            const number = pr.number;
+
+            let verb = "opened";
+            if (context.payload.action === "reopened") verb = "reopened";
+            if (context.payload.action === "closed") {
+              verb = pr.merged ? "merged" : "closed";
+            }
+
+            const body = [
+              `Dependabot PR ${verb}: #${number}`,
+              `- PR: ${prUrl}`,
+              `- Title: ${title}`,
+              `- Timestamp: ${new Date().toISOString()}`
+            ].join("\\n");
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: trackingIssue,
+              body
+            });
