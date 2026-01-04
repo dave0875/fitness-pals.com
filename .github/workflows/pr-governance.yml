@@ -32,7 +32,7 @@ jobs:
               ? Number(process.env.DEPENDABOT_TRACKING_ISSUE)
               : null;
 
-            const issueLineRegex = /(?:^|\n)\s*Issue:\s*(?:#(\d+)|https:\/\/github\.com\/[^\/]+\/[^\/]+\/issues\/(\d+))\s*(?:\n|$)/i;
+            const issueLineRegex = /(?:^|\n)\s*(?:-\s*)?Issue:\s*(?:#(\d+)|https:\/\/github\.com\/[^\/]+\/[^\/]+\/issues\/(\d+))\s*(?:\n|$)/i;
             const match = body.match(issueLineRegex);
 
             async function updatePrBodyWithIssue(issueNumber) {
