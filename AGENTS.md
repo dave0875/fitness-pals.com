@@ -37,6 +37,8 @@ This file defines the expected workflow for humans and AI agents working in this
 ## 3) PR Expectations
 
 - CI must pass before merging.
+- Every PR must reference exactly one Issue in the PR description using: `Issue: #<number>`.
+- The referenced Issue must be open and must belong to at least one GitHub Project.
 - PR description should include:
   - **What/Why** (1–3 sentences)
   - **Test plan** (what you ran or why not)
@@ -62,5 +64,7 @@ Do not paste raw logs into PR comments; always link to the artifact.
 
 ## 5) Issues, Projects, Tags
 
-- Issues/projects are optional and can be used when helpful, but they are not required for every change.
+- Issues/projects are required for every change: PRs must be linked to an Issue that is in a Project.
+- All product work should be captured as MMFs (Minimal Marketable Features) in the product Project.
+- TDD is the default philosophy: write/adjust tests first, then implement the change, then refactor.
 - Tags are optional. If you create a release tag, use either SemVer (recommended) like `v1.2.3` or a date tag like `vYYYYMMDD-<topic>`, and use an annotated tag message that explains what shipped.
