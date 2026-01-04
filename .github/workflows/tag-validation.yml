@@ -17,18 +17,18 @@ jobs:
       - name: Check tag name and message
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          NAME_RE='^v([0-9]{8})-([a-z0-9-]+)-issue-([0-9]+)$'
-          MSG_RE_PREFIX='^Issue #'
+          SEMVER_RE='^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$'
+          DATE_RE='^v[0-9]{8}-[a-z0-9-]+$'
 
-          if [[ "$TAG" =~ $NAME_RE ]]; then
-            issue_id="${BASH_REMATCH[3]}"
-          else
-            echo "Tag '$TAG' violates name pattern $NAME_RE (must include issue number)"
+          if ! [[ "$TAG" =~ $SEMVER_RE || "$TAG" =~ $DATE_RE ]]; then
+            echo "Tag '$TAG' must match either:"
+            echo "  - SemVer: $SEMVER_RE"
+            echo "  - Date:   $DATE_RE"
             exit 1
           fi
 
-          msg="$(git tag -l --format='%(contents)' "$TAG" | head -n1)"
-          if ! [[ "$msg" =~ ${MSG_RE_PREFIX}${issue_id}: ]]; then
-            echo "Tag message for '$TAG' must start with 'Issue #${issue_id}: ...'"
+          first_line="$(git tag -l --format='%(contents)' "$TAG" | head -n1 | tr -d '\r')"
+          if [[ -z "${first_line// }" ]]; then
+            echo "Tag '$TAG' must be annotated with a non-empty message describing what shipped."
             exit 1
           fi

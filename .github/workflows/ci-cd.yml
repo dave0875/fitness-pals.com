@@ -53,26 +53,15 @@ jobs:
           set +e
           set -uo pipefail
 
-          issue_number=""
           pr_number=""
-          branch="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
-
-          if [[ "$branch" =~ ^(feature|hotfix)/([0-9]+)- ]]; then
-            issue_number="${BASH_REMATCH[2]}"
-          fi
-
-          commit_msg="$(git log -1 --pretty=%s)"
-          if [[ -z "$issue_number" && "$commit_msg" =~ Issue\ \#([0-9]+) ]]; then
-            issue_number="${BASH_REMATCH[1]}"
-          fi
-
-          if [[ -z "$issue_number" ]]; then
-            echo "Unable to extract issue number from branch name or commit message." >&2
-            exit 1
-          fi
 
           if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            pr_number="${GITHUB_EVENT_PATH:+$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")}"
+            pr_number="${GITHUB_EVENT_PATH:+$(jq -r '.pull_request.number // empty' "$GITHUB_EVENT_PATH")}"
+          fi
+
+          artifact_name="ci-logs-run-${GITHUB_RUN_ID}"
+          if [[ -n "$pr_number" ]]; then
+            artifact_name="ci-logs-pr-${pr_number}-run-${GITHUB_RUN_ID}"
           fi
 
           mkdir -p ci-logs
@@ -94,10 +83,10 @@ jobs:
           done
 
           if [ -z "$frontend_root" ]; then
-            echo "No frontend package.json found; marking frontend lint/test/build as passed (not applicable)."
-            frontend_build_status="passed"
-            frontend_test_status="passed"
-            frontend_lint_status="passed"
+            echo "No frontend package.json found; marking frontend lint/test/build as not_run."
+            frontend_build_status="not_run"
+            frontend_test_status="not_run"
+            frontend_lint_status="not_run"
           fi
           docker_build_status="not_run"
 
@@ -197,7 +186,6 @@ jobs:
 
           cat >ci-logs/summary.json <<EOF
           {
-            "issue": ${issue_number},
             "pr": ${pr_number:-null},
             "run_id": ${GITHUB_RUN_ID},
             "status": "${overall_status}",
@@ -214,8 +202,8 @@ jobs:
           }
           EOF
 
-          echo "issue_number=${issue_number}" >> "$GITHUB_OUTPUT"
           echo "pr_number=${pr_number}" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=${artifact_name}" >> "$GITHUB_OUTPUT"
           echo "overall_status=${overall_status}" >> "$GITHUB_OUTPUT"
           echo "backend_test_status=${backend_test_status}" >> "$GITHUB_OUTPUT"
           echo "backend_lint_status=${backend_lint_status}" >> "$GITHUB_OUTPUT"
@@ -226,19 +214,19 @@ jobs:
           echo "docker_build_status=${docker_build_status}" >> "$GITHUB_OUTPUT"
 
       - name: Upload CI logs artifact
-        if: always() && steps.run_checks.outputs.issue_number != ''
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-logs-issue-${{ steps.run_checks.outputs.issue_number }}-run-${{ github.run_id }}
+          name: ${{ steps.run_checks.outputs.artifact_name }}
           path: ci-logs
           retention-days: 30
 
-      - name: Post CI summary to Issue
-        if: always() && steps.run_checks.outputs.issue_number != ''
+      - name: Post CI summary to PR
+        if: always() && steps.run_checks.outputs.pr_number != ''
         uses: actions/github-script@v7
         env:
-          ISSUE_NUMBER: ${{ steps.run_checks.outputs.issue_number }}
           PR_NUMBER: ${{ steps.run_checks.outputs.pr_number }}
+          ARTIFACT_NAME: ${{ steps.run_checks.outputs.artifact_name }}
           RUN_STATUS: ${{ steps.run_checks.outputs.overall_status }}
           BACKEND_TEST_STATUS: ${{ steps.run_checks.outputs.backend_test_status }}
           BACKEND_LINT_STATUS: ${{ steps.run_checks.outputs.backend_lint_status }}
@@ -250,14 +238,14 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const issueNumber = Number(process.env.ISSUE_NUMBER);
-            if (!issueNumber) {
-              core.setFailed('Issue number is required to post CI summary.');
+            const prNumber = process.env.PR_NUMBER && process.env.PR_NUMBER !== "" ? Number(process.env.PR_NUMBER) : null;
+            if (!prNumber) {
+              core.setFailed('PR number is required to post CI summary.');
             }
 
-            const prNumber = process.env.PR_NUMBER && process.env.PR_NUMBER !== "" ? Number(process.env.PR_NUMBER) : null;
+            const prUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/pull/${prNumber}`;
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const artifactName = `ci-logs-issue-${issueNumber}-run-${context.runId}`;
+            const artifactName = process.env.ARTIFACT_NAME || `ci-logs-pr-${prNumber}-run-${context.runId}`;
 
             const statusMap = {
               passed: 'PASS',
@@ -279,12 +267,10 @@ jobs:
               .map(([name, value]) => `- ${name}: ${statusMap[value] || 'N/A'}`)
               .join('\n');
 
-            const prLine = prNumber ? `**PR:** #${prNumber}  ` : '';
-
             const body = [
               '### CI Run Summary',
-              `**Issue:** #${issueNumber}  `,
-              `${prLine}**Run:** ${runUrl}  `,
+              `**PR:** ${prUrl}  `,
+              `**Run:** ${runUrl}  `,
               `**Status:** ${process.env.RUN_STATUS.toUpperCase()}  `,
               `**Timestamp:** ${new Date().toISOString()}`,
               '',
@@ -295,13 +281,13 @@ jobs:
               'Logs and details are available in the CI artifact:',
               `**${artifactName}**`,
               '',
-              '(Do not paste logs directly into the Issue; always refer to artifacts)'
+              '(Do not paste logs directly into the PR; always refer to artifacts)'
             ].join('\\n');
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: issueNumber,
+              issue_number: prNumber,
               body
             });
 
