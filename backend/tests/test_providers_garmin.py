@@ -15,6 +15,7 @@ from app.routes import providers_garmin
 from app.services import garmin_ingest
 from app.services.providers import ProviderTokenDetails, save_user_provider_token
 from app.types import CurrentUserLike
+from app.models import UserProviderToken
 
 
 class FakeQuery:
@@ -40,14 +41,14 @@ class FakeSession:
         self.provider_tokens = []
 
     def query(self, _model):
-        if getattr(_model, "__name__", "") == "UserProviderToken":
+        if _model is UserProviderToken:
             return FakeQuery(self.provider_tokens)
         return FakeQuery(self.items)
 
     def add(self, obj):
         self.items.append(obj)
         self.added_runs.append(obj)
-        if getattr(obj, "provider", None):
+        if isinstance(obj, UserProviderToken):
             self.provider_tokens.append(obj)
 
     def commit(self):
@@ -361,6 +362,7 @@ def test_fetch_happy_path(monkeypatch):
 
     resp = providers_garmin.garmin_fetch(user=user, db=db)
     assert resp["status"] == "ok"
+    assert resp["sync_job_id"]
     assert resp["ingested"] == 2
     # No points written because the fake activities lack mappable fields, but it should not crash.
 
@@ -439,6 +441,7 @@ def test_scraper_fetch_happy_path(monkeypatch):
     monkeypatch.setattr(garmin_ingest, "garth", SimpleNamespace(Client=FakeClient, auth=None))
     resp = providers_garmin.garmin_fetch(user=user, db=db)
     assert resp["status"] == "ok"
+    assert resp["sync_job_id"]
     assert resp["ingested"] == 1
 
 
