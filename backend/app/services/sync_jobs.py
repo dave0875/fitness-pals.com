@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
@@ -169,6 +169,23 @@ def _checkpoint_cursor_for_garmin(db: Session, user: CurrentUserLike) -> dict[st
     }
 
 
+def _ensure_job_uuid(job: SyncJob) -> UUID:
+    """Return a concrete UUID for a sync job, even in lightweight test stubs."""
+    job_id = getattr(job, "id", None)
+    if isinstance(job_id, UUID):
+        return job_id
+    if job_id:
+        try:
+            parsed = UUID(str(job_id))
+            job.id = parsed  # type: ignore[assignment]
+            return parsed
+        except (TypeError, ValueError, AttributeError):
+            pass
+    generated = uuid4()
+    job.id = generated  # type: ignore[assignment]
+    return generated
+
+
 def run_garmin_sync_job(
     db: Session,
     *,
@@ -185,6 +202,7 @@ def run_garmin_sync_job(
         test_run=test_run,
     )
     mark_sync_job_running(db, job)
+    job_id = _ensure_job_uuid(job)
     try:
         ingest_run = garmin_ingest.fetch_garmin_recent(db, user, test_run=test_run)
         completed_at = getattr(ingest_run, "finished_at", None) or datetime.now(timezone.utc)
@@ -196,7 +214,7 @@ def run_garmin_sync_job(
             cursor=_checkpoint_cursor_for_garmin(db, user),
             error=None,
             last_synced_at=completed_at,
-            last_sync_job_id=job.id,
+            last_sync_job_id=job_id,
             last_ingest_run_id=getattr(ingest_run, "id", None),
         )
         mark_sync_job_completed(
@@ -218,7 +236,7 @@ def run_garmin_sync_job(
             cursor=None,
             error=_sync_error_payload(exc),
             last_synced_at=None,
-            last_sync_job_id=job.id,
+            last_sync_job_id=job_id,
             last_ingest_run_id=None,
         )
         mark_sync_job_failed(db, job, error=_sync_error_payload(exc))
