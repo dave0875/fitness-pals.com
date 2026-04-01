@@ -6,6 +6,7 @@ from .conversation import Conversation
 from .provider import ProviderApp, UserProviderToken
 from .activity import Activity, ActivitySource, IngestRun, IngestDecision
 from .sleep import SleepSession
+from .sync import SyncJob, SyncCheckpoint
 
 __all__ = [
     "User",
@@ -18,4 +19,6 @@ __all__ = [
     "IngestRun",
     "IngestDecision",
     "SleepSession",
+    "SyncJob",
+    "SyncCheckpoint",
 ]

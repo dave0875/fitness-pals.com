@@ -28,9 +28,9 @@ from app.services.providers import (
     get_user_provider_token,
     save_user_provider_token,
 )
-from app.services.garmin_ingest import fetch_garmin_recent
 from app.services.garmin_scheduler import fetch_all as fetch_all_users
 from app.services import garmin_ingest
+from app.services.sync_jobs import run_garmin_sync_job
 from app.services.influx import get_influx_client_for_user, get_user_datasource
 from app.services.garmin_fetchers import CONNECTAPI_SOURCES, STAT_FETCHERS
 from app.utils.security import decrypt_token
@@ -303,7 +303,13 @@ def garmin_fetch(
 ):
     """Fetch recent Garmin data for the current user."""
     try:
-        run = fetch_garmin_recent(db, user, test_run=test_run)
+        execution = run_garmin_sync_job(
+            db,
+            user=user,
+            trigger="manual",
+            test_run=test_run,
+        )
+        run = execution.ingest_run
         # Build a simple integrity report
         summary = cast(Dict[str, Any], run.summary or {})
         try:
@@ -359,6 +365,7 @@ from(bucket: "{client.default_bucket}")
         report["report_pretty"] = " | ".join(lines)
         return {
             "status": "ok",
+            "sync_job_id": str(execution.job.id),
             "ingested": ingested_count,
             "test_run": test_run,
             "ingest_run_tag": f"TEST_{run.id}" if test_run else str(run.id),

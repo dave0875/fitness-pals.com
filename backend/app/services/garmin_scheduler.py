@@ -11,9 +11,9 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models import UserProviderToken
-from app.services.garmin_ingest import fetch_garmin_recent
 from app.db import SESSION_FACTORY
 from app.types import CurrentUserLike
+from app.services.sync_jobs import run_garmin_sync_job
 
 
 @dataclass
@@ -32,7 +32,7 @@ def fetch_all(db: Session) -> dict:
     for token in tokens:
         try:
             user_ctx = _UserCtx(id=token.user_id, tenant_id=getattr(token, "tenant_id", None))
-            run = fetch_garmin_recent(db, user_ctx)
+            run = run_garmin_sync_job(db, user=user_ctx, trigger="scheduler").ingest_run
             runs += 1 if run else 0
         except HTTPException:
             errors += 1
