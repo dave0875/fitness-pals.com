@@ -320,10 +320,32 @@ jobs:
       - name: Show environment target
         run: echo "Deploying to DEV via self-hosted runner $(hostname)"
 
-      - name: Pull and restart training-agent
+      - name: Validate compose config
+        run: docker compose --env-file "$ENV_FILE" config -q
+
+      - name: Build and restart training-agent
         run: |
-          docker compose --env-file "$ENV_FILE" pull training-agent
-          docker compose --env-file "$ENV_FILE" up -d --no-deps --no-recreate training-agent
+          docker compose --env-file "$ENV_FILE" build training-agent
+          docker compose --env-file "$ENV_FILE" up -d --no-deps training-agent
+
+      - name: Smoke check training-agent health
+        run: |
+          python - <<'PY'
+          import sys
+          import time
+          import urllib.request
+
+          url = "http://127.0.0.1:9000/health"
+          deadline = time.time() + 60
+          while time.time() < deadline:
+              try:
+                  with urllib.request.urlopen(url, timeout=5) as resp:
+                      if resp.status == 200:
+                          sys.exit(0)
+              except Exception:
+                  time.sleep(2)
+          raise SystemExit(f"Timed out waiting for {url}")
+          PY
 
   deploy-prod:
     name: Deploy to Prod
@@ -358,7 +380,42 @@ jobs:
           docker volume inspect garmin-grafana_influxdb_data >/dev/null 2>&1 || docker volume create garmin-grafana_influxdb_data
           docker volume inspect garmin-grafana_grafana_data >/dev/null 2>&1 || docker volume create garmin-grafana_grafana_data
 
-      - name: Pull and restart stack
+      - name: Validate compose config
+        run: docker compose --env-file "$ENV_FILE" config -q
+
+      - name: Pull base images
         run: |
-          docker compose --env-file "$ENV_FILE" pull training-agent grafana garmin-fetch-data influxdb cloudflared
-          docker compose --env-file "$ENV_FILE" up -d --no-deps --no-recreate influxdb grafana garmin-fetch-data training-agent cloudflared
+          docker compose --env-file "$ENV_FILE" pull postgres influxdb grafana cloudflared
+
+      - name: Build app images
+        run: |
+          docker compose --env-file "$ENV_FILE" build backend training-agent
+
+      - name: Restart stack
+        run: |
+          docker compose --env-file "$ENV_FILE" up -d postgres influxdb grafana backend training-agent cloudflared
+
+      - name: Smoke check backend and training-agent health
+        run: |
+          python - <<'PY'
+          import sys
+          import time
+          import urllib.request
+
+          urls = [
+              "http://127.0.0.1:8000/health",
+              "http://127.0.0.1:9000/health",
+          ]
+          for url in urls:
+              deadline = time.time() + 90
+              while time.time() < deadline:
+                  try:
+                      with urllib.request.urlopen(url, timeout=5) as resp:
+                          if resp.status == 200:
+                              break
+                  except Exception:
+                      time.sleep(2)
+              else:
+                  raise SystemExit(f"Timed out waiting for {url}")
+          sys.exit(0)
+          PY
