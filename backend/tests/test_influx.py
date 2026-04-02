@@ -1,13 +1,15 @@
 """Unit tests for the Influx service helpers."""
 
 import uuid
-import pytest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from pydantic import ValidationError
 
 from app.models import DataSource
-from app.routes.datasource import InfluxConnectRequest
+from app.routes.datasource import InfluxConnectRequest, verify_influx
 from app.services.influx import assert_safe_influx_config, get_influx_client_for_user
 from app.utils.security import encrypt_token
 
@@ -52,3 +54,29 @@ def test_assert_safe_influx_config_rejects_invalid_names():
     )
     with pytest.raises(ValueError):
         assert_safe_influx_config(ds)
+
+
+def test_verify_influx_queries_measurements_for_bucket(monkeypatch):
+    """Verify endpoint should query schema.measurements with the configured bucket."""
+    user_id = uuid.uuid4()
+    user = SimpleNamespace(id=user_id)
+    db = MagicMock()
+    ds = DataSource(
+        user_id=user_id,
+        influx_url="http://localhost:8086",
+        influx_org="test",
+        influx_bucket="bucket",
+        token_encrypted=encrypt_token("token"),
+    )
+    query_api = MagicMock()
+    client = MagicMock()
+    client.query_api.return_value = query_api
+
+    monkeypatch.setattr("app.routes.datasource.get_user_datasource", lambda *_args, **_kwargs: ds)
+    monkeypatch.setattr("app.routes.datasource.get_influx_client_for_user", lambda *_args, **_kwargs: client)
+
+    result = verify_influx(user=user, db=db)
+
+    assert result == {"status": "ok"}
+    query_api.query.assert_called_once()
+    assert 'schema.measurements(bucket: "bucket")' in query_api.query.call_args.kwargs["query"]

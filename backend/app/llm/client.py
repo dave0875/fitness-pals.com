@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, cast
 
-from openai import OpenAI
+from openai import APIConnectionError, APIStatusError, AuthenticationError, OpenAI
 
 from app.config import get_settings
 
@@ -21,11 +21,14 @@ def run_coach_prompt(message: str, metrics: Dict) -> str:
         "Never hallucinate running activities. Provide concise, actionable guidance.\n"
         f"User metrics: {metrics}\nUser message: {message}"
     )
-    resp = client.responses.create(  # pylint: disable=no-member
-        model="gpt-4.1",
-        input=[
-            {"role": "system", "content": prompt},
-        ],
-        max_output_tokens=300,
-    )
+    try:
+        resp = client.responses.create(  # pylint: disable=no-member
+            model="gpt-4.1",
+            input=[
+                {"role": "system", "content": prompt},
+            ],
+            max_output_tokens=300,
+        )
+    except (AuthenticationError, APIConnectionError, APIStatusError):
+        return "Coach unavailable right now."
     return resp.output_text if hasattr(resp, "output_text") else resp.output[0].content[0].text
