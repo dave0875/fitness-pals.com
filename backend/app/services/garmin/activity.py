@@ -19,6 +19,15 @@ logger = logging.getLogger("garmin.activity")
 logger.setLevel(logging.INFO)
 
 
+def _sanitize_influx_field_value(value: Any) -> Any:
+    """Normalize field values to types supported by the Influx client."""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, (bool, int, float, str)) or value is None:
+        return value
+    return None
+
+
 def _infer_fields(item: Dict[str, Any]) -> Dict[str, Any]:
     """Keep scalar fields only to keep Influx points small."""
     fields: Dict[str, Any] = {}
@@ -560,7 +569,12 @@ def write_activity_gps(influx_client: InfluxClientLike | None, user: CurrentUser
         return 0
     points = []
     for sample in samples:
-        fields = sample.get("fields") or {}
+        raw_fields = sample.get("fields") or {}
+        fields = {
+            key: cleaned
+            for key, value in raw_fields.items()
+            if (cleaned := _sanitize_influx_field_value(value)) is not None
+        }
         if not fields:
             continue
         points.append(

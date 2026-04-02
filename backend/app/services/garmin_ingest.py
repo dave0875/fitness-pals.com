@@ -166,6 +166,19 @@ def _ensure_provider_user_id(db: Session, token_row, client) -> Optional[str]:
     return None
 
 
+def _set_client_username_if_supported(client: Any, username: Optional[str]) -> None:
+    """Best-effort username hydration for garth clients that allow assignment."""
+    if not username:
+        return
+    try:
+        setattr(client, "username", str(username))
+    except (AttributeError, TypeError):
+        logger.info(
+            "garth client username is read-only; skipping assignment",
+            extra={"provider_user_id": str(username)},
+        )
+
+
 def _maybe_get_influx_client(db: Session, user: CurrentUserLike) -> InfluxClientLike | None:
     try:
         return get_influx_client_for_user(db, user.id)
@@ -263,8 +276,7 @@ def fetch_garmin_recent(db: Session, user: CurrentUserLike, test_run: bool = Fal
         token_secret = tokens.get("metadata", {}).get("token_secret") if isinstance(tokens.get("metadata"), dict) else None
     client = _build_garth_client(access_token, token_secret)
     provider_user_id = _ensure_provider_user_id(db, token_row, client)
-    if provider_user_id:
-        setattr(cast(Any, client), "username", str(provider_user_id))
+    _set_client_username_if_supported(client, provider_user_id)
 
     run = dedupe.record_ingest_run(db, provider="garmin", user_id=getattr(user, "id", None))
     ingest_run_tag = f"TEST_{run.id}" if test_run else str(run.id)
@@ -335,7 +347,7 @@ def fetch_garmin_recent(db: Session, user: CurrentUserLike, test_run: bool = Fal
         if not candidate:
             continue
         inferred = str(candidate)
-        setattr(cast(Any, client), "username", inferred)
+        _set_client_username_if_supported(client, inferred)
         if token_row.provider_user_id != inferred:
             try:
                 token_row.provider_user_id = inferred

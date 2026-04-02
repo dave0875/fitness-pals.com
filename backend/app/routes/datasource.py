@@ -90,7 +90,10 @@ def verify_influx(
     try:
         query_api.query(
             org=ds.influx_org,
-            query='import "influxdata/influxdb/schema"\nschema.measurements()',
+            query=(
+                'import "influxdata/influxdb/schema"\n'
+                f'schema.measurements(bucket: "{ds.influx_bucket}")'
+            ),
         )
     except (InfluxDBError, ValueError) as exc:
         message = f"Failed to query InfluxDB: {exc}"

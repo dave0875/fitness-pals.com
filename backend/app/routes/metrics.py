@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -25,6 +26,7 @@ class RaceReadinessRequest(BaseModel):
 
 
 router = APIRouter(prefix="/api/metrics", tags=["metrics"])
+logger = logging.getLogger("routes.metrics")
 
 
 def _query(client: InfluxClientLike, org: str, query: str):
@@ -48,12 +50,20 @@ def _distance_sum(query_api: InfluxQueryApiLike, org: str, bucket: str, days: in
         'filter(fn: (r) => r._measurement == "ActivitySummary" and '
         'r._field == "distance") |> sum()'
     )
-    return _sum_distance(query_api.query(org=org, query=query))
+    try:
+        return _sum_distance(query_api.query(org=org, query=query))
+    except Exception as exc:
+        logger.warning("distance query failed", extra={"days": days, "error": str(exc)})
+        return 0.0
 
 
 def _fetch_scalar(query_api: InfluxQueryApiLike, org: str, query: str):
     """Return the first scalar result from a Flux query."""
-    result = query_api.query(org=org, query=query)
+    try:
+        result = query_api.query(org=org, query=query)
+    except Exception as exc:
+        logger.warning("scalar query failed", extra={"error": str(exc)})
+        return None
     for table in result:
         for record in table.records:
             return record.get_value()
@@ -62,7 +72,11 @@ def _fetch_scalar(query_api: InfluxQueryApiLike, org: str, query: str):
 
 def _fetch_histogram(query_api: InfluxQueryApiLike, org: str, query: str):
     """Return histogram-style results."""
-    response = query_api.query(org=org, query=query)
+    try:
+        response = query_api.query(org=org, query=query)
+    except Exception as exc:
+        logger.warning("histogram query failed", extra={"error": str(exc)})
+        return []
     histogram = []
     for table in response:
         for record in table.records:
@@ -74,7 +88,11 @@ def _fetch_histogram(query_api: InfluxQueryApiLike, org: str, query: str):
 
 def _fetch_training_load(query_api: InfluxQueryApiLike, org: str, query: str):
     """Return load metrics keyed by field name."""
-    response = query_api.query(org=org, query=query)
+    try:
+        response = query_api.query(org=org, query=query)
+    except Exception as exc:
+        logger.warning("training load query failed", extra={"error": str(exc)})
+        return []
     load = []
     for table in response:
         for record in table.records:

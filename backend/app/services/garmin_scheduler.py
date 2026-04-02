@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -28,7 +29,8 @@ def fetch_all(db: Session) -> dict:
     """Iterate over all users with Garmin tokens and trigger ingestion."""
     runs = 0
     errors = 0
-    tokens = db.query(UserProviderToken).filter(UserProviderToken.provider == "garmin").all()
+    provider_key = "garmin" if (os.environ.get("GARMIN_MODE") or "oauth").lower() == "oauth" else "garmin_scraper"
+    tokens = db.query(UserProviderToken).filter(UserProviderToken.provider == provider_key).all()
     for token in tokens:
         try:
             user_ctx = _UserCtx(id=token.user_id, tenant_id=getattr(token, "tenant_id", None))
