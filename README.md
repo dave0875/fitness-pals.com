@@ -39,6 +39,8 @@ Key services:
 - `GARMINCONNECT_EMAIL` / `GARMINCONNECT_BASE64_PASSWORD`: legacy single Garmin account for garmin-fetch-data; avoid for multi-tenant and move to per-user provider connections instead.
 - `GF_SECURITY_ADMIN_USER` / `GF_SECURITY_ADMIN_PASSWORD`: Grafana admin login.
 - `CLOUDFLARE_TUNNEL_TOKEN`: Cloudflare tunnel token to expose services.
+- `CLOUDFLARE_SMOKE_URLS`: comma- or newline-delimited public URLs that should succeed through the Cloudflare tunnel after deploy, for example `https://api.fitness-pals.com/ready` and `https://grafana.fitness-pals.com/api/health`.
+- `CLOUDFLARE_SMOKE_TIMEOUT_SECONDS`: optional external ingress smoke timeout; defaults to `90`.
 - `TRAINING_API_KEY`: key used by the training-agent harness.
 - `BOT_GITHUB_TOKEN`: token for any bot operations (keep out of commits).
 

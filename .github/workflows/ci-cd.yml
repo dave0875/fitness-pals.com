@@ -364,30 +364,28 @@ jobs:
       - name: Smoke check changed service readiness
         if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
         run: |
-          python3 - <<'PY'
-          import sys
-          import time
-          import urllib.request
+          urls=()
+          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ]; then
+            urls+=("http://127.0.0.1:8000/ready")
+          fi
+          if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ]; then
+            urls+=("http://127.0.0.1:9000/ready")
+          fi
+          python3 scripts/smoke_urls.py --urls "$(printf '%s\n' "${urls[@]}")" --timeout 90
 
-          urls = []
-          if "${{ steps.changes.outputs.backend_changed }}" == "true":
-              urls.append("http://127.0.0.1:8000/ready")
-          if "${{ steps.changes.outputs.training_agent_changed }}" == "true":
-              urls.append("http://127.0.0.1:9000/ready")
-
-          for url in urls:
-              deadline = time.time() + 90
-              while time.time() < deadline:
-                  try:
-                      with urllib.request.urlopen(url, timeout=5) as resp:
-                          if resp.status == 200:
-                              break
-                  except Exception:
-                      time.sleep(2)
-              else:
-                  raise SystemExit(f"Timed out waiting for {url}")
-          sys.exit(0)
-          PY
+      - name: Smoke check external Cloudflare ingress
+        if: steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
+        run: |
+          set -a
+          . "$ENV_FILE"
+          set +a
+          if [ -z "${CLOUDFLARE_SMOKE_URLS:-}" ]; then
+            echo "CLOUDFLARE_SMOKE_URLS must be set in $ENV_FILE to verify external ingress." >&2
+            exit 1
+          fi
+          python3 scripts/smoke_urls.py \
+            --urls "$CLOUDFLARE_SMOKE_URLS" \
+            --timeout "${CLOUDFLARE_SMOKE_TIMEOUT_SECONDS:-90}"
 
   deploy-prod:
     name: Deploy to Prod
@@ -496,29 +494,28 @@ jobs:
       - name: Smoke check changed service readiness
         if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
         run: |
-          python3 - <<'PY'
-          import sys
-          import time
-          import urllib.request
+          urls=()
+          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ] || [ "${{ steps.changes.outputs.postgres_changed }}" = "true" ]; then
+            urls+=("http://127.0.0.1:8000/ready")
+          fi
+          if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ] || [ "${{ steps.changes.outputs.influxdb_changed }}" = "true" ]; then
+            urls+=("http://127.0.0.1:9000/ready")
+          fi
+          if [ "${{ steps.changes.outputs.grafana_changed }}" = "true" ]; then
+            urls+=("http://127.0.0.1:3000/api/health")
+          fi
+          python3 scripts/smoke_urls.py --urls "$(printf '%s\n' "${urls[@]}")" --timeout 90
 
-          urls = []
-          if "${{ steps.changes.outputs.backend_changed }}" == "true" or "${{ steps.changes.outputs.postgres_changed }}" == "true":
-              urls.append("http://127.0.0.1:8000/ready")
-          if "${{ steps.changes.outputs.training_agent_changed }}" == "true" or "${{ steps.changes.outputs.influxdb_changed }}" == "true":
-              urls.append("http://127.0.0.1:9000/ready")
-          if "${{ steps.changes.outputs.grafana_changed }}" == "true":
-              urls.append("http://127.0.0.1:3000/api/health")
-
-          for url in urls:
-              deadline = time.time() + 90
-              while time.time() < deadline:
-                  try:
-                      with urllib.request.urlopen(url, timeout=5) as resp:
-                          if resp.status == 200:
-                              break
-                  except Exception:
-                      time.sleep(2)
-              else:
-                  raise SystemExit(f"Timed out waiting for {url}")
-          sys.exit(0)
-          PY
+      - name: Smoke check external Cloudflare ingress
+        if: steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
+        run: |
+          set -a
+          . "$ENV_FILE"
+          set +a
+          if [ -z "${CLOUDFLARE_SMOKE_URLS:-}" ]; then
+            echo "CLOUDFLARE_SMOKE_URLS must be set in $ENV_FILE to verify external ingress." >&2
+            exit 1
+          fi
+          python3 scripts/smoke_urls.py \
+            --urls "$CLOUDFLARE_SMOKE_URLS" \
+            --timeout "${CLOUDFLARE_SMOKE_TIMEOUT_SECONDS:-90}"
