@@ -31,6 +31,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -320,10 +322,70 @@ jobs:
       - name: Show environment target
         run: echo "Deploying to DEV via self-hosted runner $(hostname)"
 
-      - name: Pull and restart training-agent
+      - name: Detect changed services
+        id: changes
         run: |
-          docker compose --env-file "$ENV_FILE" pull training-agent
-          docker compose --env-file "$ENV_FILE" up -d --no-deps --no-recreate training-agent
+          python3 scripts/detect_changed_services.py \
+            --before "${{ github.event.before }}" \
+            --head "${{ github.sha }}" \
+            --output "$GITHUB_OUTPUT"
+
+      - name: Validate compose config
+        run: docker compose --env-file "$ENV_FILE" config -q
+
+      - name: Build changed app services
+        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+        run: |
+          services=()
+          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ]; then
+            services+=(backend)
+          fi
+          if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ]; then
+            services+=(training-agent)
+          fi
+          docker compose --env-file "$ENV_FILE" build "${services[@]}"
+
+      - name: Restart changed app services
+        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+        run: |
+          services=()
+          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ]; then
+            services+=(backend)
+          fi
+          if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ]; then
+            services+=(training-agent)
+          fi
+          docker compose --env-file "$ENV_FILE" up -d "${services[@]}"
+
+      - name: Skip deploy when no app services changed
+        if: steps.changes.outputs.backend_changed != 'true' && steps.changes.outputs.training_agent_changed != 'true'
+        run: echo "No backend or training-agent changes detected; skipping DEV deploy."
+
+      - name: Smoke check changed service readiness
+        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+        run: |
+          urls=()
+          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ]; then
+            urls+=("http://127.0.0.1:8000/ready")
+          fi
+          if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ]; then
+            urls+=("http://127.0.0.1:9000/ready")
+          fi
+          python3 scripts/smoke_urls.py --urls "$(printf '%s\n' "${urls[@]}")" --timeout 90
+
+      - name: Smoke check external Cloudflare ingress
+        if: steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
+        run: |
+          set -a
+          . "$ENV_FILE"
+          set +a
+          if [ -z "${CLOUDFLARE_SMOKE_URLS:-}" ]; then
+            echo "CLOUDFLARE_SMOKE_URLS must be set in $ENV_FILE to verify external ingress." >&2
+            exit 1
+          fi
+          python3 scripts/smoke_urls.py \
+            --urls "$CLOUDFLARE_SMOKE_URLS" \
+            --timeout "${CLOUDFLARE_SMOKE_TIMEOUT_SECONDS:-90}"
 
   deploy-prod:
     name: Deploy to Prod
@@ -341,6 +403,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Copy env from secrets path
         run: |
@@ -353,12 +417,105 @@ jobs:
       - name: Show environment target
         run: echo "Deploying to PROD via self-hosted runner $(hostname)"
 
+      - name: Detect changed services
+        id: changes
+        run: |
+          python3 scripts/detect_changed_services.py \
+            --before "${{ github.event.before }}" \
+            --head "${{ github.sha }}" \
+            --output "$GITHUB_OUTPUT"
+
       - name: Ensure external volumes exist
         run: |
           docker volume inspect garmin-grafana_influxdb_data >/dev/null 2>&1 || docker volume create garmin-grafana_influxdb_data
           docker volume inspect garmin-grafana_grafana_data >/dev/null 2>&1 || docker volume create garmin-grafana_grafana_data
 
-      - name: Pull and restart stack
+      - name: Validate compose config
+        run: docker compose --env-file "$ENV_FILE" config -q
+
+      - name: Pull changed base images
+        if: steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true' || steps.changes.outputs.cloudflared_changed == 'true'
         run: |
-          docker compose --env-file "$ENV_FILE" pull training-agent grafana garmin-fetch-data influxdb cloudflared
-          docker compose --env-file "$ENV_FILE" up -d --no-deps --no-recreate influxdb grafana garmin-fetch-data training-agent cloudflared
+          services=()
+          if [ "${{ steps.changes.outputs.postgres_changed }}" = "true" ]; then
+            services+=(postgres)
+          fi
+          if [ "${{ steps.changes.outputs.influxdb_changed }}" = "true" ]; then
+            services+=(influxdb)
+          fi
+          if [ "${{ steps.changes.outputs.grafana_changed }}" = "true" ]; then
+            services+=(grafana)
+          fi
+          if [ "${{ steps.changes.outputs.cloudflared_changed }}" = "true" ]; then
+            services+=(cloudflared)
+          fi
+          docker compose --env-file "$ENV_FILE" pull "${services[@]}"
+
+      - name: Build changed app images
+        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+        run: |
+          services=()
+          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ]; then
+            services+=(backend)
+          fi
+          if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ]; then
+            services+=(training-agent)
+          fi
+          docker compose --env-file "$ENV_FILE" build "${services[@]}"
+
+      - name: Restart changed services
+        if: steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true' || steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+        run: |
+          services=()
+          if [ "${{ steps.changes.outputs.postgres_changed }}" = "true" ]; then
+            services+=(postgres)
+          fi
+          if [ "${{ steps.changes.outputs.influxdb_changed }}" = "true" ]; then
+            services+=(influxdb)
+          fi
+          if [ "${{ steps.changes.outputs.grafana_changed }}" = "true" ]; then
+            services+=(grafana)
+          fi
+          if [ "${{ steps.changes.outputs.cloudflared_changed }}" = "true" ]; then
+            services+=(cloudflared)
+          fi
+          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ]; then
+            services+=(backend)
+          fi
+          if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ]; then
+            services+=(training-agent)
+          fi
+          docker compose --env-file "$ENV_FILE" up -d "${services[@]}"
+
+      - name: Skip deploy when no managed services changed
+        if: steps.changes.outputs.postgres_changed != 'true' && steps.changes.outputs.influxdb_changed != 'true' && steps.changes.outputs.grafana_changed != 'true' && steps.changes.outputs.cloudflared_changed != 'true' && steps.changes.outputs.backend_changed != 'true' && steps.changes.outputs.training_agent_changed != 'true'
+        run: echo "No managed service changes detected; skipping PROD deploy."
+
+      - name: Smoke check changed service readiness
+        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
+        run: |
+          urls=()
+          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ] || [ "${{ steps.changes.outputs.postgres_changed }}" = "true" ]; then
+            urls+=("http://127.0.0.1:8000/ready")
+          fi
+          if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ] || [ "${{ steps.changes.outputs.influxdb_changed }}" = "true" ]; then
+            urls+=("http://127.0.0.1:9000/ready")
+          fi
+          if [ "${{ steps.changes.outputs.grafana_changed }}" = "true" ]; then
+            urls+=("http://127.0.0.1:3000/api/health")
+          fi
+          python3 scripts/smoke_urls.py --urls "$(printf '%s\n' "${urls[@]}")" --timeout 90
+
+      - name: Smoke check external Cloudflare ingress
+        if: steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
+        run: |
+          set -a
+          . "$ENV_FILE"
+          set +a
+          if [ -z "${CLOUDFLARE_SMOKE_URLS:-}" ]; then
+            echo "CLOUDFLARE_SMOKE_URLS must be set in $ENV_FILE to verify external ingress." >&2
+            exit 1
+          fi
+          python3 scripts/smoke_urls.py \
+            --urls "$CLOUDFLARE_SMOKE_URLS" \
+            --timeout "${CLOUDFLARE_SMOKE_TIMEOUT_SECONDS:-90}"

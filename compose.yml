@@ -9,6 +9,15 @@ services:
       - POSTGRES_DB=${RUNTRAINER_POSTGRES_DB:-runtrainer}
       - POSTGRES_USER=${RUNTRAINER_POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${RUNTRAINER_POSTGRES_PASSWORD:-postgres}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -35,6 +44,15 @@ services:
       - '8086' # Influxdb V3 should expose "8181" (Change INFLUXDB_PORT on garmin-fetch-data appropriately for InfluxDB V3)
     ports:
       - '8086:8086'
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          influx -host localhost -port 8086 -username "$${INFLUXDB_USER}" -password "$${INFLUXDB_USER_PASSWORD}" -execute 'SHOW DATABASES' >/dev/null
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     volumes:
       - influxdb_data:/var/lib/influxdb # InfluxDB V3 bind mount should be set like - influxdb_data:/data if you set INFLUXDB3_DB_DIR=/data (instead of /var/lib/influxdb)
     image: 'influxdb:1.11' # You must change this to 'quay.io/influxdb/influxdb3-core:latest' for influxdb V3
@@ -72,6 +90,8 @@ services:
     container_name: cloudflared
     restart: unless-stopped
     depends_on:
+      backend:
+        condition: service_healthy
       grafana:
         condition: service_started
       training-agent:
@@ -104,14 +124,16 @@ services:
       test:
         - CMD-SHELL
         - >
-          python -c "import urllib.request; urllib.request.urlopen('http://localhost:9000/health')"
+          python -c "import urllib.request; urllib.request.urlopen('http://localhost:9000/ready')"
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
     depends_on:
-      - influxdb
-      - backend
+      backend:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
 
   backend:
     build:
@@ -130,8 +152,18 @@ services:
       - GARMIN_FIT_FILE=${GARMIN_FIT_FILE:-0}
     ports:
       - "8000:8000"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
 volumes:
   influxdb_data:
