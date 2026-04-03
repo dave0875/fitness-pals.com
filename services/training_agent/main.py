@@ -13,8 +13,9 @@ from typing import Any, cast
 
 import requests  # type: ignore[import-untyped]
 from fastapi import Depends, FastAPI
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from google.oauth2 import id_token
+from influxdb.exceptions import InfluxDBClientError, InfluxDBServerError
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from services.training_agent import auth as auth_module
@@ -65,6 +66,37 @@ def metrics():
 def health_check():
     """Liveness endpoint for health probes."""
     return {"status": "ok"}
+
+
+def check_training_agent_ready() -> tuple[bool, dict[str, str]]:
+    """Verify the training agent can reach its Influx dependency."""
+    client = None
+    try:
+        client = get_influx_client()
+        client.ping()
+        client.query("SHOW DATABASES")
+    except (
+        InfluxDBClientError,
+        InfluxDBServerError,
+        OSError,
+        ValueError,
+        Exception,
+    ) as exc:  # pylint: disable=broad-except
+        return False, {"influxdb": f"error: {type(exc).__name__}"}
+    finally:
+        close = getattr(client, "close", None)
+        if callable(close):
+            close()
+    return True, {"influxdb": "ok"}
+
+
+@app.get("/ready")
+def ready_check():
+    """Readiness probe that verifies the Influx dependency."""
+    is_ready, checks = check_training_agent_ready()
+    status_code = 200 if is_ready else 503
+    status_text = "ok" if is_ready else "degraded"
+    return JSONResponse(status_code=status_code, content={"status": status_text, "checks": checks})
 
 
 __all__ = [

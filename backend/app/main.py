@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.auth.oauth import router as auth_router
 from app.routes.datasource import router as datasource_router
@@ -13,10 +18,18 @@ from app.routes import auth_status, providers as provider_router
 from app.routes import providers_garmin
 from app.routes.ingest import router as ingest_router
 from app.config import get_settings
+from app.db import engine
 
 
 settings = get_settings()
 app = FastAPI(title="Run Trainer", debug=settings.debug)
+
+REQUIRED_TABLES = (
+    "users",
+    "data_sources",
+    "provider_apps",
+    "user_provider_tokens",
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,6 +53,36 @@ app.include_router(ingest_router)
 def health():
     """Lightweight health probe for container orchestration."""
     return {"status": "ok"}
+
+
+def check_backend_ready() -> tuple[bool, dict[str, Any]]:
+    """Verify database connectivity and required schema availability."""
+    checks: dict[str, Any] = {"database": "unknown", "schema": "unknown"}
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+            checks["database"] = "ok"
+            inspector = inspect(conn)
+            missing_tables = [name for name in REQUIRED_TABLES if not inspector.has_table(name)]
+    except (SQLAlchemyError, Exception) as exc:  # pylint: disable=broad-except
+        checks["database"] = f"error: {type(exc).__name__}"
+        return False, checks
+
+    if missing_tables:
+        checks["schema"] = {"missing_tables": missing_tables}
+        return False, checks
+
+    checks["schema"] = "ok"
+    return True, checks
+
+
+@app.get("/ready")
+def ready():
+    """Readiness probe that verifies core backend dependencies."""
+    is_ready, checks = check_backend_ready()
+    status_code = 200 if is_ready else 503
+    status_text = "ok" if is_ready else "degraded"
+    return JSONResponse(status_code=status_code, content={"status": status_text, "checks": checks})
 
 
 @app.get("/api/health-check")

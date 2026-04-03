@@ -188,6 +188,35 @@ def test_health_and_metrics_emit_prometheus():
     )
 
 
+def test_ready_endpoint_returns_ok(monkeypatch):
+    """Readiness should return 200 when Influx is ready."""
+    monkeypatch.setattr(
+        main,
+        "check_training_agent_ready",
+        lambda: (True, {"influxdb": "ok"}),
+    )
+    client = TestClient(main.app)
+    response = client.get("/ready")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "checks": {"influxdb": "ok"}}
+
+
+def test_ready_endpoint_returns_503(monkeypatch):
+    """Readiness should return 503 when Influx is unavailable."""
+    monkeypatch.setattr(
+        main,
+        "check_training_agent_ready",
+        lambda: (False, {"influxdb": "unreachable"}),
+    )
+    client = TestClient(main.app)
+    response = client.get("/ready")
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "degraded",
+        "checks": {"influxdb": "unreachable"},
+    }
+
+
 # --- Helpers for endpoint integration-style tests ---
 class FakeResult:  # pylint: disable=too-few-public-methods
     """Thin wrapper that mimics the Influx query result interface."""
