@@ -88,7 +88,7 @@ These are the rules that keep the migration on the chosen path.
 - `done`: provider adapter formalization for sync orchestration
 - `done`: canonical core write model
 - `done`: product read model migration
-- `next`: FHIR projection
+- `done`: FHIR projection
 
 ## Target Architecture
 - `identity-access`: app-issued sessions, user identity, operator access
@@ -230,11 +230,24 @@ Canonical runtime intent:
   - chat now operates through that canonical summary path and persists canonical metrics snapshots into conversation metadata even when Influx is absent
   - the canonical read seam was exercised against the real Compose Postgres runtime with temporary user/activity data and cleanup
 
+### Slice 9: FHIR Projection
+- status: `done`
+- issue/pr: `#30` / `#59`
+- merge commit: `8220c5f`
+- acceptance target:
+  - canonical entities project to stable FHIR resources idempotently
+  - product behavior does not depend on FHIR representations
+- outcome:
+  - the repo now has a pure `app.services.fhir_projection` seam that projects canonical `Activity` rows into deterministic FHIR `Observation` resources
+  - repeated projection of the same canonical activity is idempotent and uses stable ids derived from the canonical entity
+  - the FHIR seam was exercised against the real Compose Postgres runtime with a temporary canonical activity row and cleanup
+
 ## Current State After Completed Slices
 - backend now has explicit sync-job state and a dedicated worker runtime path for queued sync execution
 - Garmin remains the only real provider path, but sync orchestration now reaches it through an explicit provider adapter seam instead of a direct Garmin-specific call
 - canonical Garmin activity writes now persist trimmed product metadata plus provenance rows, instead of treating the raw provider summary payload as the product model
 - product summary/chat reads now have a canonical Postgres-backed path and no longer treat missing Influx as an automatic product failure when canonical activity data exists
+- canonical activity data now has a pure FHIR projection/export seam, and product behavior remains independent of FHIR resource shapes
 - product auth now uses app-issued session tokens; raw Google browser tokens are no longer a valid product API contract
 - product frontend no longer stores or boots from raw Google credentials in `localStorage`
 - training-agent/admin auth is still separate from product auth and still uses its existing Google bearer flow
@@ -244,30 +257,7 @@ Canonical runtime intent:
 
 ## Next Slices
 
-### Slice 9: FHIR Projection
-- status: `next`
-- target issue: `#58` (dedicated MMF created; GitHub project linkage still blocked by missing `project` scope)
-- boundary:
-  - canonical core entities project outward to FHIR resources without making FHIR the internal product model
-- likely files:
-  - new projection/export modules under `backend/app/services/`
-  - FHIR-facing routes under `backend/app/routes/` if needed
-  - canonical models already in `backend/app/models/*`
-- tests to add first:
-  - canonical activities project to stable FHIR resources with deterministic ids
-  - repeated projection of the same canonical entities is idempotent
-  - product behavior does not depend on FHIR resource shapes
-- rollback:
-  - keep FHIR projection behind an export/projection seam that can be disabled without affecting product runtime behavior
-- non-goals:
-  - broad SMART-on-FHIR support
-  - provider write-back
-- purpose:
-  - project canonical core data to FHIR resources
-  - keep FHIR as an interoperability boundary, not the internal domain model
-- done means:
-  - canonical entities project to stable FHIR resources idempotently
-  - product behavior does not depend on FHIR representations
+No remaining `next` slices. The Option 3 migration plan is complete at the level defined in this document.
 
 ## Operational Prerequisites
 - dev secret env now needs `CLOUDFLARE_SMOKE_URLS`
