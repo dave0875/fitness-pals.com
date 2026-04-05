@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     oidc_client_secret: Optional[str] = None
     oidc_redirect_uri: Optional[AnyUrl] = None
     oidc_scope: str = "openid email profile"
+    web_oidc_issuer: Optional[AnyUrl] = None
+    web_oidc_client_id: Optional[str] = None
+    web_oidc_client_secret: Optional[str] = None
+    web_oidc_redirect_uri: Optional[AnyUrl] = None
+    web_oidc_scope: Optional[str] = None
 
     # --- OAuth: Optional Microsoft / Apple ---
     microsoft_client_id: Optional[str] = None

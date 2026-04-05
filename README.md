@@ -26,7 +26,9 @@ Key services:
 
 ## Environment configuration (what each variable does and where to get it)
 - `RUNTRAINER_JWT_SECRET`: random string used to sign app-issued JWTs (generate with `openssl rand -hex 32`).
-- `RUNTRAINER_GOOGLE_CLIENT_ID` / `RUNTRAINER_GOOGLE_CLIENT_SECRET` / `RUNTRAINER_GOOGLE_REDIRECT_URI`: OAuth 2.0 Web client from Google Cloud Console; create credentials, add your redirect URI (e.g., `https://your-domain.com/auth/google/callback`), paste the ID/secret.
+- `RUNTRAINER_WEB_OIDC_ISSUER` / `RUNTRAINER_WEB_OIDC_CLIENT_ID` / `RUNTRAINER_WEB_OIDC_CLIENT_SECRET` / `RUNTRAINER_WEB_OIDC_REDIRECT_URI`: Authentik OIDC client for the website. Point the issuer at the Authentik application slug for the web app (for example `https://auth.your-domain.com/application/o/fitness-pals-web/`) and set the callback to `https://your-domain.com/auth/callback`.
+- `RUNTRAINER_OIDC_ISSUER` / `RUNTRAINER_OIDC_CLIENT_ID` / `RUNTRAINER_OIDC_CLIENT_SECRET`: Authentik OIDC client for the GPT/training-agent integration. Keep this as a separate Authentik application even though it resolves to the same upstream Google identity.
+- `RUNTRAINER_GOOGLE_CLIENT_ID` / `RUNTRAINER_GOOGLE_CLIENT_SECRET` / `RUNTRAINER_GOOGLE_REDIRECT_URI`: direct Google OAuth fallback values. Keep them only if you need an emergency bypass; the intended production path is Authentik-brokered login.
 - `RUNTRAINER_MICROSOFT_CLIENT_ID` / `RUNTRAINER_MICROSOFT_CLIENT_SECRET` / `RUNTRAINER_MICROSOFT_REDIRECT_URI`: App registration in Azure AD (Entra); create a Web redirect URI; copy the Application (client) ID and client secret.
 - `RUNTRAINER_APPLE_CLIENT_ID` / `RUNTRAINER_APPLE_CLIENT_SECRET` / `RUNTRAINER_APPLE_REDIRECT_URI`: Apple Sign in client; create a Services ID in Apple Developer, set the redirect URI, generate a client secret (JWT signed with your key) and supply here.
 - `RUNTRAINER_DATABASE_URL`: SQLAlchemy connection string to Postgres (e.g., `postgresql://user:pass@host:5432/runtrainer`).

@@ -41,13 +41,40 @@ def _discovery_url_for_issuer(issuer: str) -> str:
     return f"{issuer.rstrip('/')}/.well-known/openid-configuration"
 
 
+def _oidc_issuer() -> str | None:
+    """Return the website OIDC issuer, preferring web-specific config."""
+    issuer = settings.web_oidc_issuer or settings.oidc_issuer
+    return str(issuer) if issuer else None
+
+
+def _oidc_client_id() -> str | None:
+    """Return the website OIDC client ID, preferring web-specific config."""
+    return settings.web_oidc_client_id or settings.oidc_client_id
+
+
+def _oidc_client_secret() -> str | None:
+    """Return the website OIDC client secret, preferring web-specific config."""
+    return settings.web_oidc_client_secret or settings.oidc_client_secret
+
+
+def _oidc_redirect_uri() -> str | None:
+    """Return the website OIDC redirect URI, preferring web-specific config."""
+    redirect_uri = settings.web_oidc_redirect_uri or settings.oidc_redirect_uri
+    return str(redirect_uri) if redirect_uri else None
+
+
+def _oidc_scope() -> str:
+    """Return the website OIDC scope, preferring web-specific config."""
+    return settings.web_oidc_scope or settings.oidc_scope
+
+
 def _oidc_enabled() -> bool:
     """Return True when the brokered Authentik login is configured."""
     return all(
         [
-            settings.oidc_issuer,
-            settings.oidc_client_id,
-            settings.oidc_client_secret,
+            _oidc_issuer(),
+            _oidc_client_id(),
+            _oidc_client_secret(),
         ]
     )
 
@@ -79,10 +106,10 @@ def _register_provider(
 if _oidc_enabled():
     _register_provider(
         DEFAULT_PROVIDER,
-        _discovery_url_for_issuer(str(settings.oidc_issuer)),
-        settings.oidc_client_id,
-        settings.oidc_client_secret,
-        settings.oidc_scope,
+        _discovery_url_for_issuer(_oidc_issuer() or ""),
+        _oidc_client_id(),
+        _oidc_client_secret(),
+        _oidc_scope(),
     )
 else:
     _register_provider(
@@ -128,8 +155,9 @@ def _redirect_uri_for(provider: str) -> Optional[str]:
     """Return the configured redirect URI for a given provider."""
     canonical = _canonical_provider(provider)
     if canonical == DEFAULT_PROVIDER:
-        redirect_uri = settings.oidc_redirect_uri or settings.google_redirect_uri
-        return str(redirect_uri) if redirect_uri else None
+        return _oidc_redirect_uri() or (
+            str(settings.google_redirect_uri) if settings.google_redirect_uri else None
+        )
 
     mapping = {
         "google": str(settings.google_redirect_uri) if settings.google_redirect_uri else None,

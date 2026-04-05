@@ -133,6 +133,11 @@ def reload_oauth(monkeypatch):
     monkeypatch.delenv("RUNTRAINER_OIDC_CLIENT_ID", raising=False)
     monkeypatch.delenv("RUNTRAINER_OIDC_CLIENT_SECRET", raising=False)
     monkeypatch.delenv("RUNTRAINER_OIDC_REDIRECT_URI", raising=False)
+    monkeypatch.delenv("RUNTRAINER_WEB_OIDC_ISSUER", raising=False)
+    monkeypatch.delenv("RUNTRAINER_WEB_OIDC_CLIENT_ID", raising=False)
+    monkeypatch.delenv("RUNTRAINER_WEB_OIDC_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("RUNTRAINER_WEB_OIDC_REDIRECT_URI", raising=False)
+    monkeypatch.delenv("RUNTRAINER_WEB_OIDC_SCOPE", raising=False)
 
     # Reload module to pick up the env
     importlib.reload(oauth_mod)
@@ -182,6 +187,33 @@ def test_reload_registers_authentik_provider_from_oidc_issuer(monkeypatch):
         }
         for registration in registrations
     )
+
+
+def test_web_oidc_config_overrides_generic_oidc_settings(monkeypatch):
+    """Backend web login should prefer website-specific OIDC settings when present."""
+    monkeypatch.setenv(
+        "RUNTRAINER_WEB_OIDC_ISSUER",
+        "https://auth.fitness-pals.com/application/o/fitness-pals-web/",
+    )
+    monkeypatch.setenv("RUNTRAINER_WEB_OIDC_CLIENT_ID", "web-oidc-client")
+    monkeypatch.setenv("RUNTRAINER_WEB_OIDC_CLIENT_SECRET", "web-oidc-secret")
+    monkeypatch.setenv(
+        "RUNTRAINER_WEB_OIDC_REDIRECT_URI",
+        "https://fitness-pals.com/auth/callback",
+    )
+    monkeypatch.setenv(
+        "RUNTRAINER_OIDC_ISSUER",
+        "https://auth.fitness-pals.com/application/o/training-agent-gpt/",
+    )
+    monkeypatch.setenv("RUNTRAINER_OIDC_CLIENT_ID", "gpt-oidc-client")
+    monkeypatch.setenv("RUNTRAINER_OIDC_CLIENT_SECRET", "gpt-oidc-secret")
+
+    reloaded = importlib.reload(oauth_mod)
+
+    assert reloaded._oidc_issuer() == "https://auth.fitness-pals.com/application/o/fitness-pals-web/"
+    assert reloaded._oidc_client_id() == "web-oidc-client"
+    assert reloaded._oidc_client_secret() == "web-oidc-secret"
+    assert reloaded._redirect_uri_for("authentik") == "https://fitness-pals.com/auth/callback"
 
 
 @pytest.mark.asyncio
@@ -279,12 +311,21 @@ async def test_missing_provider_raises(reload_oauth):
 async def test_login_alias_uses_authentik_provider(monkeypatch):
     """The default /auth/login alias should use the Authentik broker."""
     monkeypatch.setenv(
-        "RUNTRAINER_OIDC_ISSUER",
+        "RUNTRAINER_WEB_OIDC_ISSUER",
         "https://auth.fitness-pals.com/application/o/fitness-pals-web/",
     )
-    monkeypatch.setenv("RUNTRAINER_OIDC_CLIENT_ID", "oidc-client")
-    monkeypatch.setenv("RUNTRAINER_OIDC_CLIENT_SECRET", "oidc-secret")
-    monkeypatch.setenv("RUNTRAINER_OIDC_REDIRECT_URI", "https://example.com/auth/callback")
+    monkeypatch.setenv("RUNTRAINER_WEB_OIDC_CLIENT_ID", "web-oidc-client")
+    monkeypatch.setenv("RUNTRAINER_WEB_OIDC_CLIENT_SECRET", "web-oidc-secret")
+    monkeypatch.setenv(
+        "RUNTRAINER_WEB_OIDC_REDIRECT_URI",
+        "https://example.com/auth/callback",
+    )
+    monkeypatch.setenv(
+        "RUNTRAINER_OIDC_ISSUER",
+        "https://auth.fitness-pals.com/application/o/training-agent-gpt/",
+    )
+    monkeypatch.setenv("RUNTRAINER_OIDC_CLIENT_ID", "gpt-oidc-client")
+    monkeypatch.setenv("RUNTRAINER_OIDC_CLIENT_SECRET", "gpt-oidc-secret")
     reloaded = importlib.reload(oauth_mod)
     fake_client = FakeClient(reloaded.DEFAULT_PROVIDER)
     reloaded._registered[reloaded.DEFAULT_PROVIDER] = True  # pylint: disable=protected-access
