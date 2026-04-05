@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -30,6 +31,13 @@ REQUIRED_TABLES = (
     "data_sources",
     "provider_apps",
     "user_provider_tokens",
+)
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.jwt_secret,
+    same_site="lax",
+    https_only=not settings.debug,
 )
 
 app.add_middleware(

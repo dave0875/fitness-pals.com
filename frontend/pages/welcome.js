@@ -234,9 +234,9 @@ export default function Welcome() {
 
         {welcomeState === "unauthenticated" && (
           <div style={panelStyle()}>
-            <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Start with Google</h2>
+            <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Continue with Gmail</h2>
             <p style={{ marginTop: "0.9rem", color: "#526472", lineHeight: 1.7 }}>
-              You need an app session before the welcome flow can continue.
+              Use the Fitness Pals sign-in screen and choose Gmail before the welcome flow can continue.
             </p>
             <div style={{ display: "flex", gap: "0.9rem", marginTop: "1rem", flexWrap: "wrap" }}>
               <a
@@ -250,7 +250,7 @@ export default function Welcome() {
                   fontWeight: 800,
                 }}
               >
-                Start with Google
+                Continue with Gmail
               </a>
               <a
                 href="/"

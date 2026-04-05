@@ -29,6 +29,11 @@ test("welcome page supports connect, first sync, and first-win copy", () => {
     /readiness preview|readiness insight/i,
     "expected readiness preview copy"
   );
+  assert.match(
+    welcomeSource,
+    /Continue with Gmail/i,
+    'expected brokered "Continue with Gmail" unauthenticated entry copy'
+  );
 });
 
 test("welcome page calls onboarding and sync endpoints", () => {
@@ -47,5 +52,20 @@ test("welcome page calls onboarding and sync endpoints", () => {
   assert.ok(
     welcomeSource.includes("/api/providers/garmin/login?next="),
     "expected welcome page to use Garmin login with next redirect"
+  );
+  assert.ok(
+    welcomeSource.includes("/auth/login?next=/welcome"),
+    "expected welcome page to send unauthenticated users through /auth/login?next=/welcome"
+  );
+});
+
+test("welcome page removes direct Google login copy", () => {
+  assert.ok(
+    !welcomeSource.includes("Start with Google"),
+    'expected direct "Start with Google" copy to be removed from welcome'
+  );
+  assert.ok(
+    !welcomeSource.includes("Login with Google"),
+    'expected direct "Login with Google" copy to be removed from welcome'
   );
 });
