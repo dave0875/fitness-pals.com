@@ -8,11 +8,14 @@ from types import SimpleNamespace
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models import SyncCheckpoint, SyncJob, User
+from app.providers.base import FitnessProvider
+from app.providers.garmin import GarminProvider
+from app.services import garmin_ingest as garmin_ingest  # noqa: F401
 from app.services.garmin import activity as garmin_activity
-from app.services import garmin_ingest
 from app.types import CurrentUserLike
 
 
@@ -238,24 +241,45 @@ def _worker_user_context(db: Session, user_id: UUID) -> CurrentUserLike:
     return SimpleNamespace(id=user_id, tenant_id=tenant_id)
 
 
+def get_provider_adapter(provider: str) -> FitnessProvider:
+    """Resolve the provider adapter used by sync orchestration."""
+    if provider == "garmin":
+        return GarminProvider()
+    raise HTTPException(
+        status_code=400, detail=f"Unsupported sync provider: {provider}"
+    )
+
+
 def process_sync_job(db: Session, job: SyncJob) -> SyncExecutionResult:
     """Execute a queued sync job inside the worker runtime."""
-    if job.provider != "garmin":
-        error = _sync_error_payload(ValueError(f"Unsupported sync provider: {job.provider}"))
-        mark_sync_job_failed(db, job, error=error)
-        raise ValueError(error["message"])
-
     user_id = UUID(str(job.user_id))
     job = mark_sync_job_running(db, job)
     job_id = _ensure_job_uuid(job)
-    user = _worker_user_context(db, user_id)
     try:
-        ingest_run = garmin_ingest.fetch_garmin_recent(db, user, test_run=job.test_run)
-        completed_at = getattr(ingest_run, "finished_at", None) or datetime.now(timezone.utc)
+        adapter = get_provider_adapter(job.provider)
+        user = _worker_user_context(db, user_id)
+        checkpoint = get_sync_checkpoint(db, user_id=user_id, provider=job.provider)
+        cursor = checkpoint.cursor_json if checkpoint is not None else None
+        since = (
+            cursor.get("latest_activity_start_time")
+            if isinstance(cursor, dict)
+            else None
+        )
+        ingest_run = adapter.fetch_activities(
+            "",
+            since=since,
+            db=db,
+            user=user,
+            test_run=job.test_run,
+            job=job,
+        )
+        completed_at = getattr(ingest_run, "finished_at", None) or datetime.now(
+            timezone.utc
+        )
         upsert_sync_checkpoint(
             db,
             user_id=user_id,
-            provider="garmin",
+            provider=job.provider,
             status="ok",
             cursor=_checkpoint_cursor_for_garmin(db, user),
             error=None,
@@ -277,7 +301,7 @@ def process_sync_job(db: Session, job: SyncJob) -> SyncExecutionResult:
         upsert_sync_checkpoint(
             db,
             user_id=user_id,
-            provider="garmin",
+            provider=job.provider,
             status="error",
             cursor=None,
             error=_sync_error_payload(exc),
@@ -289,7 +313,9 @@ def process_sync_job(db: Session, job: SyncJob) -> SyncExecutionResult:
         raise
 
 
-def process_pending_sync_jobs(db: Session, limit: Optional[int] = None) -> dict[str, int]:
+def process_pending_sync_jobs(
+    db: Session, limit: Optional[int] = None
+) -> dict[str, int]:
     """Drain queued sync jobs from the worker runtime."""
     processed = 0
     failed = 0
