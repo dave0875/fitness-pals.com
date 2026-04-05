@@ -85,7 +85,8 @@ These are the rules that keep the migration on the chosen path.
 - `done`: deploy hardening with changed-service gating, readiness checks, and Cloudflare ingress smoke checks
 - `done`: auth normalization to app-issued sessions only
 - `done`: real worker/runtime separation for sync execution
-- `next`: provider adapter formalization
+- `done`: provider adapter formalization for sync orchestration
+- `next`: canonical core write model
 - `later`: canonical core read/write rollout and FHIR projection
 
 ## Target Architecture
@@ -189,9 +190,22 @@ Canonical runtime intent:
   - a dedicated sync worker entrypoint and compose service now own queued sync execution
   - deploy detection and workflow logic now rebuild, restart, and smoke-check the worker runtime alongside backend changes
 
+### Slice 6: Provider Adapter Formalization
+- status: `done`
+- issue/pr: `#30` / `#53`
+- merge commit: `04557a3`
+- acceptance target:
+  - sync orchestration resolves a provider adapter contract instead of calling Garmin-specific helpers directly
+  - the current Garmin bridge behavior runs behind the adapter seam
+  - unsupported providers fail cleanly at the orchestration boundary
+- outcome:
+  - sync job orchestration now resolves provider adapters through an explicit seam instead of directly invoking Garmin ingest helpers
+  - the current Garmin bridge path is preserved behind `GarminProvider`, so runtime behavior stays stable while the orchestration boundary becomes replaceable
+  - unsupported providers now fail with a clean orchestration-boundary error and still record failed job/checkpoint state predictably
+
 ## Current State After Completed Slices
 - backend now has explicit sync-job state and a dedicated worker runtime path for queued sync execution
-- Garmin remains the only real provider path and is still partly scraper/bridge oriented
+- Garmin remains the only real provider path, but sync orchestration now reaches it through an explicit provider adapter seam instead of a direct Garmin-specific call
 - product auth now uses app-issued session tokens; raw Google browser tokens are no longer a valid product API contract
 - product frontend no longer stores or boots from raw Google credentials in `localStorage`
 - training-agent/admin auth is still separate from product auth and still uses its existing Google bearer flow
@@ -201,40 +215,33 @@ Canonical runtime intent:
 
 ## Next Slices
 
-### Slice 6: Provider Adapter Formalization
-- status: `next`
-- target issue: `#52` (dedicated MMF created; GitHub project linkage still blocked by missing `project` scope)
-- boundary:
-  - sync orchestration depends on explicit provider adapter contracts rather than Garmin-specific implementations
-- likely files:
-  - `backend/app/services/sync_jobs.py`
-  - `backend/app/routes/providers_garmin.py`
-  - `backend/app/providers/*`
-  - new adapter contract modules as needed
-- tests to add first:
-  - sync orchestration dispatches through an adapter contract instead of Garmin-specific helpers
-  - Garmin bridge behavior can be exercised behind the adapter seam
-  - unsupported providers fail cleanly at the orchestration boundary
-- rollback:
-  - keep orchestration capable of routing back to the current Garmin-specific path behind a compatibility seam if adapter extraction regresses
-- non-goals:
-  - Garmin official OAuth/API migration
-  - Apple Health implementation
-- purpose:
-  - isolate Garmin bridge behavior behind a real adapter contract
-  - make future Garmin official and Apple Health adapters plug into the same sync port
-- done means:
-  - provider-specific runtime behavior is hidden behind an explicit adapter interface
-  - sync orchestration depends on capabilities/contracts, not Garmin-specific implementations
-
 ### Slice 7: Canonical Core Write Model
-- status: `later`
+- status: `next`
+- target issue: `#54` (dedicated MMF created; GitHub project linkage still blocked by missing `project` scope)
+- boundary:
+  - provider adapters normalize provider data into product-native write models before product logic persists it
+- likely files:
+  - `backend/app/services/garmin_ingest.py`
+  - `backend/app/services/garmin/*`
+  - `backend/app/models/*`
+  - canonical core persistence modules to be introduced under `backend/app/services/`
+- tests to add first:
+  - canonical workouts are persisted from provider sync without leaking Garmin-shaped payloads into product logic
+  - sleep/observation persistence records provenance and source identity alongside canonical entities
+  - replaying the same provider payload/window is idempotent at the canonical write boundary
+- rollback:
+  - keep the legacy Garmin persistence path reachable behind a compatibility seam while canonical writes are validated
+- non-goals:
+  - full product read-model migration
+  - FHIR projection
 - purpose:
-  - persist canonical workouts, sleep, observations, and provenance in Postgres
-  - stop treating provider payloads as product-native entities
+  - persist product-native workouts, sleep, observations, and provenance in Postgres
+  - stop treating provider payloads as the product-native model at write time
 - done means:
   - product-native entities are written canonically in Postgres
   - provenance and source records are preserved without forcing provider schema into product logic
+
+## Later
 
 ### Slice 8: Product Read Model Migration
 - status: `later`

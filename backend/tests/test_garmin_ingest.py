@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 from types import SimpleNamespace
 
 from sqlalchemy.sql import operators
 from sqlalchemy.sql.elements import BinaryExpression, BooleanClauseList, BindParameter
 
-from app.models import UserProviderToken
+from app.models import Activity, ActivitySource
+from app.services.garmin import activity as garmin_activity
 from app.services import garmin_ingest
 from app.services.providers import ProviderTokenDetails, save_user_provider_token
 
@@ -24,6 +24,9 @@ class FakeSession:
         self.items.append(obj)
 
     def commit(self):
+        for obj in self.items:
+            if getattr(obj, "id", None) is None:
+                obj.id = uuid.uuid4()
         return None
 
     def refresh(self, obj):
@@ -49,6 +52,9 @@ class FakeQuery:
                 filtered.append(item)
         return FakeQuery(filtered)
 
+    def order_by(self, *_args, **_kwargs):
+        return self
+
     def first(self):
         return self.data[0] if self.data else None
 
@@ -70,7 +76,10 @@ class FakeQuery:
         if isinstance(condition, BinaryExpression):
             left = self._resolve_value(condition.left, item)
             right = self._resolve_value(condition.right, item)
-            if getattr(condition.operator, "__name__", "") == "is_" and getattr(right, "__visit_name__", "") == "null":
+            if (
+                getattr(condition.operator, "__name__", "") == "is_"
+                and getattr(right, "__visit_name__", "") == "null"
+            ):
                 return left is None
             return condition.operator(left, right)
         return True
@@ -114,11 +123,25 @@ def test_fetch_garmin_recent_tolerates_read_only_client_username(monkeypatch):
         "_ensure_provider_user_id",
         lambda db_arg, token_row, client: "2883204",
     )
-    monkeypatch.setattr(garmin_ingest, "_maybe_get_influx_client", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(garmin_ingest.activity_svc, "get_latest_activity_start_time", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(garmin_ingest.activity_svc, "fetch_activity_list", lambda *_args, **_kwargs: [])
-    monkeypatch.setattr(garmin_ingest, "fetch_health_bundle", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(garmin_ingest, "_persist_sleep_sessions_from_bundle", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(
+        garmin_ingest, "_maybe_get_influx_client", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        garmin_ingest.activity_svc,
+        "get_latest_activity_start_time",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        garmin_ingest.activity_svc, "fetch_activity_list", lambda *_args, **_kwargs: []
+    )
+    monkeypatch.setattr(
+        garmin_ingest, "fetch_health_bundle", lambda *_args, **_kwargs: {}
+    )
+    monkeypatch.setattr(
+        garmin_ingest,
+        "_persist_sleep_sessions_from_bundle",
+        lambda *_args, **_kwargs: 0,
+    )
     monkeypatch.setattr(garmin_ingest, "build_aggregate_summary", lambda bundle: {})
     monkeypatch.setattr(
         garmin_ingest.dedupe,
@@ -128,7 +151,9 @@ def test_fetch_garmin_recent_tolerates_read_only_client_username(monkeypatch):
     monkeypatch.setattr(
         garmin_ingest.dedupe,
         "finish_ingest_run",
-        lambda _db, run_obj, status, summary: setattr(run_obj, "summary", {"status": status, **summary}),
+        lambda _db, run_obj, status, summary: setattr(
+            run_obj, "summary", {"status": status, **summary}
+        ),
     )
 
     result = garmin_ingest.fetch_garmin_recent(db, user)
@@ -142,3 +167,85 @@ def test_fetch_garmin_recent_tolerates_read_only_client_username(monkeypatch):
         "sleep_daily": 0,
         "test_run": False,
     }
+
+
+def test_persist_activity_summaries_does_not_store_raw_garmin_payload_in_metadata():
+    """Canonical metadata should keep provider payloads trimmed, not verbatim."""
+    db = FakeSession()
+    user = SimpleNamespace(id=uuid.uuid4())
+    run = SimpleNamespace(id=uuid.uuid4())
+    payload = [
+        {
+            "id": "garmin-act-123",
+            "activityName": "Morning Run",
+            "activityType": "running",
+            "startTimeGMT": "2026-04-02T12:00:00Z",
+            "distance": 10000.4,
+            "duration": 3600.4,
+            "deviceName": "Forerunner 965",
+            "sourceType": "GARMIN_CONNECT",
+            "raw_payload": {"metricDescriptors": [{"key": "directHeartRate"}]},
+        }
+    ]
+
+    garmin_activity.persist_activity_summaries(db, user, run, payload)
+
+    created = next(item for item in db.items if isinstance(item, Activity))
+    assert created.metadata_json["provider_activity_id"] == "garmin-act-123"
+    assert created.metadata_json != payload[0]
+    assert "raw_payload" not in created.metadata_json
+    assert "deviceName" not in created.metadata_json
+    assert "sourceType" not in created.metadata_json
+
+
+def test_persist_activity_summaries_persists_activity_source_identity():
+    """Canonical activity writes should create a provenance row alongside them."""
+    db = FakeSession()
+    user = SimpleNamespace(id=uuid.uuid4())
+    run = SimpleNamespace(id=uuid.uuid4())
+    payload = [
+        {
+            "id": "garmin-act-456",
+            "activityName": "Lunch Ride",
+            "activityType": "cycling",
+            "startTimeGMT": "2026-04-02T13:00:00Z",
+            "distance": 25000.0,
+            "duration": 5400.0,
+            "ownerId": "garmin-user-9",
+        }
+    ]
+
+    garmin_activity.persist_activity_summaries(db, user, run, payload)
+
+    activities = [item for item in db.items if isinstance(item, Activity)]
+    sources = [item for item in db.items if isinstance(item, ActivitySource)]
+
+    assert len(activities) == 1
+    assert len(sources) == 1
+    assert sources[0].activity_id == activities[0].id
+    assert sources[0].provider == "garmin"
+    assert sources[0].provider_activity_id == "garmin-act-456"
+
+
+def test_persist_activity_summaries_is_idempotent_for_replayed_payload_window():
+    """Replaying the same Garmin payload/window should not create duplicate canonical rows."""
+    db = FakeSession()
+    user = SimpleNamespace(id=uuid.uuid4())
+    run = SimpleNamespace(id=uuid.uuid4())
+    payload = [
+        {
+            "id": "garmin-act-789",
+            "activityName": "Tempo Run",
+            "activityType": "running",
+            "startTimeGMT": "2026-04-02T14:00:00Z",
+            "distance": 8000.0,
+            "duration": 2400.0,
+        }
+    ]
+
+    garmin_activity.persist_activity_summaries(db, user, run, payload)
+    garmin_activity.persist_activity_summaries(db, user, run, payload)
+
+    activities = [item for item in db.items if isinstance(item, Activity)]
+    assert len(activities) == 1
+    assert activities[0].fingerprint_hash == "garmin-act-789"
