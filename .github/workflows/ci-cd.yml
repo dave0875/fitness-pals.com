@@ -309,18 +309,23 @@ jobs:
       COMPOSE_FILE: compose.yml
       ENV_FILE: .env
       SECRET_ENV_PATH: /home/dbarker/fitness-pals.com-secrets/.env
+      OVERLAY_ENV_PATH: /home/dbarker/fitness-pals.com-secrets/.env.authentik-oidc
       COMPOSE_PROJECT_NAME: fitness-palscom
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Copy env from secrets path
+      - name: Assemble env from base and overlay
         run: |
           if [ ! -f "$SECRET_ENV_PATH" ]; then
             echo "Expected env at $SECRET_ENV_PATH; not found." >&2
             exit 1
           fi
-          cp "$SECRET_ENV_PATH" "$ENV_FILE"
+          inputs=("$SECRET_ENV_PATH")
+          if [ -f "$OVERLAY_ENV_PATH" ]; then
+            inputs+=("$OVERLAY_ENV_PATH")
+          fi
+          python3 scripts/merge_env.py --output "$ENV_FILE" "${inputs[@]}"
 
       - name: Show environment target
         run: echo "Deploying to DEV via self-hosted runner $(hostname)"
@@ -426,6 +431,7 @@ jobs:
       COMPOSE_FILE: compose.yml
       ENV_FILE: .env
       SECRET_ENV_PATH: /home/fitness-pals/fitness-pals.com-secrets/.env
+      OVERLAY_ENV_PATH: /home/dbarker/fitness-pals-deploy/.env.authentik-oidc
       COMPOSE_PROJECT_NAME: fitness-palscom
       RUN_AS_USER: fitness-pals
     steps:
@@ -434,13 +440,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Copy env from secrets path
+      - name: Assemble env from base and overlay
         run: |
           if [ ! -f "$SECRET_ENV_PATH" ]; then
             echo "Expected env at $SECRET_ENV_PATH; not found." >&2
             exit 1
           fi
-          cp "$SECRET_ENV_PATH" "$ENV_FILE"
+          inputs=("$SECRET_ENV_PATH")
+          if [ -f "$OVERLAY_ENV_PATH" ]; then
+            inputs+=("$OVERLAY_ENV_PATH")
+          fi
+          python3 scripts/merge_env.py --output "$ENV_FILE" "${inputs[@]}"
 
       - name: Show environment target
         run: echo "Deploying to PROD via self-hosted runner $(hostname)"
