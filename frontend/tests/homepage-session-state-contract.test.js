@@ -15,8 +15,10 @@ test("homepage exposes a loading or skeleton state while session is resolving", 
 
 test("homepage renders state-aware authenticated CTAs", () => {
   assert.ok(
-    source.includes("Open dashboard") || source.includes("Connect Garmin"),
-    'expected homepage source to include "Open dashboard" or "Connect Garmin"'
+    source.includes("Connect Garmin") &&
+      source.includes("Import my training history") &&
+      source.includes("Open dashboard"),
+    'expected homepage source to include "Connect Garmin", "Import my training history", and "Open dashboard"'
   );
   assert.match(
     source,
@@ -24,9 +26,31 @@ test("homepage renders state-aware authenticated CTAs", () => {
     "expected homepage source to include session state handling"
   );
   assert.ok(
-    /(?:session|authState|sessionState|sessionStatus|isAuthenticated)[\s\S]{0,500}(Start with Google|View sample coach dossier)|(Start with Google|View sample coach dossier)[\s\S]{0,500}(?:session|authState|sessionState|sessionStatus|isAuthenticated)/i.test(
+    source.includes("/api/onboarding/status"),
+    "expected homepage source to probe /api/onboarding/status for first-win funnel state"
+  );
+  assert.match(
+    source,
+    /authenticatedNoGarmin|readyToSync|synced|anonymous/i,
+    "expected homepage source to model anonymous, connected, ready-to-sync, and synced states"
+  );
+  assert.ok(
+    /(?:session|authState|sessionState|sessionStatus|isAuthenticated)[\s\S]{0,500}(Continue with Gmail|View sample coach dossier)|(Continue with Gmail|View sample coach dossier)[\s\S]{0,500}(?:session|authState|sessionState|sessionStatus|isAuthenticated)/i.test(
       source
     ),
     "expected anonymous-only CTAs to be gated by resolved session state"
+  );
+});
+
+test("homepage preserves or defaults the next redirect for brokered login", () => {
+  assert.match(
+    source,
+    /URLSearchParams|window\.location\.search|next=/,
+    "expected homepage source to read or construct a next redirect"
+  );
+  assert.match(
+    source,
+    /\/auth\/login\?next=/,
+    "expected homepage source to route anonymous users through /auth/login?next="
   );
 });

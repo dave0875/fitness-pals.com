@@ -1,6 +1,7 @@
-"""Tests for backend liveness and readiness endpoints."""
+"""Tests for backend liveness, readiness, and auth middleware wiring."""
 
 from fastapi.testclient import TestClient
+from starlette.middleware.sessions import SessionMiddleware
 
 from app import main
 
@@ -43,3 +44,10 @@ def test_backend_ready_endpoint_returns_503(monkeypatch):
         "status": "degraded",
         "checks": {"database": "unreachable", "schema": "unknown"},
     }
+
+
+def test_backend_installs_session_middleware_for_authlib():
+    """OAuth redirects need request.session available on auth routes."""
+    middleware_classes = [entry.cls for entry in main.app.user_middleware]
+
+    assert SessionMiddleware in middleware_classes

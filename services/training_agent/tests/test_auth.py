@@ -23,6 +23,26 @@ class StaticResponse:  # pylint: disable=too-few-public-methods
         return self._payload
 
 
+def clear_oidc_runtime(monkeypatch):
+    """Remove broker env so tests can exercise the direct Google fallback contract."""
+    for key in (
+        "RUNTRAINER_OIDC_ISSUER",
+        "OIDC_ISSUER",
+        "RUNTRAINER_OIDC_AUTH_URL",
+        "OIDC_AUTH_URL",
+        "RUNTRAINER_OIDC_TOKEN_URL",
+        "OIDC_TOKEN_URL",
+        "RUNTRAINER_OIDC_JWKS_URL",
+        "OIDC_JWKS_URL",
+        "RUNTRAINER_OIDC_CLIENT_ID",
+        "OIDC_CLIENT_ID",
+        "RUNTRAINER_OIDC_CLIENT_SECRET",
+        "OIDC_CLIENT_SECRET",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    auth_mod._load_oidc_discovery.cache_clear()  # pylint: disable=protected-access
+
+
 def test_id_token_path_prefers_local_verification(monkeypatch):
     """ID tokens should be verified locally without tokeninfo."""
     calls = {"id": False, "tokeninfo": False}
@@ -128,6 +148,7 @@ def test_access_token_tokeninfo_raises(monkeypatch):
 
 def test_require_google_auth_success(monkeypatch):
     """require_google_auth should pass through valid bearer tokens."""
+    clear_oidc_runtime(monkeypatch)
     monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "client-id")
 
     def fake_verify(token, audience):
@@ -244,6 +265,7 @@ def test_ready_endpoint_returns_503(monkeypatch):
 
 def test_oauth_google_auth_honors_valid_chatgpt_redirect(monkeypatch):
     """Authorize proxy should use a caller-supplied ChatGPT callback when valid."""
+    clear_oidc_runtime(monkeypatch)
     monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "client-id")
     monkeypatch.setenv(
         "RUNTRAINER_GOOGLE_REDIRECT_URI",
@@ -287,6 +309,7 @@ def test_oauth_google_auth_rejects_untrusted_redirect(monkeypatch):
 
 def test_oauth_google_token_uses_supplied_redirect(monkeypatch):
     """Token proxy should exchange using the caller-supplied ChatGPT callback."""
+    clear_oidc_runtime(monkeypatch)
     monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "client-id")
     monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_SECRET", "client-secret")
     monkeypatch.setenv(
@@ -355,6 +378,53 @@ def test_oauth_google_auth_uses_oidc_authorize_url(monkeypatch):
     assert query["redirect_uri"] == [callback]
 
 
+def test_oauth_google_auth_discovers_oidc_authorize_url_from_issuer(monkeypatch):
+    """Issuer-only OIDC config should resolve the broker authorize URL via discovery."""
+    monkeypatch.setenv(
+        "RUNTRAINER_OIDC_ISSUER",
+        "https://auth.fitness-pals.com/application/o/training-agent-gpt/",
+    )
+    monkeypatch.setenv("RUNTRAINER_OIDC_CLIENT_ID", "oidc-client")
+    monkeypatch.setenv("RUNTRAINER_OIDC_CLIENT_SECRET", "oidc-secret")
+    captured = {}
+
+    class FakeDiscoveryResponse:  # pylint: disable=too-few-public-methods
+        status_code = 200
+        text = '{"authorization_endpoint":"https://auth.fitness-pals.com/application/o/authorize/"}'
+
+        @staticmethod
+        def json():
+            return {
+                "authorization_endpoint": "https://auth.fitness-pals.com/application/o/authorize/",
+                "token_endpoint": "https://auth.fitness-pals.com/application/o/token/",
+                "jwks_uri": "https://auth.fitness-pals.com/application/o/training-agent-gpt/jwks/",
+            }
+
+    def fake_get(url, timeout=None):
+        captured["url"] = url
+        captured["timeout"] = timeout
+        return FakeDiscoveryResponse()
+
+    monkeypatch.setattr(auth_mod.requests, "get", fake_get)
+    auth_mod._load_oidc_discovery.cache_clear()  # pylint: disable=protected-access
+
+    client = TestClient(main.app)
+    callback = "https://chat.openai.com/aip/g-broker/oauth/callback"
+    response = client.get(
+        "/oauth/google/auth",
+        params={"state": "abc", "redirect_uri": callback},
+        follow_redirects=False,
+    )
+
+    assert response.status_code in {302, 307}
+    parsed = urllib.parse.urlparse(response.headers["location"])
+    assert parsed.netloc == "auth.fitness-pals.com"
+    assert captured["url"] == (
+        "https://auth.fitness-pals.com/application/o/training-agent-gpt/.well-known/openid-configuration"
+    )
+    assert captured["timeout"] == 5
+
+
 def test_oauth_google_token_uses_oidc_client_credentials(monkeypatch):
     """When OIDC is configured, the token proxy should exchange against the broker."""
     monkeypatch.setenv(
@@ -389,6 +459,69 @@ def test_oauth_google_token_uses_oidc_client_credentials(monkeypatch):
 
     assert response.status_code == 200
     assert captured["url"] == "https://auth.fitness-pals.com/application/o/token/"
+    assert captured["data"]["client_id"] == "oidc-client"
+    assert captured["data"]["client_secret"] == "oidc-secret"
+    assert captured["data"]["redirect_uri"] == callback
+
+
+def test_oauth_google_token_discovers_oidc_token_url_from_issuer(monkeypatch):
+    """Issuer-only OIDC config should resolve the broker token URL via discovery."""
+    monkeypatch.setenv(
+        "RUNTRAINER_OIDC_ISSUER",
+        "https://auth.fitness-pals.com/application/o/training-agent-gpt/",
+    )
+    monkeypatch.setenv("RUNTRAINER_OIDC_CLIENT_ID", "oidc-client")
+    monkeypatch.setenv("RUNTRAINER_OIDC_CLIENT_SECRET", "oidc-secret")
+    captured = {"discovery": None, "token_url": None}
+
+    class FakeDiscoveryResponse:  # pylint: disable=too-few-public-methods
+        status_code = 200
+        text = '{"token_endpoint":"https://auth.fitness-pals.com/application/o/token/"}'
+
+        @staticmethod
+        def json():
+            return {
+                "authorization_endpoint": "https://auth.fitness-pals.com/application/o/authorize/",
+                "token_endpoint": "https://auth.fitness-pals.com/application/o/token/",
+                "jwks_uri": "https://auth.fitness-pals.com/application/o/training-agent-gpt/jwks/",
+            }
+
+    class FakeTokenResponse:  # pylint: disable=too-few-public-methods
+        status_code = 200
+        text = '{"access_token":"token"}'
+
+        @staticmethod
+        def json():
+            return {"access_token": "token"}
+
+    def fake_get(url, timeout=None):
+        captured["discovery"] = (url, timeout)
+        return FakeDiscoveryResponse()
+
+    def fake_post(url, data=None, headers=None, timeout=None):
+        captured["token_url"] = url
+        captured["data"] = dict(data)
+        captured["headers"] = dict(headers)
+        captured["timeout"] = timeout
+        return FakeTokenResponse()
+
+    monkeypatch.setattr(auth_mod.requests, "get", fake_get)
+    monkeypatch.setattr(auth_mod.requests, "post", fake_post)
+    auth_mod._load_oidc_discovery.cache_clear()  # pylint: disable=protected-access
+
+    client = TestClient(main.app)
+    callback = "https://chat.openai.com/aip/g-broker/oauth/callback"
+    response = client.post(
+        "/oauth/google/token",
+        data={"code": "auth-code", "redirect_uri": callback},
+    )
+
+    assert response.status_code == 200
+    assert captured["discovery"] == (
+        "https://auth.fitness-pals.com/application/o/training-agent-gpt/.well-known/openid-configuration",
+        5,
+    )
+    assert captured["token_url"] == "https://auth.fitness-pals.com/application/o/token/"
     assert captured["data"]["client_id"] == "oidc-client"
     assert captured["data"]["client_secret"] == "oidc-secret"
     assert captured["data"]["redirect_uri"] == callback

@@ -24,10 +24,22 @@ class Settings(BaseSettings):
     access_token_exp_minutes: int = 30
     refresh_token_exp_days: int = 30
 
-    # --- OAuth: Google ---
-    google_client_id: str
-    google_client_secret: str
-    google_redirect_uri: AnyUrl
+    # --- OAuth: Google fallback ---
+    google_client_id: Optional[str] = None
+    google_client_secret: Optional[str] = None
+    google_redirect_uri: Optional[AnyUrl] = None
+
+    # --- OAuth: Authentik / OIDC broker ---
+    oidc_issuer: Optional[AnyUrl] = None
+    oidc_client_id: Optional[str] = None
+    oidc_client_secret: Optional[str] = None
+    oidc_redirect_uri: Optional[AnyUrl] = None
+    oidc_scope: str = "openid email profile"
+    web_oidc_issuer: Optional[AnyUrl] = None
+    web_oidc_client_id: Optional[str] = None
+    web_oidc_client_secret: Optional[str] = None
+    web_oidc_redirect_uri: Optional[AnyUrl] = None
+    web_oidc_scope: Optional[str] = None
 
     # --- OAuth: Optional Microsoft / Apple ---
     microsoft_client_id: Optional[str] = None
