@@ -12,7 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 
 from app.routes import auth_status, providers_garmin
 from app.models import UserProviderToken
-from app.utils.security import create_access_token
+from app.utils.security import APP_SESSION_COOKIE, create_access_token
 
 
 @pytest.fixture
@@ -122,3 +122,24 @@ def test_get_current_user_accepts_app_jwt():
 
     creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
     assert deps.get_current_user(credentials=creds, db=FakeSession()) is user
+
+
+def test_get_current_user_accepts_app_session_cookie():
+    from app import deps  # imported here to avoid circular import at module load
+
+    user_id = uuid.uuid4()
+    token = create_access_token(user_id)
+    user = SimpleNamespace(id=user_id, email="cookie@example.com")
+
+    class FakeSession:
+        def query(self, model):  # pylint: disable=unused-argument
+            return self
+
+        def filter(self, condition):  # pylint: disable=unused-argument
+            return self
+
+        def first(self):
+            return user
+
+    request = SimpleNamespace(cookies={APP_SESSION_COOKIE: token})
+    assert deps.get_current_user(credentials=None, db=FakeSession(), request=request) is user
