@@ -309,7 +309,7 @@ jobs:
       COMPOSE_FILE: compose.yml
       ENV_FILE: .env
       SECRET_ENV_PATH: /home/dbarker/fitness-pals.com-secrets/.env
-      COMPOSE_PROJECT_NAME: fitness-pals
+      COMPOSE_PROJECT_NAME: fitness-palscom
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -426,7 +426,7 @@ jobs:
       COMPOSE_FILE: compose.yml
       ENV_FILE: .env
       SECRET_ENV_PATH: /home/fitness-pals/fitness-pals.com-secrets/.env
-      COMPOSE_PROJECT_NAME: fitness-pals
+      COMPOSE_PROJECT_NAME: fitness-palscom
       RUN_AS_USER: fitness-pals
     steps:
       - name: Checkout
