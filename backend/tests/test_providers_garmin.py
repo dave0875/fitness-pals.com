@@ -224,8 +224,9 @@ def test_fetch_all_batch(monkeypatch):
     assert summary.get("errors", 0) >= 0
 
 
-def test_token_status_allows_clock_skew():
+def test_token_status_allows_clock_skew(monkeypatch):
     """Token status should not immediately report expired when slightly in the past."""
+    monkeypatch.setenv("GARMIN_MODE", "oauth")
     db = FakeSession()
     user = _fake_user()
     # Seed a token that expired 1 minute ago; should still be considered active due to grace period.
@@ -244,6 +245,7 @@ def test_token_status_allows_clock_skew():
     assert status["status"] == "active"
     assert status["seconds_remaining"] == 0
     assert status["provider"] == "garmin"
+    assert status["mode"] == "oauth"
 
 
 def test_token_status_respects_garmin_mode(monkeypatch):
@@ -481,6 +483,7 @@ def test_scraper_fetch_reauth_on_401(monkeypatch):
 
 def test_garmin_acquire_token(monkeypatch):
     """Acquire token should login via garth and store encrypted tokens."""
+    monkeypatch.setenv("GARMIN_MODE", "oauth")
     db = FakeSession()
     user = _fake_user()
 
