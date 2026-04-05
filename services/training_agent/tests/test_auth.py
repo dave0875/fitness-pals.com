@@ -129,7 +129,6 @@ def test_access_token_tokeninfo_raises(monkeypatch):
 def test_require_google_auth_success(monkeypatch):
     """require_google_auth should pass through valid bearer tokens."""
     monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "client-id")
-    monkeypatch.setattr(main, "GOOGLE_CLIENT_ID", "client-id")
 
     def fake_verify(token, audience):
         assert token == "goodtoken"
@@ -143,8 +142,9 @@ def test_require_google_auth_success(monkeypatch):
 
 def test_require_google_auth_prefers_oidc_client(monkeypatch):
     """OIDC should be the primary bearer validation path when configured."""
-    monkeypatch.setattr(main, "OIDC_CLIENT_ID", "oidc-client")
-    monkeypatch.setattr(main, "GOOGLE_CLIENT_ID", None)
+    monkeypatch.setenv("RUNTRAINER_OIDC_CLIENT_ID", "oidc-client")
+    monkeypatch.delenv("RUNTRAINER_GOOGLE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
 
     def fake_verify(token, audience):
         assert token == "goodtoken"
@@ -160,7 +160,6 @@ def test_require_google_auth_prefers_oidc_client(monkeypatch):
 def test_require_google_auth_missing_or_bad_header(monkeypatch, header):
     """Missing or malformed Authorization headers should raise 401."""
     monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "client-id")
-    monkeypatch.setattr(main, "GOOGLE_CLIENT_ID", "client-id")
     with pytest.raises(HTTPException) as excinfo:
         main.require_google_auth(authorization=header)
     assert excinfo.value.status_code == 401
@@ -170,7 +169,6 @@ def test_require_google_auth_missing_or_bad_header(monkeypatch, header):
 def test_require_google_auth_empty_token(monkeypatch):
     """Blank bearer tokens should be rejected."""
     monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "client-id")
-    monkeypatch.setattr(main, "GOOGLE_CLIENT_ID", "client-id")
     with pytest.raises(HTTPException) as excinfo:
         main.require_google_auth(authorization="Bearer   ")
     assert excinfo.value.status_code == 401
@@ -180,8 +178,16 @@ def test_require_google_auth_empty_token(monkeypatch):
 def test_require_google_auth_missing_client_id(monkeypatch):
     """Missing Google client ID should result in server error."""
     monkeypatch.delenv("RUNTRAINER_GOOGLE_CLIENT_ID", raising=False)
-    monkeypatch.setattr(main, "GOOGLE_CLIENT_ID", None)
-    monkeypatch.setattr(main, "OIDC_CLIENT_ID", None)
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("RUNTRAINER_OIDC_CLIENT_ID", raising=False)
+    monkeypatch.delenv("OIDC_CLIENT_ID", raising=False)
+    monkeypatch.setattr(auth_mod, "GOOGLE_CLIENT_ID", "stale-client-id")
+    monkeypatch.setattr(auth_mod, "OIDC_CLIENT_ID", None)
+
+    def fail_verify(_token, _audience):
+        pytest.fail("require_google_auth should not attempt bearer verification without client config")
+
+    monkeypatch.setattr(main, "verify_bearer", fail_verify)
     with pytest.raises(HTTPException) as excinfo:
         main.require_google_auth(authorization="Bearer sometoken")
     assert excinfo.value.status_code == 500
@@ -238,8 +244,11 @@ def test_ready_endpoint_returns_503(monkeypatch):
 
 def test_oauth_google_auth_honors_valid_chatgpt_redirect(monkeypatch):
     """Authorize proxy should use a caller-supplied ChatGPT callback when valid."""
-    monkeypatch.setattr(auth_mod, "GOOGLE_CLIENT_ID", "client-id")
-    monkeypatch.setattr(auth_mod, "GOOGLE_REDIRECT_URI", "https://chat.openai.com/aip/g-default/oauth/callback")
+    monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "client-id")
+    monkeypatch.setenv(
+        "RUNTRAINER_GOOGLE_REDIRECT_URI",
+        "https://chat.openai.com/aip/g-default/oauth/callback",
+    )
 
     client = TestClient(main.app)
     callback = "https://chatgpt.com/aip/g-test-trainer/oauth/callback"
@@ -259,8 +268,11 @@ def test_oauth_google_auth_honors_valid_chatgpt_redirect(monkeypatch):
 
 def test_oauth_google_auth_rejects_untrusted_redirect(monkeypatch):
     """Authorize proxy should reject redirect URIs outside the OpenAI callback allowlist."""
-    monkeypatch.setattr(auth_mod, "GOOGLE_CLIENT_ID", "client-id")
-    monkeypatch.setattr(auth_mod, "GOOGLE_REDIRECT_URI", "https://chat.openai.com/aip/g-default/oauth/callback")
+    monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "client-id")
+    monkeypatch.setenv(
+        "RUNTRAINER_GOOGLE_REDIRECT_URI",
+        "https://chat.openai.com/aip/g-default/oauth/callback",
+    )
 
     client = TestClient(main.app)
     response = client.get(
@@ -275,9 +287,12 @@ def test_oauth_google_auth_rejects_untrusted_redirect(monkeypatch):
 
 def test_oauth_google_token_uses_supplied_redirect(monkeypatch):
     """Token proxy should exchange using the caller-supplied ChatGPT callback."""
-    monkeypatch.setattr(auth_mod, "GOOGLE_CLIENT_ID", "client-id")
-    monkeypatch.setattr(auth_mod, "GOOGLE_CLIENT_SECRET", "client-secret")
-    monkeypatch.setattr(auth_mod, "GOOGLE_REDIRECT_URI", "https://chat.openai.com/aip/g-default/oauth/callback")
+    monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "client-id")
+    monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_SECRET", "client-secret")
+    monkeypatch.setenv(
+        "RUNTRAINER_GOOGLE_REDIRECT_URI",
+        "https://chat.openai.com/aip/g-default/oauth/callback",
+    )
     captured = {}
 
     class FakeTokenResponse:  # pylint: disable=too-few-public-methods
@@ -315,9 +330,12 @@ def test_oauth_google_token_uses_supplied_redirect(monkeypatch):
 
 def test_oauth_google_auth_uses_oidc_authorize_url(monkeypatch):
     """When OIDC is configured, the authorize proxy should target the broker."""
-    monkeypatch.setattr(auth_mod, "OIDC_AUTH_URL", "https://auth.fitness-pals.com/application/o/authorize/")
-    monkeypatch.setattr(auth_mod, "OIDC_CLIENT_ID", "oidc-client")
-    monkeypatch.setattr(auth_mod, "GOOGLE_CLIENT_ID", "google-client")
+    monkeypatch.setenv(
+        "RUNTRAINER_OIDC_AUTH_URL",
+        "https://auth.fitness-pals.com/application/o/authorize/",
+    )
+    monkeypatch.setenv("RUNTRAINER_OIDC_CLIENT_ID", "oidc-client")
+    monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "google-client")
 
     client = TestClient(main.app)
     callback = "https://chat.openai.com/aip/g-broker/oauth/callback"
@@ -339,9 +357,12 @@ def test_oauth_google_auth_uses_oidc_authorize_url(monkeypatch):
 
 def test_oauth_google_token_uses_oidc_client_credentials(monkeypatch):
     """When OIDC is configured, the token proxy should exchange against the broker."""
-    monkeypatch.setattr(auth_mod, "OIDC_TOKEN_URL", "https://auth.fitness-pals.com/application/o/token/")
-    monkeypatch.setattr(auth_mod, "OIDC_CLIENT_ID", "oidc-client")
-    monkeypatch.setattr(auth_mod, "OIDC_CLIENT_SECRET", "oidc-secret")
+    monkeypatch.setenv(
+        "RUNTRAINER_OIDC_TOKEN_URL",
+        "https://auth.fitness-pals.com/application/o/token/",
+    )
+    monkeypatch.setenv("RUNTRAINER_OIDC_CLIENT_ID", "oidc-client")
+    monkeypatch.setenv("RUNTRAINER_OIDC_CLIENT_SECRET", "oidc-secret")
     captured = {}
 
     class FakeTokenResponse:  # pylint: disable=too-few-public-methods
@@ -404,7 +425,6 @@ class FakeClient:  # pylint: disable=too-few-public-methods
 def setup_app_overrides(monkeypatch, responses):
     """Prepare TestClient with auth bypass and fake Influx responses."""
     monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "client-id")
-    monkeypatch.setattr(main, "GOOGLE_CLIENT_ID", "client-id")
     main.app.dependency_overrides[main.require_google_auth] = lambda: {}
     fake_client = FakeClient(responses)
     monkeypatch.setattr(main, "get_influx_client", lambda: fake_client)

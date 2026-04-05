@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Optional
 from urllib.parse import urlparse
@@ -76,6 +77,25 @@ logger = logging.getLogger("training_agent.oauth")
 router = APIRouter()
 
 
+@dataclass(frozen=True)
+class RuntimeAuthConfig:
+    """Runtime auth configuration resolved from the current environment."""
+
+    default_scope: str
+    oidc_scope: str
+    google_auth_url: str
+    google_token_url: str
+    google_client_id: str | None
+    google_client_secret: str | None
+    google_redirect_uri: str
+    oidc_issuer: str | None
+    oidc_auth_url: str | None
+    oidc_token_url: str | None
+    oidc_jwks_url: str | None
+    oidc_client_id: str | None
+    oidc_client_secret: str | None
+
+
 class OAuthAuthorizeParams(BaseModel):
     """Query parameters accepted by the Google OAuth authorize proxy."""
 
@@ -89,28 +109,80 @@ class OAuthAuthorizeParams(BaseModel):
     code_challenge_method: Optional[str] = None
 
 
-def _oidc_enabled() -> bool:
+def _runtime_env_value(*keys: str, default: str | None = None) -> str | None:
+    """Return the first non-empty runtime environment value for the provided keys."""
+    for key in keys:
+        value = os.environ.get(key)
+        if value:
+            return value
+    return default
+
+
+def _current_auth_config() -> RuntimeAuthConfig:
+    """Resolve effective auth settings from the current process environment."""
+    return RuntimeAuthConfig(
+        default_scope=_runtime_env_value("RUNTRAINER_GOOGLE_SCOPE", default=DEFAULT_SCOPE) or DEFAULT_SCOPE,
+        oidc_scope=_runtime_env_value("RUNTRAINER_OIDC_SCOPE", "OIDC_SCOPE", default=OIDC_SCOPE) or OIDC_SCOPE,
+        google_auth_url=_runtime_env_value(
+            "RUNTRAINER_GOOGLE_AUTH_URL",
+            "GOOGLE_AUTH_URL",
+            default=GOOGLE_AUTH_URL,
+        )
+        or GOOGLE_AUTH_URL,
+        google_token_url=_runtime_env_value(
+            "RUNTRAINER_GOOGLE_TOKEN_URL",
+            "GOOGLE_TOKEN_URL",
+            default=GOOGLE_TOKEN_URL,
+        )
+        or GOOGLE_TOKEN_URL,
+        google_client_id=_runtime_env_value("RUNTRAINER_GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_ID"),
+        google_client_secret=_runtime_env_value(
+            "RUNTRAINER_GOOGLE_CLIENT_SECRET",
+            "GOOGLE_CLIENT_SECRET",
+        ),
+        google_redirect_uri=_runtime_env_value(
+            "RUNTRAINER_GOOGLE_REDIRECT_URI",
+            "GOOGLE_REDIRECT_URI",
+            default=GOOGLE_REDIRECT_URI,
+        )
+        or GOOGLE_REDIRECT_URI,
+        oidc_issuer=_runtime_env_value("RUNTRAINER_OIDC_ISSUER", "OIDC_ISSUER"),
+        oidc_auth_url=_runtime_env_value("RUNTRAINER_OIDC_AUTH_URL", "OIDC_AUTH_URL"),
+        oidc_token_url=_runtime_env_value("RUNTRAINER_OIDC_TOKEN_URL", "OIDC_TOKEN_URL"),
+        oidc_jwks_url=_runtime_env_value("RUNTRAINER_OIDC_JWKS_URL", "OIDC_JWKS_URL"),
+        oidc_client_id=_runtime_env_value("RUNTRAINER_OIDC_CLIENT_ID", "OIDC_CLIENT_ID"),
+        oidc_client_secret=_runtime_env_value(
+            "RUNTRAINER_OIDC_CLIENT_SECRET",
+            "OIDC_CLIENT_SECRET",
+        ),
+    )
+
+
+def _oidc_enabled(config: RuntimeAuthConfig | None = None) -> bool:
     """Return True when the Authentik-backed OIDC broker is configured."""
+    resolved = config or _current_auth_config()
     return all(
         [
-            OIDC_ISSUER,
-            OIDC_AUTH_URL,
-            OIDC_TOKEN_URL,
-            OIDC_JWKS_URL,
-            OIDC_CLIENT_ID,
-            OIDC_CLIENT_SECRET,
+            resolved.oidc_issuer,
+            resolved.oidc_auth_url,
+            resolved.oidc_token_url,
+            resolved.oidc_jwks_url,
+            resolved.oidc_client_id,
+            resolved.oidc_client_secret,
         ]
     )
 
 
-def _active_client_id() -> str | None:
+def _active_client_id(config: RuntimeAuthConfig | None = None) -> str | None:
     """Return the active client ID for the current auth backend."""
-    return OIDC_CLIENT_ID or GOOGLE_CLIENT_ID
+    resolved = config or _current_auth_config()
+    return resolved.oidc_client_id or resolved.google_client_id
 
 
-def _active_scope() -> str:
+def _active_scope(config: RuntimeAuthConfig | None = None) -> str:
     """Return the scope used for the current auth backend."""
-    return OIDC_SCOPE if _oidc_enabled() else DEFAULT_SCOPE
+    resolved = config or _current_auth_config()
+    return resolved.oidc_scope if _oidc_enabled(resolved) else resolved.default_scope
 
 
 def _is_allowed_openai_redirect_uri(redirect_uri: str) -> bool:
@@ -125,9 +197,12 @@ def _is_allowed_openai_redirect_uri(redirect_uri: str) -> bool:
     )
 
 
-def _resolve_redirect_uri(requested_redirect_uri: Optional[str]) -> str:
+def _resolve_redirect_uri(
+    requested_redirect_uri: Optional[str],
+    configured_redirect_uri: str,
+) -> str:
     """Use the caller-supplied ChatGPT callback when valid, else the configured default."""
-    redirect_uri = requested_redirect_uri or GOOGLE_REDIRECT_URI
+    redirect_uri = requested_redirect_uri or configured_redirect_uri
     if not redirect_uri or not _is_allowed_openai_redirect_uri(redirect_uri):
         raise HTTPException(status_code=400, detail="Invalid redirect_uri")
     return redirect_uri
@@ -141,16 +216,17 @@ def _get_jwks_client(jwks_url: str) -> jwt.PyJWKClient:
 
 def verify_oidc_bearer(token: str, audience: str) -> dict:
     """Validate an Authentik-issued bearer token."""
-    if not OIDC_ISSUER or not OIDC_JWKS_URL:
+    config = _current_auth_config()
+    if not config.oidc_issuer or not config.oidc_jwks_url:
         raise HTTPException(status_code=500, detail="Server missing OIDC issuer configuration")
     try:
-        signing_key = _get_jwks_client(OIDC_JWKS_URL).get_signing_key_from_jwt(token)
+        signing_key = _get_jwks_client(config.oidc_jwks_url).get_signing_key_from_jwt(token)
         claims = jwt.decode(
             token,
             signing_key.key,
             algorithms=["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"],
             audience=audience,
-            issuer=OIDC_ISSUER,
+            issuer=config.oidc_issuer,
             options={"require": ["exp", "iat", "iss"]},
         )
         claims["_token_type"] = "jwt"
@@ -234,13 +310,10 @@ def verify_google_bearer(token: str, audience: str) -> dict:
 
 def verify_bearer(token: str, audience: str) -> dict:
     """Validate a bearer token against OIDC first, then Google as migration fallback."""
-    google_client_id = (
-        GOOGLE_CLIENT_ID
-        or os.environ.get("RUNTRAINER_GOOGLE_CLIENT_ID")
-        or os.environ.get("GOOGLE_CLIENT_ID")
-    )
+    config = _current_auth_config()
+    google_client_id = config.google_client_id
     oidc_error: HTTPException | None = None
-    if _oidc_enabled():
+    if _oidc_enabled(config):
         try:
             return verify_oidc_bearer(token, audience)
         except HTTPException as err:
@@ -259,11 +332,8 @@ def require_google_auth(
 ) -> dict:
     """Dependency to enforce a valid bearer token on protected endpoints."""
     from services.training_agent import main as training_main  # pylint: disable=import-outside-toplevel
-    client_id = (
-        getattr(training_main, "OIDC_CLIENT_ID", None)
-        or getattr(training_main, "GOOGLE_CLIENT_ID", None)
-        or _active_client_id()
-    )
+    config = _current_auth_config()
+    client_id = _active_client_id(config)
     if not client_id:
         raise HTTPException(status_code=500, detail="Server missing auth client configuration")
     if not authorization or not authorization.lower().startswith("bearer "):
@@ -278,9 +348,10 @@ def require_google_auth(
 @router.get("/oauth/google/auth")
 def oauth_google_auth(params: OAuthAuthorizeParams = Depends()):
     """Proxy to the configured OAuth authorize endpoint for GPT actions."""
-    redirect_uri = _resolve_redirect_uri(params.redirect_uri)
-    client_id = OIDC_CLIENT_ID or GOOGLE_CLIENT_ID
-    authorize_url = OIDC_AUTH_URL or GOOGLE_AUTH_URL
+    config = _current_auth_config()
+    redirect_uri = _resolve_redirect_uri(params.redirect_uri, config.google_redirect_uri)
+    client_id = config.oidc_client_id or config.google_client_id
+    authorize_url = config.oidc_auth_url or config.google_auth_url
     if not client_id or not authorize_url:
         raise HTTPException(status_code=500, detail="Server missing OAuth authorize configuration")
 
@@ -288,7 +359,7 @@ def oauth_google_auth(params: OAuthAuthorizeParams = Depends()):
         "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": params.response_type,
-        "scope": params.scope or _active_scope(),
+        "scope": params.scope or _active_scope(config),
         "access_type": params.access_type,
         "prompt": params.prompt,
     }
@@ -306,9 +377,10 @@ def oauth_google_auth(params: OAuthAuthorizeParams = Depends()):
 @router.post("/oauth/google/token")
 async def oauth_google_token(request: Request):
     """Proxy to the configured OAuth token endpoint; accepts form/JSON/query and forwards client credentials."""
-    client_id = OIDC_CLIENT_ID or GOOGLE_CLIENT_ID
-    client_secret = OIDC_CLIENT_SECRET or GOOGLE_CLIENT_SECRET
-    token_url = OIDC_TOKEN_URL or GOOGLE_TOKEN_URL
+    config = _current_auth_config()
+    client_id = config.oidc_client_id or config.google_client_id
+    client_secret = config.oidc_client_secret or config.google_client_secret
+    token_url = config.oidc_token_url or config.google_token_url
     if not client_id or not client_secret or not token_url:
         raise HTTPException(status_code=500, detail="Server missing OAuth token configuration")
 
@@ -346,7 +418,7 @@ async def oauth_google_token(request: Request):
     code_verifier = data.get("code_verifier")
     refresh_token = data.get("refresh_token")
     requested_redirect_uri = data.get("redirect_uri") or request.query_params.get("redirect_uri")
-    redirect_uri = _resolve_redirect_uri(requested_redirect_uri)
+    redirect_uri = _resolve_redirect_uri(requested_redirect_uri, config.google_redirect_uri)
 
     if grant_type == "refresh_token":
         if not refresh_token:
