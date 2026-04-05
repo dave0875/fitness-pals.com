@@ -11,6 +11,9 @@ permissions:
   pull-requests: write
   issues: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   test:
     name: Lint & Test
@@ -30,12 +33,12 @@ jobs:
       RUNTRAINER_FERNET_KEY: 1TvhF4GaxnOIBIq74rU9VrAXaxoBZw-oTCT3vJWRTwc=
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -217,7 +220,7 @@ jobs:
 
       - name: Upload CI logs artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.run_checks.outputs.artifact_name }}
           path: ci-logs
@@ -225,7 +228,7 @@ jobs:
 
       - name: Post CI summary to PR
         if: always() && steps.run_checks.outputs.pr_number != ''
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           PR_NUMBER: ${{ steps.run_checks.outputs.pr_number }}
           ARTIFACT_NAME: ${{ steps.run_checks.outputs.artifact_name }}
@@ -309,7 +312,7 @@ jobs:
       COMPOSE_PROJECT_NAME: fitness-pals
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Copy env from secrets path
         run: |
@@ -427,7 +430,7 @@ jobs:
       RUN_AS_USER: fitness-pals
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
