@@ -15,6 +15,7 @@ from app.services.influx import (
     get_influx_client_for_user,
     get_user_datasource,
 )
+from app.services.activity_summary import build_canonical_summary
 from app.types import CurrentUserLike, InfluxClientLike, InfluxQueryApiLike
 
 
@@ -43,7 +44,9 @@ def _sum_distance(points) -> float:
     return total
 
 
-def _distance_sum(query_api: InfluxQueryApiLike, org: str, bucket: str, days: int) -> float:
+def _distance_sum(
+    query_api: InfluxQueryApiLike, org: str, bucket: str, days: int
+) -> float:
     """Aggregate distance for the specified window."""
     query = (
         f'from(bucket: "{bucket}") |> range(start: -{days}d) |> '
@@ -101,11 +104,13 @@ def _fetch_training_load(query_api: InfluxQueryApiLike, org: str, query: str):
 
 
 @router.post("/summary")
-def summary(user: CurrentUserLike = Depends(get_current_user), db: Session = Depends(get_db)):
+def summary(
+    user: CurrentUserLike = Depends(get_current_user), db: Session = Depends(get_db)
+):
     """Aggregate several readiness metrics from the user's Influx data."""
     ds = get_user_datasource(db, user.id)
     if not ds:
-        raise HTTPException(status_code=404, detail="No datasource configured")
+        return build_canonical_summary(db, user.id)
     try:
         assert_safe_influx_config(ds)
     except ValueError as exc:
@@ -187,7 +192,7 @@ def race_readiness(
     )
     readiness = min(100, max(0, miles_30 / 400 * 100))
     commentary = (
-        f"Based on {miles_30/1609.34:.1f} miles in last 30d, your readiness for a {body.race_type} "
+        f"Based on {miles_30 / 1609.34:.1f} miles in last 30d, your readiness for a {body.race_type} "
         f"looks {readiness:.0f}/100."
     )
     return {"readiness": readiness, "commentary": commentary}

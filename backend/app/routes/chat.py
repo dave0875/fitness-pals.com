@@ -24,7 +24,11 @@ router = APIRouter(prefix="/api", tags=["chat"])
 
 
 @router.post("/chat")
-def chat(body: ChatRequest, user: CurrentUserLike = Depends(get_current_user), db: Session = Depends(get_db)):
+def chat(
+    body: ChatRequest,
+    user: CurrentUserLike = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Call the LLM after fetching the latest metrics snapshot."""
     metrics = summary(user=user, db=db)
     reply = run_coach_prompt(body.message, metrics)
