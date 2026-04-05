@@ -177,7 +177,7 @@ Canonical runtime intent:
 ### Slice 5: Worker Runtime Separation
 - status: `done`
 - issue/pr: `#30` / `#51`
-- merge commit: `pending`
+- merge commit: `f239c76`
 - acceptance target:
   - API enqueues/dispatches sync work
   - worker executes jobs and updates checkpoints independently
@@ -203,7 +203,7 @@ Canonical runtime intent:
 
 ### Slice 6: Provider Adapter Formalization
 - status: `next`
-- target issue: should be created as a dedicated MMF
+- target issue: `#52` (dedicated MMF created; GitHub project linkage still blocked by missing `project` scope)
 - boundary:
   - sync orchestration depends on explicit provider adapter contracts rather than Garmin-specific implementations
 - likely files:
