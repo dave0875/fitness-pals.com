@@ -159,7 +159,7 @@ Canonical runtime intent:
 
 ### Slice 4: Auth Normalization
 - status: `done`
-- issue/pr: `#26` / `pending`
+- issue/pr: `#26` / `#49`
 - merge commit: `pending`
 - acceptance target:
   - product API accepts app-issued sessions only
