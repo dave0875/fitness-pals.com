@@ -137,8 +137,28 @@ def test_upsert_sync_checkpoint_updates_existing_cursor():
     assert second.error_json["message"] == "boom"
 
 
-def test_run_garmin_sync_job_records_checkpoint_and_result(monkeypatch):
-    """Running a Garmin sync job should update job status and checkpoint cursor."""
+def test_run_garmin_sync_job_queues_job_without_inline_ingest(monkeypatch):
+    """Queue helpers should persist the job without executing ingest inline."""
+    db = FakeSession()
+    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    monkeypatch.setattr(
+        sync_jobs.garmin_ingest,
+        "fetch_garmin_recent",
+        lambda *_args, **_kwargs: pytest.fail("queueing should not execute ingest inline"),
+    )
+
+    result = sync_jobs.run_garmin_sync_job(db, user=user)
+
+    assert result.job.status == "queued"
+    assert result.ingest_run is None
+    assert result.job.provider == "garmin"
+    assert result.job.trigger == "manual"
+    assert result.job.user_id == user.id
+    assert result.job.test_run is False
+
+
+def test_process_sync_job_records_checkpoint_and_result(monkeypatch):
+    """Worker processing should update job status and checkpoint cursor."""
     db = FakeSession()
     user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
     ingest_run_id = uuid.uuid4()
@@ -151,9 +171,19 @@ def test_run_garmin_sync_job_records_checkpoint_and_result(monkeypatch):
         return SimpleNamespace(id=ingest_run_id, summary={"activities": 2}, finished_at=finished_at)
 
     monkeypatch.setattr(sync_jobs.garmin_ingest, "fetch_garmin_recent", fake_fetch)
-    monkeypatch.setattr(sync_jobs.garmin_activity, "get_latest_activity_start_time", lambda db_arg, user_arg: latest_activity)
+    monkeypatch.setattr(
+        sync_jobs.garmin_activity,
+        "get_latest_activity_start_time",
+        lambda db_arg, user_arg: latest_activity,
+    )
+    job = sync_jobs.enqueue_sync_job(
+        db,
+        user_id=user.id,
+        provider="garmin",
+        trigger="manual",
+    )
 
-    result = sync_jobs.run_garmin_sync_job(db, user=user)
+    result = sync_jobs.process_sync_job(db, job)
 
     assert result.job.status == "completed"
     assert result.job.result_json["ingest_run_id"] == str(ingest_run_id)
@@ -164,8 +194,8 @@ def test_run_garmin_sync_job_records_checkpoint_and_result(monkeypatch):
     assert checkpoint.cursor_json["latest_activity_start_time"] == latest_activity.isoformat()
 
 
-def test_run_garmin_sync_job_marks_failure(monkeypatch):
-    """Failures should be recorded on both the sync job and checkpoint."""
+def test_process_sync_job_marks_failure(monkeypatch):
+    """Worker failures should be recorded on both the sync job and checkpoint."""
     db = FakeSession()
     user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
 
@@ -173,9 +203,15 @@ def test_run_garmin_sync_job_marks_failure(monkeypatch):
         raise HTTPException(status_code=502, detail="Garmin fetch failed")
 
     monkeypatch.setattr(sync_jobs.garmin_ingest, "fetch_garmin_recent", fake_fetch)
+    job = sync_jobs.enqueue_sync_job(
+        db,
+        user_id=user.id,
+        provider="garmin",
+        trigger="manual",
+    )
 
     with pytest.raises(HTTPException):
-        sync_jobs.run_garmin_sync_job(db, user=user)
+        sync_jobs.process_sync_job(db, job)
 
     jobs = [item for item in db.items if isinstance(item, SyncJob)]
     checkpoints = [item for item in db.items if isinstance(item, SyncCheckpoint)]
@@ -183,3 +219,20 @@ def test_run_garmin_sync_job_marks_failure(monkeypatch):
     assert jobs[0].error_json["message"] == "Garmin fetch failed"
     assert checkpoints and checkpoints[0].status == "error"
     assert checkpoints[0].error_json["status_code"] == 502
+
+
+def test_process_pending_sync_jobs_marks_unsupported_provider_failed_once():
+    """Worker draining should fail unsupported jobs once instead of requeueing them forever."""
+    db = FakeSession()
+    job = sync_jobs.enqueue_sync_job(
+        db,
+        user_id=uuid.uuid4(),
+        provider="polar",
+        trigger="manual",
+    )
+
+    summary = sync_jobs.process_pending_sync_jobs(db, limit=2)
+
+    assert summary == {"processed": 1, "failed": 1}
+    assert job.status == "failed"
+    assert job.error_json["message"] == "Unsupported sync provider: polar"

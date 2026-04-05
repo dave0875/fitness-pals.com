@@ -5,42 +5,37 @@ from __future__ import annotations
 import os
 import threading
 import time
-from dataclasses import dataclass
-from typing import Any
+from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models import UserProviderToken
 from app.db import SESSION_FACTORY
-from app.types import CurrentUserLike
-from app.services.sync_jobs import run_garmin_sync_job
-
-
-@dataclass
-class _UserCtx:
-    """Lightweight user protocol implementation for scheduler."""
-
-    id: Any
-    tenant_id: Any = None
+from app.services.sync_jobs import enqueue_sync_job
 
 
 def fetch_all(db: Session) -> dict:
     """Iterate over all users with Garmin tokens and trigger ingestion."""
-    runs = 0
+    queued = 0
     errors = 0
     provider_key = "garmin" if (os.environ.get("GARMIN_MODE") or "oauth").lower() == "oauth" else "garmin_scraper"
     tokens = db.query(UserProviderToken).filter(UserProviderToken.provider == provider_key).all()
     for token in tokens:
         try:
-            user_ctx = _UserCtx(id=token.user_id, tenant_id=getattr(token, "tenant_id", None))
-            run = run_garmin_sync_job(db, user=user_ctx, trigger="scheduler").ingest_run
-            runs += 1 if run else 0
+            user_id = UUID(str(token.user_id))
+            enqueue_sync_job(
+                db,
+                user_id=user_id,
+                provider="garmin",
+                trigger="scheduler",
+            )
+            queued += 1
         except HTTPException:
             errors += 1
         except Exception:
             errors += 1
-    return {"status": "ok", "runs": runs, "errors": errors}
+    return {"status": "queued", "queued": queued, "errors": errors}
 
 
 def start_polling(interval_seconds: int = 300):

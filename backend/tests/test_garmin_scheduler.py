@@ -61,7 +61,7 @@ class FakeQuery:
 
 
 def test_fetch_all_uses_scraper_tokens_in_scraper_mode(monkeypatch):
-    """Batch scheduler should honor GARMIN_MODE when choosing provider tokens."""
+    """Batch scheduler should queue jobs without executing inline ingest."""
     monkeypatch.setenv("GARMIN_MODE", "scraper")
     scraper_user_id = uuid.uuid4()
     tokens = [
@@ -74,13 +74,13 @@ def test_fetch_all_uses_scraper_tokens_in_scraper_mode(monkeypatch):
     db = FakeSession(tokens)
     calls = []
 
-    def fake_run_sync_job(db_arg, user, trigger):
-        calls.append((db_arg, user.id, trigger))
-        return SimpleNamespace(ingest_run=object())
+    def fake_enqueue_sync_job(db_arg, user_id, provider, trigger, **_kwargs):
+        calls.append((db_arg, user_id, provider, trigger))
+        return SimpleNamespace(id=uuid.uuid4(), status="queued")
 
-    monkeypatch.setattr(garmin_scheduler, "run_garmin_sync_job", fake_run_sync_job)
+    monkeypatch.setattr(garmin_scheduler, "enqueue_sync_job", fake_enqueue_sync_job)
 
     result = garmin_scheduler.fetch_all(db)
 
-    assert result == {"status": "ok", "runs": 1, "errors": 0}
-    assert calls == [(db, scraper_user_id, "scheduler")]
+    assert result == {"status": "queued", "queued": 1, "errors": 0}
+    assert calls == [(db, scraper_user_id, "garmin", "scheduler")]
