@@ -86,8 +86,9 @@ These are the rules that keep the migration on the chosen path.
 - `done`: auth normalization to app-issued sessions only
 - `done`: real worker/runtime separation for sync execution
 - `done`: provider adapter formalization for sync orchestration
-- `next`: canonical core write model
-- `later`: canonical core read/write rollout and FHIR projection
+- `done`: canonical core write model
+- `next`: product read model migration
+- `later`: FHIR projection
 
 ## Target Architecture
 - `identity-access`: app-issued sessions, user identity, operator access
@@ -203,9 +204,24 @@ Canonical runtime intent:
   - the current Garmin bridge path is preserved behind `GarminProvider`, so runtime behavior stays stable while the orchestration boundary becomes replaceable
   - unsupported providers now fail with a clean orchestration-boundary error and still record failed job/checkpoint state predictably
 
+### Slice 7: Canonical Core Write Model
+- status: `done`
+- issue/pr: `#30` / `#55`
+- merge commit: `e183d90`
+- acceptance target:
+  - canonical activity writes persist product-native entities without dumping raw Garmin payloads into product metadata
+  - provenance/source identity is persisted alongside canonical activity writes
+  - replaying the same provider payload/window is idempotent at the canonical write boundary
+- outcome:
+  - Garmin activity writes now trim canonical metadata to product-relevant fields instead of copying raw provider payloads into `Activity.metadata_json`
+  - canonical activity writes now persist `ActivitySource` provenance rows with provider identity alongside the `Activity`
+  - replaying the same Garmin activity payload reuses the canonical `Activity` and `ActivitySource` instead of creating duplicates
+  - the canonical write seam was exercised against the real Compose Postgres runtime with synthetic payload replay and cleanup
+
 ## Current State After Completed Slices
 - backend now has explicit sync-job state and a dedicated worker runtime path for queued sync execution
 - Garmin remains the only real provider path, but sync orchestration now reaches it through an explicit provider adapter seam instead of a direct Garmin-specific call
+- canonical Garmin activity writes now persist trimmed product metadata plus provenance rows, instead of treating the raw provider summary payload as the product model
 - product auth now uses app-issued session tokens; raw Google browser tokens are no longer a valid product API contract
 - product frontend no longer stores or boots from raw Google credentials in `localStorage`
 - training-agent/admin auth is still separate from product auth and still uses its existing Google bearer flow
@@ -215,42 +231,33 @@ Canonical runtime intent:
 
 ## Next Slices
 
-### Slice 7: Canonical Core Write Model
-- status: `next`
-- target issue: `#54` (dedicated MMF created; GitHub project linkage still blocked by missing `project` scope)
-- boundary:
-  - provider adapters normalize provider data into product-native write models before product logic persists it
-- likely files:
-  - `backend/app/services/garmin_ingest.py`
-  - `backend/app/services/garmin/*`
-  - `backend/app/models/*`
-  - canonical core persistence modules to be introduced under `backend/app/services/`
-- tests to add first:
-  - canonical workouts are persisted from provider sync without leaking Garmin-shaped payloads into product logic
-  - sleep/observation persistence records provenance and source identity alongside canonical entities
-  - replaying the same provider payload/window is idempotent at the canonical write boundary
-- rollback:
-  - keep the legacy Garmin persistence path reachable behind a compatibility seam while canonical writes are validated
-- non-goals:
-  - full product read-model migration
-  - FHIR projection
-- purpose:
-  - persist product-native workouts, sleep, observations, and provenance in Postgres
-  - stop treating provider payloads as the product-native model at write time
-- done means:
-  - product-native entities are written canonically in Postgres
-  - provenance and source records are preserved without forcing provider schema into product logic
-
-## Later
-
 ### Slice 8: Product Read Model Migration
-- status: `later`
+- status: `next`
+- target issue: `#56` (dedicated MMF created; GitHub project linkage still blocked by missing `project` scope)
+- boundary:
+  - product-facing queries read from canonical/core-backed models instead of provider-shaped summaries or Influx-only assumptions
+- likely files:
+  - `backend/app/routes/metrics.py`
+  - `backend/app/routes/chat.py`
+  - canonical/core-backed query services to be introduced under `backend/app/services/`
+  - frontend pages that currently depend on provider-shaped API responses
+- tests to add first:
+  - product dashboard summary reads from canonical/core-backed queries instead of provider-shaped raw summaries
+  - chat/context assembly derives activity and sleep inputs from canonical read models
+  - product behavior does not regress when Influx is missing but canonical Postgres data exists
+- rollback:
+  - keep existing Influx/provider-shaped reads reachable behind a compatibility seam while canonical reads are validated
+- non-goals:
+  - FHIR projection
+  - Garmin official API migration
 - purpose:
-  - move product reads off provider-shaped/Influx-shaped assumptions
-  - keep Influx as projection, not source of truth
+  - move product-facing reads onto canonical/core-backed models
+  - reduce product dependence on provider-shaped and Influx-shaped source assumptions
 - done means:
   - product endpoints read from canonical/core-backed read models
   - Influx remains optional/derived for charts and ops, not product truth
+
+## Later
 
 ### Slice 9: FHIR Projection
 - status: `later`
