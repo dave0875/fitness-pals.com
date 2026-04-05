@@ -85,10 +85,53 @@ services:
       - '3000:3000'
     image: 'grafana/grafana:latest'
 
+  authentik-server:
+    image: ghcr.io/goauthentik/server:${AUTHENTIK_TAG:-2026.2.1}
+    container_name: authentik-server
+    restart: unless-stopped
+    command: server
+    environment:
+      - AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY}
+      - AUTHENTIK_POSTGRESQL__HOST=postgres
+      - AUTHENTIK_POSTGRESQL__NAME=${AUTHENTIK_POSTGRES_DB:-authentik}
+      - AUTHENTIK_POSTGRESQL__USER=${RUNTRAINER_POSTGRES_USER:-postgres}
+      - AUTHENTIK_POSTGRESQL__PASSWORD=${RUNTRAINER_POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "9100:9000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - authentik_data:/data
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:${AUTHENTIK_TAG:-2026.2.1}
+    container_name: authentik-worker
+    restart: unless-stopped
+    user: root
+    command: worker
+    environment:
+      - AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY}
+      - AUTHENTIK_POSTGRESQL__HOST=postgres
+      - AUTHENTIK_POSTGRESQL__NAME=${AUTHENTIK_POSTGRES_DB:-authentik}
+      - AUTHENTIK_POSTGRESQL__USER=${RUNTRAINER_POSTGRES_USER:-postgres}
+      - AUTHENTIK_POSTGRESQL__PASSWORD=${RUNTRAINER_POSTGRES_PASSWORD:-postgres}
+      - AUTHENTIK_BOOTSTRAP_EMAIL=${AUTHENTIK_BOOTSTRAP_EMAIL}
+      - AUTHENTIK_BOOTSTRAP_PASSWORD=${AUTHENTIK_BOOTSTRAP_PASSWORD}
+      - AUTHENTIK_BOOTSTRAP_TOKEN=${AUTHENTIK_BOOTSTRAP_TOKEN}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - authentik_data:/data
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared
     restart: unless-stopped
+    profiles:
+      - docker-tunnel
     depends_on:
       backend:
         condition: service_healthy
@@ -96,12 +139,25 @@ services:
         condition: service_started
       training-agent:
         condition: service_healthy
-    command: tunnel --no-autoupdate run --protocol http2 --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    command: tunnel --config /etc/cloudflared/config.yml --no-autoupdate run --protocol http2 --token ${CLOUDFLARE_TUNNEL_TOKEN}
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
-      - TUNNEL_ORIGIN_CERT=/etc/cloudflared/cert.pem
     volumes:
-      - ./cloudflare/cert.pem:/etc/cloudflared/cert.pem:ro
+      - ./cloudflare/config.yml:/etc/cloudflared/config.yml:ro
+
+  cloudflared-loopback:
+    image: alpine/socat
+    container_name: cloudflared-loopback
+    restart: unless-stopped
+    profiles:
+      - docker-tunnel
+    network_mode: "service:cloudflared"
+    depends_on:
+      cloudflared:
+        condition: service_started
+    command:
+      - TCP-LISTEN:80,bind=127.0.0.1,fork,reuseaddr
+      - TCP:172.19.0.1:80
 
   training-agent:
     build:
@@ -118,6 +174,13 @@ services:
       - RUNTRAINER_GOOGLE_CLIENT_ID=${RUNTRAINER_GOOGLE_CLIENT_ID}
       - RUNTRAINER_GOOGLE_CLIENT_SECRET=${RUNTRAINER_GOOGLE_CLIENT_SECRET}
       - RUNTRAINER_GOOGLE_REDIRECT_URI=${RUNTRAINER_GOOGLE_REDIRECT_URI}
+      - RUNTRAINER_OIDC_ISSUER=${RUNTRAINER_OIDC_ISSUER}
+      - RUNTRAINER_OIDC_AUTH_URL=${RUNTRAINER_OIDC_AUTH_URL}
+      - RUNTRAINER_OIDC_SCOPE=${RUNTRAINER_OIDC_SCOPE:-openid email profile}
+      - RUNTRAINER_OIDC_TOKEN_URL=${RUNTRAINER_OIDC_TOKEN_URL}
+      - RUNTRAINER_OIDC_JWKS_URL=${RUNTRAINER_OIDC_JWKS_URL}
+      - RUNTRAINER_OIDC_CLIENT_ID=${RUNTRAINER_OIDC_CLIENT_ID}
+      - RUNTRAINER_OIDC_CLIENT_SECRET=${RUNTRAINER_OIDC_CLIENT_SECRET}
     ports:
       - "9000:9000"
     healthcheck:
@@ -196,5 +259,7 @@ volumes:
   grafana_data:
     external: true
     name: garmin-grafana_grafana_data
+  authentik_data:
+    external: false
   postgres_data:
     external: false

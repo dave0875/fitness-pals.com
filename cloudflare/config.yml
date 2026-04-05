@@ -1,0 +1,19 @@
+tunnel: c6e52ad1-8dc5-47f1-aa4c-4431b3becb7c
+ingress:
+  - hostname: fitness-pals.com
+    service: http://127.0.0.1:80
+    originRequest:
+      httpHostHeader: fitness-pals.com
+  - hostname: www.fitness-pals.com
+    service: http://127.0.0.1:80
+    originRequest:
+      httpHostHeader: www.fitness-pals.com
+  - hostname: api.fitness-pals.com
+    service: http://backend:8000
+  - hostname: grafana.fitness-pals.com
+    service: http://grafana:3000
+  - hostname: training-api-prod.fitness-pals.com
+    service: http://training-agent:9000
+  - hostname: auth.fitness-pals.com
+    service: http://authentik-server:9000
+  - service: http_status:404
