@@ -87,8 +87,8 @@ These are the rules that keep the migration on the chosen path.
 - `done`: real worker/runtime separation for sync execution
 - `done`: provider adapter formalization for sync orchestration
 - `done`: canonical core write model
-- `next`: product read model migration
-- `later`: FHIR projection
+- `done`: product read model migration
+- `next`: FHIR projection
 
 ## Target Architecture
 - `identity-access`: app-issued sessions, user identity, operator access
@@ -218,49 +218,50 @@ Canonical runtime intent:
   - replaying the same Garmin activity payload reuses the canonical `Activity` and `ActivitySource` instead of creating duplicates
   - the canonical write seam was exercised against the real Compose Postgres runtime with synthetic payload replay and cleanup
 
+### Slice 8: Product Read Model Migration
+- status: `done`
+- issue/pr: `#30` / `#57`
+- merge commit: `3e25f57`
+- acceptance target:
+  - product endpoints read from canonical/core-backed read models
+  - Influx remains optional/derived for charts and ops, not product truth
+- outcome:
+  - product metrics summary now falls back to canonical Postgres-backed activity reads when no Influx datasource is configured
+  - chat now operates through that canonical summary path and persists canonical metrics snapshots into conversation metadata even when Influx is absent
+  - the canonical read seam was exercised against the real Compose Postgres runtime with temporary user/activity data and cleanup
+
 ## Current State After Completed Slices
 - backend now has explicit sync-job state and a dedicated worker runtime path for queued sync execution
 - Garmin remains the only real provider path, but sync orchestration now reaches it through an explicit provider adapter seam instead of a direct Garmin-specific call
 - canonical Garmin activity writes now persist trimmed product metadata plus provenance rows, instead of treating the raw provider summary payload as the product model
+- product summary/chat reads now have a canonical Postgres-backed path and no longer treat missing Influx as an automatic product failure when canonical activity data exists
 - product auth now uses app-issued session tokens; raw Google browser tokens are no longer a valid product API contract
 - product frontend no longer stores or boots from raw Google credentials in `localStorage`
 - training-agent/admin auth is still separate from product auth and still uses its existing Google bearer flow
-- product reads still rely on existing mixed paths rather than a fully canonical Postgres-backed read model
+- product reads still use a mixed model overall, but the summary/chat surface now has a canonical fallback instead of a pure Influx dependency
 - deploy path is substantially safer, but environment configuration still needs cleanup and standardization
 - this host still has a compose/Postgres bridge defect that prevents honest end-to-end worker drain proof inside the long-lived local stack, even though the request path and worker runtime seam are now implemented
 
 ## Next Slices
 
-### Slice 8: Product Read Model Migration
-- status: `next`
-- target issue: `#56` (dedicated MMF created; GitHub project linkage still blocked by missing `project` scope)
-- boundary:
-  - product-facing queries read from canonical/core-backed models instead of provider-shaped summaries or Influx-only assumptions
-- likely files:
-  - `backend/app/routes/metrics.py`
-  - `backend/app/routes/chat.py`
-  - canonical/core-backed query services to be introduced under `backend/app/services/`
-  - frontend pages that currently depend on provider-shaped API responses
-- tests to add first:
-  - product dashboard summary reads from canonical/core-backed queries instead of provider-shaped raw summaries
-  - chat/context assembly derives activity and sleep inputs from canonical read models
-  - product behavior does not regress when Influx is missing but canonical Postgres data exists
-- rollback:
-  - keep existing Influx/provider-shaped reads reachable behind a compatibility seam while canonical reads are validated
-- non-goals:
-  - FHIR projection
-  - Garmin official API migration
-- purpose:
-  - move product-facing reads onto canonical/core-backed models
-  - reduce product dependence on provider-shaped and Influx-shaped source assumptions
-- done means:
-  - product endpoints read from canonical/core-backed read models
-  - Influx remains optional/derived for charts and ops, not product truth
-
-## Later
-
 ### Slice 9: FHIR Projection
-- status: `later`
+- status: `next`
+- target issue: `#58` (dedicated MMF created; GitHub project linkage still blocked by missing `project` scope)
+- boundary:
+  - canonical core entities project outward to FHIR resources without making FHIR the internal product model
+- likely files:
+  - new projection/export modules under `backend/app/services/`
+  - FHIR-facing routes under `backend/app/routes/` if needed
+  - canonical models already in `backend/app/models/*`
+- tests to add first:
+  - canonical activities project to stable FHIR resources with deterministic ids
+  - repeated projection of the same canonical entities is idempotent
+  - product behavior does not depend on FHIR resource shapes
+- rollback:
+  - keep FHIR projection behind an export/projection seam that can be disabled without affecting product runtime behavior
+- non-goals:
+  - broad SMART-on-FHIR support
+  - provider write-back
 - purpose:
   - project canonical core data to FHIR resources
   - keep FHIR as an interoperability boundary, not the internal domain model
