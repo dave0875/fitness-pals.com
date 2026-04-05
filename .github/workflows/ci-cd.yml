@@ -409,16 +409,43 @@ jobs:
       - name: Smoke check external Cloudflare ingress
         if: steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
         run: |
-          set -a
-          . "$ENV_FILE"
-          set +a
-          if [ -z "${CLOUDFLARE_SMOKE_URLS:-}" ]; then
+          CLOUDFLARE_SMOKE_URLS="$(python3 - "$ENV_FILE" <<'PY'
+from pathlib import Path
+import sys
+
+env_path = Path(sys.argv[1])
+values = {}
+for raw_line in env_path.read_text().splitlines():
+    if not raw_line or raw_line.lstrip().startswith("#") or "=" not in raw_line:
+        continue
+    key, value = raw_line.split("=", 1)
+    values[key.strip()] = value.strip()
+
+print(values.get("CLOUDFLARE_SMOKE_URLS", ""))
+PY
+)"
+          CLOUDFLARE_SMOKE_TIMEOUT_SECONDS="$(python3 - "$ENV_FILE" <<'PY'
+from pathlib import Path
+import sys
+
+env_path = Path(sys.argv[1])
+values = {}
+for raw_line in env_path.read_text().splitlines():
+    if not raw_line or raw_line.lstrip().startswith("#") or "=" not in raw_line:
+        continue
+    key, value = raw_line.split("=", 1)
+    values[key.strip()] = value.strip()
+
+print(values.get("CLOUDFLARE_SMOKE_TIMEOUT_SECONDS", "90"))
+PY
+)"
+          if [ -z "${CLOUDFLARE_SMOKE_URLS}" ]; then
             echo "CLOUDFLARE_SMOKE_URLS must be set in $ENV_FILE to verify external ingress." >&2
             exit 1
           fi
           python3 scripts/smoke_urls.py \
             --urls "$CLOUDFLARE_SMOKE_URLS" \
-            --timeout "${CLOUDFLARE_SMOKE_TIMEOUT_SECONDS:-90}"
+            --timeout "$CLOUDFLARE_SMOKE_TIMEOUT_SECONDS"
 
   deploy-prod:
     name: Deploy to Prod
@@ -572,13 +599,40 @@ jobs:
       - name: Smoke check external Cloudflare ingress
         if: steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
         run: |
-          set -a
-          . "$ENV_FILE"
-          set +a
-          if [ -z "${CLOUDFLARE_SMOKE_URLS:-}" ]; then
+          CLOUDFLARE_SMOKE_URLS="$(python3 - "$ENV_FILE" <<'PY'
+from pathlib import Path
+import sys
+
+env_path = Path(sys.argv[1])
+values = {}
+for raw_line in env_path.read_text().splitlines():
+    if not raw_line or raw_line.lstrip().startswith("#") or "=" not in raw_line:
+        continue
+    key, value = raw_line.split("=", 1)
+    values[key.strip()] = value.strip()
+
+print(values.get("CLOUDFLARE_SMOKE_URLS", ""))
+PY
+)"
+          CLOUDFLARE_SMOKE_TIMEOUT_SECONDS="$(python3 - "$ENV_FILE" <<'PY'
+from pathlib import Path
+import sys
+
+env_path = Path(sys.argv[1])
+values = {}
+for raw_line in env_path.read_text().splitlines():
+    if not raw_line or raw_line.lstrip().startswith("#") or "=" not in raw_line:
+        continue
+    key, value = raw_line.split("=", 1)
+    values[key.strip()] = value.strip()
+
+print(values.get("CLOUDFLARE_SMOKE_TIMEOUT_SECONDS", "90"))
+PY
+)"
+          if [ -z "${CLOUDFLARE_SMOKE_URLS}" ]; then
             echo "CLOUDFLARE_SMOKE_URLS must be set in $ENV_FILE to verify external ingress." >&2
             exit 1
           fi
           python3 scripts/smoke_urls.py \
             --urls "$CLOUDFLARE_SMOKE_URLS" \
-            --timeout "${CLOUDFLARE_SMOKE_TIMEOUT_SECONDS:-90}"
+            --timeout "$CLOUDFLARE_SMOKE_TIMEOUT_SECONDS"
