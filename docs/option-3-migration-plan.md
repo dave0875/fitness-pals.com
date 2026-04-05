@@ -84,7 +84,8 @@ These are the rules that keep the migration on the chosen path.
 - `done`: dev validation regression fixes for Garmin scheduler, ingest, Influx verify, metrics, and chat fallback
 - `done`: deploy hardening with changed-service gating, readiness checks, and Cloudflare ingress smoke checks
 - `done`: auth normalization to app-issued sessions only
-- `next`: real worker/runtime separation for sync execution
+- `done`: real worker/runtime separation for sync execution
+- `next`: provider adapter formalization
 - `later`: canonical core read/write rollout and FHIR projection
 
 ## Target Architecture
@@ -173,47 +174,52 @@ Canonical runtime intent:
   - product frontend pages no longer bootstrap from `localStorage` provider tokens and instead rely on the app session automatically
   - training-agent/admin remains on its separate Google-bearer auth surface rather than sharing the product auth contract
 
+### Slice 5: Worker Runtime Separation
+- status: `done`
+- issue/pr: `#30` / `#51`
+- merge commit: `pending`
+- acceptance target:
+  - API enqueues/dispatches sync work
+  - worker executes jobs and updates checkpoints independently
+  - deploy topology includes the worker runtime explicitly
+  - request/response latency no longer includes sync execution time
+- outcome:
+  - product Garmin fetch routes now enqueue sync jobs instead of running Garmin ingest inline
+  - scheduler batch fetch now enqueues sync work rather than executing it in-process
+  - a dedicated sync worker entrypoint and compose service now own queued sync execution
+  - deploy detection and workflow logic now rebuild, restart, and smoke-check the worker runtime alongside backend changes
+
 ## Current State After Completed Slices
-- backend has explicit sync-job state but not a separate worker container/runtime yet
+- backend now has explicit sync-job state and a dedicated worker runtime path for queued sync execution
 - Garmin remains the only real provider path and is still partly scraper/bridge oriented
 - product auth now uses app-issued session tokens; raw Google browser tokens are no longer a valid product API contract
 - product frontend no longer stores or boots from raw Google credentials in `localStorage`
 - training-agent/admin auth is still separate from product auth and still uses its existing Google bearer flow
 - product reads still rely on existing mixed paths rather than a fully canonical Postgres-backed read model
 - deploy path is substantially safer, but environment configuration still needs cleanup and standardization
+- this host still has a compose/Postgres bridge defect that prevents honest end-to-end worker drain proof inside the long-lived local stack, even though the request path and worker runtime seam are now implemented
 
 ## Next Slices
 
-### Slice 5: Worker Runtime Separation
+### Slice 6: Provider Adapter Formalization
 - status: `next`
-- target issue: should be created if not already present as a dedicated MMF
-- purpose:
-  - move sync execution out of request handlers
-  - introduce worker/scheduler ownership as an actual runtime boundary
+- target issue: should be created as a dedicated MMF
 - boundary:
-  - API creates/dispatches work; worker owns execution and checkpoint updates
+  - sync orchestration depends on explicit provider adapter contracts rather than Garmin-specific implementations
 - likely files:
   - `backend/app/services/sync_jobs.py`
-  - Garmin scheduler/orchestration modules
-  - `compose.yml`
-  - deploy workflow if a new worker service is introduced
+  - `backend/app/routes/providers_garmin.py`
+  - `backend/app/providers/*`
+  - new adapter contract modules as needed
 - tests to add first:
-  - enqueue path creates runnable job without executing inline
-  - worker processes a pending job and updates final state
-  - failure/retry path updates checkpoints predictably
-- acceptance target:
-  - API enqueues/dispatches sync work
-  - worker executes jobs and updates checkpoints independently
-  - deploy topology includes the worker runtime explicitly
-  - request/response latency no longer includes sync execution time
+  - sync orchestration dispatches through an adapter contract instead of Garmin-specific helpers
+  - Garmin bridge behavior can be exercised behind the adapter seam
+  - unsupported providers fail cleanly at the orchestration boundary
 - rollback:
-  - feature flag or route fallback to inline execution for emergency cutback
+  - keep orchestration capable of routing back to the current Garmin-specific path behind a compatibility seam if adapter extraction regresses
 - non-goals:
-  - full adapter rewrite
-  - FHIR projection
-
-### Slice 6: Provider Adapter Formalization
-- status: `later`
+  - Garmin official OAuth/API migration
+  - Apple Health implementation
 - purpose:
   - isolate Garmin bridge behavior behind a real adapter contract
   - make future Garmin official and Apple Health adapters plug into the same sync port
