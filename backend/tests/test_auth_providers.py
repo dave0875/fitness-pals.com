@@ -10,6 +10,7 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
 import app.auth.oauth as oauth_mod
+from app.utils.security import APP_REFRESH_COOKIE, APP_SESSION_COOKIE
 
 
 class FakeSession:
@@ -111,9 +112,11 @@ async def test_login_and_callback_with_stubbed_oidc(provider, reload_oauth):
 
     db = FakeSession()
     callback_resp = await oauth_mod.auth_callback(provider, request, db=db)
-    # Should yield app JWTs regardless of provider
-    assert "access_token" in callback_resp
-    assert "refresh_token" in callback_resp
+    assert isinstance(callback_resp, RedirectResponse)
+    assert callback_resp.headers["location"] == "/dashboard"
+    cookies = callback_resp.headers.getlist("set-cookie")
+    assert any(APP_SESSION_COOKIE in cookie for cookie in cookies)
+    assert any(APP_REFRESH_COOKIE in cookie for cookie in cookies)
 
 
 @pytest.mark.asyncio

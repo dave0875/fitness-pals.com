@@ -4,34 +4,29 @@ import axios from "axios";
 export default function Settings() {
   const [form, setForm] = useState({ url: "", org: "", bucket: "", token: "" });
   const [status, setStatus] = useState("");
-  const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
 
   const connect = async () => {
     try {
-      await axios.post("/api/datasource/influx/connect", form, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      await axios.post("/api/datasource/influx/connect", form);
       setStatus("Saved");
     } catch (err) {
-      setStatus("Error saving");
+      setStatus("Login required or error saving");
     }
   };
 
   const verify = async () => {
     try {
-      await axios.get("/api/datasource/influx/verify", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      await axios.get("/api/datasource/influx/verify");
       setStatus("Connection OK");
     } catch (err) {
-      setStatus("Verify failed");
+      setStatus("Login required or verify failed");
     }
   };
 
   return (
     <main style={{ padding: "2rem", fontFamily: "sans-serif" }}>
       <h1>Settings</h1>
-      {!token && <p>Store your access_token in localStorage.</p>}
+      <p>Your app session is used automatically for these requests.</p>
       <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", maxWidth: "420px" }}>
         {["url", "org", "bucket", "token"].map((field) => (
           <input

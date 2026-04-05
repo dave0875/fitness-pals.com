@@ -9,12 +9,13 @@ from uuid import UUID
 
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
 from app.models import User
-from app.utils.security import create_access_token, create_refresh_token
+from app.utils.security import create_access_token, create_refresh_token, set_auth_cookies
 
 # Ensure settings reflect current environment (tests reload this module).
 if hasattr(get_settings, "cache_clear"):
@@ -180,7 +181,9 @@ async def auth_callback(provider: str, request: Request, db: Session = Depends(g
     user_id_value = cast(UUID, getattr(user, "id"))
     access = create_access_token(user_id_value)
     refresh = create_refresh_token(user_id_value)
-    return {"access_token": access, "refresh_token": refresh, "token_type": "bearer"}
+    response = RedirectResponse(url="/dashboard", status_code=303)
+    set_auth_cookies(response, access, refresh)
+    return response
 
 
 @router.get("/callback")
