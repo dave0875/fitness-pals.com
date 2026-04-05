@@ -11,6 +11,18 @@ import pytest
 import requests_mock
 from fastapi import HTTPException
 
+os.environ.setdefault("RUNTRAINER_JWT_SECRET", "test-jwt-secret")
+os.environ.setdefault(
+    "RUNTRAINER_FERNET_KEY", "RUroXk_5cPR0yW9SKG3Y4995FbGgRsdrucrb7Sxl67s="
+)
+os.environ.setdefault("RUNTRAINER_DATABASE_URL", "sqlite:///./test.db")
+os.environ.setdefault("GARMIN_MODE", "oauth")
+os.environ.setdefault("RUNTRAINER_GOOGLE_CLIENT_ID", "test-google-client")
+os.environ.setdefault("RUNTRAINER_GOOGLE_CLIENT_SECRET", "test-google-secret")
+os.environ.setdefault(
+    "RUNTRAINER_GOOGLE_REDIRECT_URI", "https://example.com/auth/google/callback"
+)
+
 from app.routes import providers_garmin
 from app.services import garmin_ingest
 from app.services.providers import ProviderTokenDetails, save_user_provider_token
@@ -79,11 +91,24 @@ def test_login_builds_redirect(monkeypatch):
     monkeypatch.setenv("GARMIN_CLIENT_ID", "cid")
     monkeypatch.setenv("GARMIN_CLIENT_SECRET", "secret")
     monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
-    resp = providers_garmin.garmin_login(_fake_user())
+    fake_request = SimpleNamespace(query_params={})
+    resp = providers_garmin.garmin_login(fake_request, _fake_user())
     assert resp.status_code in (302, 307)
     assert "response_type=code" in resp.headers["location"]
     assert "client_id=cid" in resp.headers["location"]
     assert "redirect_uri=https%3A%2F%2Fexample.com%2Fcallback" in resp.headers["location"]
+
+
+def test_login_persists_safe_next_redirect(monkeypatch):
+    """Garmin login should preserve a safe next redirect in a cookie."""
+    monkeypatch.setenv("GARMIN_CLIENT_ID", "cid")
+    monkeypatch.setenv("GARMIN_CLIENT_SECRET", "secret")
+    monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
+    fake_request = SimpleNamespace(query_params={"next": "/welcome?garmin=connected"})
+    resp = providers_garmin.garmin_login(fake_request, _fake_user())
+    assert resp.status_code in (302, 307)
+    cookies = resp.headers.getlist("set-cookie")
+    assert any("garmin_oauth_next=" in cookie and "welcome" in cookie for cookie in cookies)
 
 
 def test_callback_happy_path(monkeypatch):
@@ -109,7 +134,8 @@ def test_callback_happy_path(monkeypatch):
                 headers={"content-type": "application/json"},
             )
         result = providers_garmin.garmin_callback(request=fake_request, code="abc", state="abc", user=user, db=db)
-    assert result["status"] == "connected"
+    assert result.status_code in (302, 303, 307)
+    assert result.headers["location"] == "/welcome?garmin=connected"
     assert db.items, "Token should be saved"
     stored = db.items[0]
     assert stored.provider == "garmin"
@@ -117,6 +143,34 @@ def test_callback_happy_path(monkeypatch):
     assert stored.refresh_token_encrypted != b"rt"
     assert stored.expires_at and isinstance(stored.expires_at, datetime)
     assert stored.tenant_id is None
+
+
+def test_callback_redirects_to_safe_next_when_present(monkeypatch):
+    """Garmin callback should redirect to the preserved safe next path."""
+    monkeypatch.setenv("GARMIN_CLIENT_ID", "cid")
+    monkeypatch.setenv("GARMIN_CLIENT_SECRET", "secret")
+    monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
+    db = FakeSession()
+    user = _fake_user()
+    token_url = _test_token_url()
+    fake_request = SimpleNamespace(
+        cookies={
+            "garmin_oauth_state": "abc",
+            "garmin_oauth_next": "/welcome?garmin=connected",
+        }
+    )
+    with requests_mock.Mocker() as m:
+        m.post(
+            token_url,
+            json={"access_token": "at", "refresh_token": "rt", "expires_in": 3600},
+            status_code=200,
+            headers={"content-type": "application/json"},
+        )
+        result = providers_garmin.garmin_callback(
+            request=fake_request, code="abc", state="abc", user=user, db=db
+        )
+    assert result.status_code in (302, 303, 307)
+    assert result.headers["location"] == "/welcome?garmin=connected"
 
 
 def test_callback_missing_code(monkeypatch):

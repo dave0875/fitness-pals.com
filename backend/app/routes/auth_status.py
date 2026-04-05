@@ -10,11 +10,26 @@ from jose import JWTError, jwt
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
+from app.deps import get_current_user
+from app.types import CurrentUserLike
 from app.config import get_settings
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 bearer = HTTPBearer(auto_error=False)
 settings = get_settings()
+
+
+@router.get("/session")
+def auth_session(user: CurrentUserLike = Depends(get_current_user)):
+    """Return the current app-session identity for authenticated product users."""
+    return {
+        "authenticated": True,
+        "user_id": str(user.id),
+        "email": getattr(user, "email", None),
+        "name": getattr(user, "name", None),
+        "picture_url": getattr(user, "picture_url", None),
+        "session_type": "app",
+    }
 
 
 @router.get("/token-status/google")

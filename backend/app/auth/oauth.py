@@ -76,6 +76,7 @@ _register_provider(
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+AUTH_NEXT_COOKIE = "runtrainer_auth_next"
 
 
 def _redirect_uri_for(provider: str) -> Optional[str]:
@@ -92,6 +93,15 @@ def _redirect_uri_for(provider: str) -> Optional[str]:
         ),
     }
     return mapping.get(provider)
+
+
+def _safe_next_path(candidate: Optional[str], default: str = "/welcome") -> str:
+    """Allow only local absolute paths for post-auth redirects."""
+    if not candidate:
+        return default
+    if not candidate.startswith("/") or candidate.startswith("//"):
+        return default
+    return candidate
 
 
 async def _fetch_userinfo(provider: str, token, request: Request):
@@ -136,7 +146,17 @@ async def login(provider: str, request: Request):
             status_code=500, detail=f"Missing redirect URI for {provider}"
         )
     client = getattr(oauth, provider)
-    return await client.authorize_redirect(request, redirect_uri)
+    response = await client.authorize_redirect(request, redirect_uri)
+    response.set_cookie(
+        AUTH_NEXT_COOKIE,
+        _safe_next_path(request.query_params.get("next"), "/welcome"),
+        max_age=300,
+        httponly=True,
+        secure=not settings.debug,
+        samesite="lax",
+        path="/",
+    )
+    return response
 
 
 @router.get("/login")
@@ -181,8 +201,12 @@ async def auth_callback(provider: str, request: Request, db: Session = Depends(g
     user_id_value = cast(UUID, getattr(user, "id"))
     access = create_access_token(user_id_value)
     refresh = create_refresh_token(user_id_value)
-    response = RedirectResponse(url="/dashboard", status_code=303)
+    response = RedirectResponse(
+        url=_safe_next_path(request.cookies.get(AUTH_NEXT_COOKIE), "/welcome"),
+        status_code=303,
+    )
     set_auth_cookies(response, access, refresh)
+    response.delete_cookie(AUTH_NEXT_COOKIE, path="/")
     return response
 
 

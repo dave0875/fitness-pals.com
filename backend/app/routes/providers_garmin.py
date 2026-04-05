@@ -38,6 +38,7 @@ from app.utils.security import decrypt_token
 router = APIRouter(prefix="/api/providers/garmin", tags=["garmin"])
 logger = logging.getLogger("garmin.routes")
 logger.setLevel(logging.INFO)
+GARMIN_NEXT_COOKIE = "garmin_oauth_next"
 
 
 def _user_uuid(user: CurrentUserLike) -> UUID:
@@ -52,6 +53,17 @@ def _redact_token(token: Optional[str]) -> str:
     if len(token) <= 8:
         return "***"
     return f"{token[:4]}...{token[-4:]}"
+
+
+def _safe_next_path(
+    candidate: Optional[str], default: str = "/welcome?garmin=connected"
+) -> str:
+    """Allow only local absolute paths for Garmin post-connect redirects."""
+    if not candidate:
+        return default
+    if not candidate.startswith("/") or candidate.startswith("//"):
+        return default
+    return candidate
 
 def _config():
     return {
@@ -136,6 +148,7 @@ def _require_env():
 
 @router.get("/login")
 def garmin_login(
+    request: Request,
     _: Annotated[Any, Depends(get_current_user)]
 ):
     """Redirect the authenticated user to Garmin OAuth."""
@@ -160,6 +173,17 @@ def garmin_login(
         httponly=True,
         secure=True,
         samesite="lax",
+    )
+    resp.set_cookie(
+        GARMIN_NEXT_COOKIE,
+        _safe_next_path(
+            request.query_params.get("next"), "/welcome?garmin=connected"
+        ),
+        max_age=300,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/",
     )
     return resp
 
@@ -232,7 +256,15 @@ def garmin_callback(
             metadata={"token_received_at": datetime.utcnow().isoformat()},
         ),
     )
-    return {"status": "connected", "provider": "garmin"}
+    response = RedirectResponse(
+        url=_safe_next_path(
+            request.cookies.get(GARMIN_NEXT_COOKIE), "/welcome?garmin=connected"
+        ),
+        status_code=303,
+    )
+    response.delete_cookie("garmin_oauth_state", path="/")
+    response.delete_cookie(GARMIN_NEXT_COOKIE, path="/")
+    return response
 
 
 def _refresh_tokens(refresh_token: str):

@@ -3,11 +3,24 @@
 # pylint: disable=redefined-outer-name
 
 import importlib
+import os
 from types import SimpleNamespace
 
 import pytest
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
+
+os.environ.setdefault("RUNTRAINER_JWT_SECRET", "test")
+os.environ.setdefault(
+    "RUNTRAINER_FERNET_KEY", "RUroXk_5cPR0yW9SKG3Y4995FbGgRsdrucrb7Sxl67s="
+)
+os.environ.setdefault("RUNTRAINER_DATABASE_URL", "sqlite:///./test.db")
+os.environ.setdefault("GARMIN_MODE", "oauth")
+os.environ.setdefault("RUNTRAINER_GOOGLE_CLIENT_ID", "test-google-client")
+os.environ.setdefault("RUNTRAINER_GOOGLE_CLIENT_SECRET", "test-google-secret")
+os.environ.setdefault(
+    "RUNTRAINER_GOOGLE_REDIRECT_URI", "https://example.com/auth/google/callback"
+)
 
 import app.auth.oauth as oauth_mod
 from app.utils.security import APP_REFRESH_COOKIE, APP_SESSION_COOKIE
@@ -80,7 +93,9 @@ def reload_oauth(monkeypatch):
     """Reload the OAuth module after injecting env vars for providers."""
     # Ensure env vars exist so providers register
     monkeypatch.setenv("RUNTRAINER_JWT_SECRET", "test")
-    monkeypatch.setenv("RUNTRAINER_FERNET_KEY", "ZmFrZS1mZXJuZXQta2V5LWRvLW5vdC11c2U=")
+    monkeypatch.setenv(
+        "RUNTRAINER_FERNET_KEY", "RUroXk_5cPR0yW9SKG3Y4995FbGgRsdrucrb7Sxl67s="
+    )
     monkeypatch.setenv("RUNTRAINER_DATABASE_URL", "sqlite:///./test.db")
     for provider in ("GOOGLE", "MICROSOFT", "APPLE"):
         monkeypatch.setenv(f"RUNTRAINER_{provider}_CLIENT_ID", f"{provider.lower()}-id")
@@ -105,7 +120,7 @@ async def test_login_and_callback_with_stubbed_oidc(provider, reload_oauth):
     oauth_mod._registered[provider] = True  # pylint: disable=protected-access
     setattr(oauth_mod.oauth, provider, fake_client)
 
-    request = Request(scope={"type": "http"})
+    request = Request(scope={"type": "http", "query_string": b"", "headers": []})
     resp = await oauth_mod.login(provider, request)
     assert isinstance(resp, RedirectResponse)
     assert fake_client.redirects, "authorize_redirect should be called"
@@ -113,16 +128,74 @@ async def test_login_and_callback_with_stubbed_oidc(provider, reload_oauth):
     db = FakeSession()
     callback_resp = await oauth_mod.auth_callback(provider, request, db=db)
     assert isinstance(callback_resp, RedirectResponse)
-    assert callback_resp.headers["location"] == "/dashboard"
+    assert callback_resp.headers["location"] == "/welcome"
     cookies = callback_resp.headers.getlist("set-cookie")
     assert any(APP_SESSION_COOKIE in cookie for cookie in cookies)
     assert any(APP_REFRESH_COOKIE in cookie for cookie in cookies)
 
 
 @pytest.mark.asyncio
+async def test_login_persists_safe_next_redirect(reload_oauth):
+    """Login should preserve a safe next redirect across the OAuth handshake."""
+    oauth_mod = reload_oauth
+    fake_client = FakeClient("google")
+    oauth_mod._registered["google"] = True  # pylint: disable=protected-access
+    setattr(oauth_mod.oauth, "google", fake_client)
+
+    request = Request(
+        scope={
+            "type": "http",
+            "query_string": b"next=%2Fwelcome",
+            "headers": [],
+        }
+    )
+    resp = await oauth_mod.login("google", request)
+
+    assert isinstance(resp, RedirectResponse)
+    cookies = resp.headers.getlist("set-cookie")
+    assert any("runtrainer_auth_next=" in cookie and "welcome" in cookie for cookie in cookies)
+
+
+@pytest.mark.asyncio
+async def test_callback_redirects_to_safe_next_when_present(reload_oauth):
+    """Callback should redirect to the safe next path captured during login."""
+    oauth_mod = reload_oauth
+    fake_client = FakeClient("google")
+    oauth_mod._registered["google"] = True  # pylint: disable=protected-access
+    setattr(oauth_mod.oauth, "google", fake_client)
+
+    request = Request(scope={"type": "http", "query_string": b"", "headers": []})
+    request._cookies = {"runtrainer_auth_next": "/welcome"}  # pylint: disable=protected-access
+
+    db = FakeSession()
+    callback_resp = await oauth_mod.auth_callback("google", request, db=db)
+
+    assert isinstance(callback_resp, RedirectResponse)
+    assert callback_resp.headers["location"] == "/welcome"
+
+
+@pytest.mark.asyncio
+async def test_callback_rejects_unsafe_next_redirect(reload_oauth):
+    """Unsafe absolute next targets should be ignored in favor of a safe default."""
+    oauth_mod = reload_oauth
+    fake_client = FakeClient("google")
+    oauth_mod._registered["google"] = True  # pylint: disable=protected-access
+    setattr(oauth_mod.oauth, "google", fake_client)
+
+    request = Request(scope={"type": "http", "query_string": b"", "headers": []})
+    request._cookies = {"runtrainer_auth_next": "https://evil.example.com"}  # pylint: disable=protected-access
+
+    db = FakeSession()
+    callback_resp = await oauth_mod.auth_callback("google", request, db=db)
+
+    assert isinstance(callback_resp, RedirectResponse)
+    assert callback_resp.headers["location"] == "/welcome"
+
+
+@pytest.mark.asyncio
 async def test_missing_provider_raises(reload_oauth):
     """Unknown providers should raise when login is attempted."""
     oauth_mod = reload_oauth
-    request = Request(scope={"type": "http"})
+    request = Request(scope={"type": "http", "query_string": b"", "headers": []})
     with pytest.raises(Exception):
         await oauth_mod.login("unknown", request)
