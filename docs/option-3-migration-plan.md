@@ -160,7 +160,7 @@ Canonical runtime intent:
 ### Slice 4: Auth Normalization
 - status: `done`
 - issue/pr: `#26` / `#49`
-- merge commit: `pending`
+- merge commit: `8dffa21`
 - acceptance target:
   - product API accepts app-issued sessions only
   - frontend login flow exchanges provider auth for app session
@@ -261,6 +261,7 @@ Canonical runtime intent:
 - public `api.` and `grafana.` hostnames are not live yet from this environment
 - frontend, backend, and deploy topology are still not fully rationalized into a single product ingress contract
 - admin/ops surface is still represented mostly by the training-agent, not a cleanly separated ops application
+- this host's persisted compose/Postgres runtime still does not allow backend or worker containers to complete DB traffic over the bridge network, which blocks honest target-runtime proof for Slice 5 until the environment is corrected
 
 ## Out of Scope For Current Wave
 - full FHIR coverage beyond initial projection/export boundary

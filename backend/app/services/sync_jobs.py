@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
-from app.models import SyncCheckpoint, SyncJob
+from app.models import SyncCheckpoint, SyncJob, User
 from app.services.garmin import activity as garmin_activity
 from app.services import garmin_ingest
 from app.types import CurrentUserLike
@@ -20,7 +21,7 @@ class SyncExecutionResult:
     """Return shape for an executed provider sync."""
 
     job: SyncJob
-    ingest_run: Any
+    ingest_run: Any | None
 
 
 def enqueue_sync_job(
@@ -45,6 +46,26 @@ def enqueue_sync_job(
     db.commit()
     db.refresh(job)
     return job
+
+
+def enqueue_garmin_sync_job(
+    db: Session,
+    *,
+    user: CurrentUserLike,
+    trigger: str = "manual",
+    test_run: bool = False,
+    payload: Optional[dict[str, Any]] = None,
+) -> SyncExecutionResult:
+    """Persist a queued Garmin sync job without executing ingest inline."""
+    job = enqueue_sync_job(
+        db,
+        user_id=user.id,
+        provider="garmin",
+        trigger=trigger,
+        test_run=test_run,
+        payload=payload,
+    )
+    return SyncExecutionResult(job=job, ingest_run=None)
 
 
 def mark_sync_job_running(db: Session, job: SyncJob) -> SyncJob:
@@ -193,22 +214,47 @@ def run_garmin_sync_job(
     trigger: str = "manual",
     test_run: bool = False,
 ) -> SyncExecutionResult:
-    """Queue and execute a Garmin sync job for a single user."""
-    job = enqueue_sync_job(
+    """Backward-compatible enqueue helper for Garmin sync requests."""
+    return enqueue_garmin_sync_job(
         db,
-        user_id=user.id,
-        provider="garmin",
+        user=user,
         trigger=trigger,
         test_run=test_run,
     )
-    mark_sync_job_running(db, job)
+
+
+def _worker_user_context(db: Session, user_id: UUID) -> CurrentUserLike:
+    """Reconstruct the minimal user shape required by Garmin ingest."""
+    tenant_id = None
+    user_row = None
+    getter = getattr(db, "get", None)
+    if callable(getter):
+        try:
+            user_row = getter(User, user_id)
+        except Exception:  # pylint: disable=broad-except
+            user_row = None
+    if user_row is not None:
+        tenant_id = getattr(user_row, "tenant_id", None)
+    return SimpleNamespace(id=user_id, tenant_id=tenant_id)
+
+
+def process_sync_job(db: Session, job: SyncJob) -> SyncExecutionResult:
+    """Execute a queued sync job inside the worker runtime."""
+    if job.provider != "garmin":
+        error = _sync_error_payload(ValueError(f"Unsupported sync provider: {job.provider}"))
+        mark_sync_job_failed(db, job, error=error)
+        raise ValueError(error["message"])
+
+    user_id = UUID(str(job.user_id))
+    job = mark_sync_job_running(db, job)
     job_id = _ensure_job_uuid(job)
+    user = _worker_user_context(db, user_id)
     try:
-        ingest_run = garmin_ingest.fetch_garmin_recent(db, user, test_run=test_run)
+        ingest_run = garmin_ingest.fetch_garmin_recent(db, user, test_run=job.test_run)
         completed_at = getattr(ingest_run, "finished_at", None) or datetime.now(timezone.utc)
         upsert_sync_checkpoint(
             db,
-            user_id=user.id,
+            user_id=user_id,
             provider="garmin",
             status="ok",
             cursor=_checkpoint_cursor_for_garmin(db, user),
@@ -230,7 +276,7 @@ def run_garmin_sync_job(
     except Exception as exc:
         upsert_sync_checkpoint(
             db,
-            user_id=user.id,
+            user_id=user_id,
             provider="garmin",
             status="error",
             cursor=None,
@@ -241,3 +287,19 @@ def run_garmin_sync_job(
         )
         mark_sync_job_failed(db, job, error=_sync_error_payload(exc))
         raise
+
+
+def process_pending_sync_jobs(db: Session, limit: Optional[int] = None) -> dict[str, int]:
+    """Drain queued sync jobs from the worker runtime."""
+    processed = 0
+    failed = 0
+    while limit is None or processed < limit:
+        job = db.query(SyncJob).filter(SyncJob.status == "queued").first()
+        if job is None:
+            break
+        try:
+            process_sync_job(db, job)
+        except Exception:  # pylint: disable=broad-except
+            failed += 1
+        processed += 1
+    return {"processed": processed, "failed": failed}

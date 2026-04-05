@@ -184,14 +184,14 @@ def test_refresh_reauth_when_missing_refresh(monkeypatch):
 
 
 def test_fetch_all_batch(monkeypatch):
-    """Batch fetch should continue across users and report runs/errors."""
+    """Batch fetch should queue work for each user and report errors."""
     monkeypatch.setenv("GARMIN_CLIENT_ID", "cid")
     monkeypatch.setenv("GARMIN_CLIENT_SECRET", "secret")
     monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
     monkeypatch.setenv("GARMIN_API_BASE", "https://mock.garmin")
+    monkeypatch.setenv("GARMIN_MODE", "oauth")
     db = FakeSession()
     user1 = _fake_user()
-    user2 = _fake_user()
     providers_garmin.save_user_provider_token(
         db,
         providers_garmin.ProviderTokenDetails(
@@ -203,25 +203,8 @@ def test_fetch_all_batch(monkeypatch):
             expires_at=datetime.utcnow() + timedelta(hours=1),
         ),
     )
-    providers_garmin.save_user_provider_token(
-        db,
-        providers_garmin.ProviderTokenDetails(
-            user_id=user2.id,
-            tenant_id=None,
-            provider="garmin",
-            access_token="at2",
-            refresh_token="rt2",
-            expires_at=datetime.utcnow() + timedelta(hours=1),
-        ),
-    )
-    class FakeClient:  # pylint: disable=too-few-public-methods
-        def connectapi(self, *_args, **_kwargs):
-            return [{"id": 1}]
-
-    monkeypatch.setattr(garmin_ingest, "garth", SimpleNamespace(Client=FakeClient, auth=None))
     summary = providers_garmin.garmin_fetch_all(_fake_user(), db=db)
-    assert summary["runs"] >= 1
-    assert summary.get("errors", 0) >= 0
+    assert summary == {"status": "queued", "queued": 1, "errors": 0}
 
 
 def test_token_status_allows_clock_skew(monkeypatch):
@@ -312,7 +295,7 @@ def test_refresh_reauth_on_failure(monkeypatch):
 
 
 def test_fetch_happy_path(monkeypatch):
-    """Fetch endpoint should ingest activities and return count."""
+    """Fetch endpoint should queue work and return the queued job id."""
     monkeypatch.setenv("GARMIN_CLIENT_ID", "cid")
     monkeypatch.setenv("GARMIN_CLIENT_SECRET", "secret")
     monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
@@ -363,26 +346,26 @@ def test_fetch_happy_path(monkeypatch):
     monkeypatch.setattr(garmin_ingest, "get_influx_client_for_user", fake_influx_client)
 
     resp = providers_garmin.garmin_fetch(user=user, db=db)
-    assert resp["status"] == "ok"
+    assert resp["status"] == "queued"
     assert resp["sync_job_id"]
-    assert resp["ingested"] == 2
-    # No points written because the fake activities lack mappable fields, but it should not crash.
+    assert resp["ingested"] == 0
+    assert resp["test_run"] is False
 
 
 def test_fetch_reauth_when_missing_token(monkeypatch):
-    """Fetch should require reauth when no Garmin token stored."""
+    """Fetch should still enqueue work even when a token is missing."""
     monkeypatch.setenv("GARMIN_CLIENT_ID", "cid")
     monkeypatch.setenv("GARMIN_CLIENT_SECRET", "secret")
     monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
     db = FakeSession()
     user = _fake_user()
-    with pytest.raises(HTTPException) as exc:
-        providers_garmin.garmin_fetch(user=user, db=db)
-    assert exc.value.status_code == 410
+    resp = providers_garmin.garmin_fetch(user=user, db=db)
+    assert resp["status"] == "queued"
+    assert resp["ingested"] == 0
 
 
 def test_fetch_reauth_on_401(monkeypatch):
-    """Fetch should require reauth when Garmin returns 401."""
+    """Fetch should enqueue work even if a later worker fetch would 401."""
     monkeypatch.setenv("GARMIN_CLIENT_ID", "cid")
     monkeypatch.setenv("GARMIN_CLIENT_SECRET", "secret")
     monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
@@ -405,9 +388,9 @@ def test_fetch_reauth_on_401(monkeypatch):
             raise HTTPException(status_code=410, detail="Garmin reauth required")
 
     monkeypatch.setattr(garmin_ingest, "garth", SimpleNamespace(Client=FakeClient, auth=None))
-    with pytest.raises(HTTPException) as exc:
-        providers_garmin.garmin_fetch(user=user, db=db)
-    assert exc.value.status_code == 410
+    resp = providers_garmin.garmin_fetch(user=user, db=db)
+    assert resp["status"] == "queued"
+    assert resp["ingested"] == 0
 
 
 def test_scraper_token_endpoint():
@@ -423,7 +406,7 @@ def test_scraper_token_endpoint():
 
 
 def test_scraper_fetch_happy_path(monkeypatch):
-    """Scraper mode fetch should use stored scraper token and succeed."""
+    """Scraper mode fetch should queue work and succeed."""
     monkeypatch.setenv("GARMIN_MODE", "scraper")
     db = FakeSession()
     user = _fake_user()
@@ -442,23 +425,23 @@ def test_scraper_fetch_happy_path(monkeypatch):
 
     monkeypatch.setattr(garmin_ingest, "garth", SimpleNamespace(Client=FakeClient, auth=None))
     resp = providers_garmin.garmin_fetch(user=user, db=db)
-    assert resp["status"] == "ok"
+    assert resp["status"] == "queued"
     assert resp["sync_job_id"]
-    assert resp["ingested"] == 1
+    assert resp["ingested"] == 0
 
 
 def test_scraper_fetch_reauth_missing_token(monkeypatch):
-    """Scraper mode should require reauth when no scraper token is stored."""
+    """Scraper mode should enqueue work even when a token is missing."""
     monkeypatch.setenv("GARMIN_MODE", "scraper")
     db = FakeSession()
     user = _fake_user()
-    with pytest.raises(HTTPException) as exc:
-        providers_garmin.garmin_fetch(user=user, db=db)
-    assert exc.value.status_code == 410
+    resp = providers_garmin.garmin_fetch(user=user, db=db)
+    assert resp["status"] == "queued"
+    assert resp["ingested"] == 0
 
 
 def test_scraper_fetch_reauth_on_401(monkeypatch):
-    """Scraper mode should require reauth when Garmin returns 401."""
+    """Scraper mode should enqueue work even if the worker later 401s."""
     monkeypatch.setenv("GARMIN_MODE", "scraper")
     db = FakeSession()
     user = _fake_user()
@@ -476,9 +459,9 @@ def test_scraper_fetch_reauth_on_401(monkeypatch):
             raise HTTPException(status_code=410, detail="Garmin reauth required")
 
     monkeypatch.setattr(garmin_ingest, "garth", SimpleNamespace(Client=FakeClient, auth=None))
-    with pytest.raises(HTTPException) as exc:
-        providers_garmin.garmin_fetch(user=user, db=db)
-    assert exc.value.status_code == 410
+    resp = providers_garmin.garmin_fetch(user=user, db=db)
+    assert resp["status"] == "queued"
+    assert resp["ingested"] == 0
 
 
 def test_garmin_acquire_token(monkeypatch):

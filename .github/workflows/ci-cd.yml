@@ -334,11 +334,15 @@ jobs:
         run: docker compose --env-file "$ENV_FILE" config -q
 
       - name: Build changed app services
-        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
         run: |
           services=()
           if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ]; then
             services+=(backend)
+            services+=(worker)
+          fi
+          if [ "${{ steps.changes.outputs.worker_changed }}" = "true" ] && [ "${{ steps.changes.outputs.backend_changed }}" != "true" ]; then
+            services+=(worker)
           fi
           if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ]; then
             services+=(training-agent)
@@ -346,11 +350,15 @@ jobs:
           docker compose --env-file "$ENV_FILE" build "${services[@]}"
 
       - name: Restart changed app services
-        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
         run: |
           services=()
           if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ]; then
             services+=(backend)
+            services+=(worker)
+          fi
+          if [ "${{ steps.changes.outputs.worker_changed }}" = "true" ] && [ "${{ steps.changes.outputs.backend_changed }}" != "true" ]; then
+            services+=(worker)
           fi
           if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ]; then
             services+=(training-agent)
@@ -358,18 +366,35 @@ jobs:
           docker compose --env-file "$ENV_FILE" up -d "${services[@]}"
 
       - name: Skip deploy when no app services changed
-        if: steps.changes.outputs.backend_changed != 'true' && steps.changes.outputs.training_agent_changed != 'true'
-        run: echo "No backend or training-agent changes detected; skipping DEV deploy."
+        if: steps.changes.outputs.backend_changed != 'true' && steps.changes.outputs.worker_changed != 'true' && steps.changes.outputs.training_agent_changed != 'true'
+        run: echo "No backend, worker, or training-agent changes detected; skipping DEV deploy."
 
       - name: Smoke check changed service readiness
-        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
         run: |
           urls=()
-          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ]; then
+          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ] || [ "${{ steps.changes.outputs.worker_changed }}" = "true" ]; then
             urls+=("http://127.0.0.1:8000/ready")
           fi
           if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ]; then
             urls+=("http://127.0.0.1:9000/ready")
+          fi
+          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ] || [ "${{ steps.changes.outputs.worker_changed }}" = "true" ]; then
+            worker_cid="$(docker compose --env-file "$ENV_FILE" ps -q worker)"
+            if [ -z "$worker_cid" ]; then
+              echo "Worker container is not running." >&2
+              exit 1
+            fi
+            worker_status="$(docker inspect -f '{{.State.Status}}' "$worker_cid")"
+            if [ "$worker_status" != "running" ]; then
+              echo "Worker container status is $worker_status, expected running." >&2
+              exit 1
+            fi
+            worker_cmd="$(docker inspect -f '{{json .Config.Cmd}}' "$worker_cid")"
+            echo "$worker_cmd" | grep -q 'app.workers.sync_jobs_worker' || {
+              echo "Worker container command does not target the sync job worker." >&2
+              exit 1
+            }
           fi
           python3 scripts/smoke_urls.py --urls "$(printf '%s\n' "${urls[@]}")" --timeout 90
 
@@ -452,11 +477,15 @@ jobs:
           docker compose --env-file "$ENV_FILE" pull "${services[@]}"
 
       - name: Build changed app images
-        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
         run: |
           services=()
           if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ]; then
             services+=(backend)
+            services+=(worker)
+          fi
+          if [ "${{ steps.changes.outputs.worker_changed }}" = "true" ] && [ "${{ steps.changes.outputs.backend_changed }}" != "true" ]; then
+            services+=(worker)
           fi
           if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ]; then
             services+=(training-agent)
@@ -464,7 +493,7 @@ jobs:
           docker compose --env-file "$ENV_FILE" build "${services[@]}"
 
       - name: Restart changed services
-        if: steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true' || steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+        if: steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true' || steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
         run: |
           services=()
           if [ "${{ steps.changes.outputs.postgres_changed }}" = "true" ]; then
@@ -481,6 +510,10 @@ jobs:
           fi
           if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ]; then
             services+=(backend)
+            services+=(worker)
+          fi
+          if [ "${{ steps.changes.outputs.worker_changed }}" = "true" ] && [ "${{ steps.changes.outputs.backend_changed }}" != "true" ]; then
+            services+=(worker)
           fi
           if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ]; then
             services+=(training-agent)
@@ -488,14 +521,14 @@ jobs:
           docker compose --env-file "$ENV_FILE" up -d "${services[@]}"
 
       - name: Skip deploy when no managed services changed
-        if: steps.changes.outputs.postgres_changed != 'true' && steps.changes.outputs.influxdb_changed != 'true' && steps.changes.outputs.grafana_changed != 'true' && steps.changes.outputs.cloudflared_changed != 'true' && steps.changes.outputs.backend_changed != 'true' && steps.changes.outputs.training_agent_changed != 'true'
+        if: steps.changes.outputs.postgres_changed != 'true' && steps.changes.outputs.influxdb_changed != 'true' && steps.changes.outputs.grafana_changed != 'true' && steps.changes.outputs.cloudflared_changed != 'true' && steps.changes.outputs.backend_changed != 'true' && steps.changes.outputs.worker_changed != 'true' && steps.changes.outputs.training_agent_changed != 'true'
         run: echo "No managed service changes detected; skipping PROD deploy."
 
       - name: Smoke check changed service readiness
-        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
+        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
         run: |
           urls=()
-          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ] || [ "${{ steps.changes.outputs.postgres_changed }}" = "true" ]; then
+          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ] || [ "${{ steps.changes.outputs.worker_changed }}" = "true" ] || [ "${{ steps.changes.outputs.postgres_changed }}" = "true" ]; then
             urls+=("http://127.0.0.1:8000/ready")
           fi
           if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ] || [ "${{ steps.changes.outputs.influxdb_changed }}" = "true" ]; then
@@ -503,6 +536,23 @@ jobs:
           fi
           if [ "${{ steps.changes.outputs.grafana_changed }}" = "true" ]; then
             urls+=("http://127.0.0.1:3000/api/health")
+          fi
+          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ] || [ "${{ steps.changes.outputs.worker_changed }}" = "true" ]; then
+            worker_cid="$(docker compose --env-file "$ENV_FILE" ps -q worker)"
+            if [ -z "$worker_cid" ]; then
+              echo "Worker container is not running." >&2
+              exit 1
+            fi
+            worker_status="$(docker inspect -f '{{.State.Status}}' "$worker_cid")"
+            if [ "$worker_status" != "running" ]; then
+              echo "Worker container status is $worker_status, expected running." >&2
+              exit 1
+            fi
+            worker_cmd="$(docker inspect -f '{{json .Config.Cmd}}' "$worker_cid")"
+            echo "$worker_cmd" | grep -q 'app.workers.sync_jobs_worker' || {
+              echo "Worker container command does not target the sync job worker." >&2
+              exit 1
+            }
           fi
           python3 scripts/smoke_urls.py --urls "$(printf '%s\n' "${urls[@]}")" --timeout 90
 

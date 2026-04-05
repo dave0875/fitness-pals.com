@@ -16,6 +16,7 @@ KNOWN_SERVICES = (
     "grafana",
     "cloudflared",
     "backend",
+    "worker",
     "training-agent",
 )
 
@@ -145,6 +146,7 @@ def main() -> int:
         "grafana_changed": "grafana" in compose_services,
         "cloudflared_changed": "cloudflared" in compose_services,
         "backend_changed": any(path.startswith("backend/") for path in files) or "backend" in compose_services,
+        "worker_changed": any(path.startswith("backend/") for path in files) or "worker" in compose_services,
         "training_agent_changed": any(path.startswith("services/") for path in files)
         or "training-agent" in compose_services,
     }

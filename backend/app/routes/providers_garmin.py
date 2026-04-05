@@ -301,7 +301,7 @@ def garmin_fetch(
     db: Session = Depends(get_db),
     test_run: bool = False,
 ):
-    """Fetch recent Garmin data for the current user."""
+    """Queue recent Garmin data for the current user."""
     try:
         execution = run_garmin_sync_job(
             db,
@@ -309,67 +309,11 @@ def garmin_fetch(
             trigger="manual",
             test_run=test_run,
         )
-        run = execution.ingest_run
-        # Build a simple integrity report
-        summary = cast(Dict[str, Any], run.summary or {})
-        try:
-            user_uuid = _user_uuid(user)
-            activities_count = (
-                db.query(Activity)
-                .filter(Activity.user_id == user_uuid, Activity.ingest_run_id == run.id)
-                .count()
-            )
-        except Exception:
-            activities_count = summary.get("activities") or 0
-        ingested_count = activities_count if activities_count is not None else (summary.get("timeseries_points") or 0)
-        report: Dict[str, Any] = {
-            "activities_count": activities_count,
-            "activity_gps_written": summary.get("activity_gps_written"),
-            "timeseries_points": summary.get("timeseries_points"),
-            "sleep_daily": summary.get("sleep_daily"),
-            "vo2_daily": len(summary.get("vo2", {}).get("daily", [])) if summary.get("vo2") else 0,
-        }
-        # Optional Influx count for this run
-        try:
-            client: InfluxClientLike = get_influx_client_for_user(db, _user_uuid(user))
-            tag = f"TEST_{run.id}" if test_run else str(run.id)
-            flux = f'''
-from(bucket: "{client.default_bucket}")
-  |> range(start: 0)
-  |> filter(fn: (r) => r.ingest_run_id == "{tag}")
-  |> group(columns: ["_measurement"])
-  |> count()
-'''
-            tables = client.query_api().query(org=client.org, query=flux)
-            influx_counts = []
-            for table in tables:
-                for record in table.records:
-                    influx_counts.append(
-                        {"measurement": record.get_measurement(), "count": record.get_value()}
-                    )
-            report["influx_counts"] = influx_counts
-        except Exception:
-            pass
-        # Human-readable summary for logs/clients that truncate JSON
-        lines = [
-            f"Activities: {activities_count}",
-            f"ActivityGPS written: {summary.get('activity_gps_written')}",
-            f"Timeseries points: {summary.get('timeseries_points')}",
-            f"Sleep sessions: {summary.get('sleep_daily')}",
-        ]
-        influx_lines = []
-        for ic in report.get("influx_counts") or []:
-            influx_lines.append(f"{ic.get('measurement')}={ic.get('count')}")
-        if influx_lines:
-            lines.append("Influx: " + ", ".join(influx_lines))
-        report["report_pretty"] = " | ".join(lines)
         return {
-            "status": "ok",
+            "status": "queued",
             "sync_job_id": str(execution.job.id),
-            "ingested": ingested_count,
+            "ingested": 0,
             "test_run": test_run,
-            "ingest_run_tag": f"TEST_{run.id}" if test_run else str(run.id),
-            "report": report,
         }
     except HTTPException as exc:
         logger.exception(
@@ -835,7 +779,7 @@ def summarize_test_data(user: CurrentUserLike = Depends(get_current_user), db: S
             db.query(IngestRun)
             .filter(
                 IngestRun.user_id == user_uuid,
-                IngestRun.summary["test_run"].as_boolean() == True,  # pylint: disable=singleton-comparison
+                IngestRun.summary["test_run"].as_boolean(),
             )
             .all()
         )
@@ -959,7 +903,7 @@ def clear_test_data(user: CurrentUserLike = Depends(get_current_user), db: Sessi
     # Also clean any lingering activities flagged as test_run in metadata (in case ingest_run was missing)
     try:
         db.query(Activity).filter(
-            Activity.user_id == _user_uuid(user), Activity.metadata_json["test_run"].as_boolean() == True  # pylint: disable=singleton-comparison
+            Activity.user_id == _user_uuid(user), Activity.metadata_json["test_run"].as_boolean()
         ).delete(synchronize_session=False)
         db.commit()
     except Exception as exc:  # pylint: disable=broad-except
