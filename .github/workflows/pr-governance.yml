@@ -9,6 +9,9 @@ permissions:
   pull-requests: write
   issues: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   governance:
     name: PR Governance
@@ -24,7 +27,7 @@ jobs:
           exit 1
 
       - name: Validate PR links an Issue in a Project
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           DEPENDABOT_TRACKING_ISSUE: ${{ vars.DEPENDABOT_TRACKING_ISSUE }}
         with:
