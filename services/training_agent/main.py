@@ -20,7 +20,12 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from services.training_agent import auth as auth_module
 from services.training_agent import metrics_routes as metrics_module
-from services.training_agent.auth import GOOGLE_CLIENT_ID, require_google_auth, router as auth_router
+from services.training_agent.auth import (
+    GOOGLE_CLIENT_ID,
+    OIDC_CLIENT_ID,
+    require_google_auth,
+    router as auth_router,
+)
 from services.training_agent.influx_utils import (
     get_influx_client,
     get_average_cadence,
@@ -35,6 +40,7 @@ from services.training_agent.middleware import REQUEST_COUNTER, REQUEST_LATENCY,
 from services.training_agent.ui import router as ui_router
 
 verify_google_bearer = auth_module.verify_google_bearer
+verify_bearer = auth_module.verify_bearer
 
 
 app = FastAPI(title="Garmin Training API", version="0.1.0")
@@ -101,7 +107,9 @@ def ready_check():
 
 __all__ = [
     "app",
+    "OIDC_CLIENT_ID",
     "verify_google_bearer",
+    "verify_bearer",
     "require_google_auth",
     "GOOGLE_CLIENT_ID",
     "id_token",

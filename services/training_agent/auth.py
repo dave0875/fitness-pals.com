@@ -1,13 +1,18 @@
 # ruff: noqa: E501
 # pylint: disable=line-too-long
-"""Google OAuth helper utilities for the training agent."""
+"""OAuth helper utilities for the training agent."""
 from __future__ import annotations
 
 import json
 import logging
 import os
+import re
+from dataclasses import dataclass
+from functools import lru_cache
 from typing import Optional
+from urllib.parse import urlparse
 
+import jwt
 import requests  # type: ignore[import-untyped]
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -17,6 +22,11 @@ from google.oauth2 import id_token
 from pydantic import BaseModel
 
 DEFAULT_SCOPE: str = os.environ.get("RUNTRAINER_GOOGLE_SCOPE") or "openid email profile"
+OIDC_SCOPE: str = (
+    os.environ.get("RUNTRAINER_OIDC_SCOPE")
+    or os.environ.get("OIDC_SCOPE")
+    or "openid email profile"
+)
 GOOGLE_AUTH_URL: str = (
     os.environ.get("RUNTRAINER_GOOGLE_AUTH_URL")
     or os.environ.get("GOOGLE_AUTH_URL")
@@ -38,12 +48,52 @@ GOOGLE_REDIRECT_URI: str = (
     or os.environ.get("GOOGLE_REDIRECT_URI")
     or "https://chat.openai.com/aip/g-11e1b5846d447ba53af301061856b1a079cb91b9/oauth/callback"
 )
+OIDC_ISSUER: str | None = (
+    os.environ.get("RUNTRAINER_OIDC_ISSUER") or os.environ.get("OIDC_ISSUER")
+)
+OIDC_AUTH_URL: str | None = (
+    os.environ.get("RUNTRAINER_OIDC_AUTH_URL") or os.environ.get("OIDC_AUTH_URL")
+)
+OIDC_TOKEN_URL: str | None = (
+    os.environ.get("RUNTRAINER_OIDC_TOKEN_URL") or os.environ.get("OIDC_TOKEN_URL")
+)
+OIDC_JWKS_URL: str | None = (
+    os.environ.get("RUNTRAINER_OIDC_JWKS_URL") or os.environ.get("OIDC_JWKS_URL")
+)
+OIDC_CLIENT_ID: str | None = (
+    os.environ.get("RUNTRAINER_OIDC_CLIENT_ID") or os.environ.get("OIDC_CLIENT_ID")
+)
+OIDC_CLIENT_SECRET: str | None = (
+    os.environ.get("RUNTRAINER_OIDC_CLIENT_SECRET")
+    or os.environ.get("OIDC_CLIENT_SECRET")
+)
 GOOGLE_REQUEST_TIMEOUT: int = 5
 TOKENINFO_URL: str = "https://oauth2.googleapis.com/tokeninfo"
+OPENAI_REDIRECT_HOSTS = {"chat.openai.com", "chatgpt.com"}
+OPENAI_REDIRECT_PATH = re.compile(r"^/aip/[^/]+/oauth/callback$")
 
 logger = logging.getLogger("training_agent.oauth")
 
 router = APIRouter()
+
+
+@dataclass(frozen=True)
+class RuntimeAuthConfig:
+    """Runtime auth configuration resolved from the current environment."""
+
+    default_scope: str
+    oidc_scope: str
+    google_auth_url: str
+    google_token_url: str
+    google_client_id: str | None
+    google_client_secret: str | None
+    google_redirect_uri: str
+    oidc_issuer: str | None
+    oidc_auth_url: str | None
+    oidc_token_url: str | None
+    oidc_jwks_url: str | None
+    oidc_client_id: str | None
+    oidc_client_secret: str | None
 
 
 class OAuthAuthorizeParams(BaseModel):
@@ -54,8 +104,140 @@ class OAuthAuthorizeParams(BaseModel):
     response_type: str = "code"
     access_type: str = "offline"
     prompt: str = "consent"
+    redirect_uri: Optional[str] = None
     code_challenge: Optional[str] = None
     code_challenge_method: Optional[str] = None
+
+
+def _runtime_env_value(*keys: str, default: str | None = None) -> str | None:
+    """Return the first non-empty runtime environment value for the provided keys."""
+    for key in keys:
+        value = os.environ.get(key)
+        if value:
+            return value
+    return default
+
+
+def _current_auth_config() -> RuntimeAuthConfig:
+    """Resolve effective auth settings from the current process environment."""
+    return RuntimeAuthConfig(
+        default_scope=_runtime_env_value("RUNTRAINER_GOOGLE_SCOPE", default=DEFAULT_SCOPE) or DEFAULT_SCOPE,
+        oidc_scope=_runtime_env_value("RUNTRAINER_OIDC_SCOPE", "OIDC_SCOPE", default=OIDC_SCOPE) or OIDC_SCOPE,
+        google_auth_url=_runtime_env_value(
+            "RUNTRAINER_GOOGLE_AUTH_URL",
+            "GOOGLE_AUTH_URL",
+            default=GOOGLE_AUTH_URL,
+        )
+        or GOOGLE_AUTH_URL,
+        google_token_url=_runtime_env_value(
+            "RUNTRAINER_GOOGLE_TOKEN_URL",
+            "GOOGLE_TOKEN_URL",
+            default=GOOGLE_TOKEN_URL,
+        )
+        or GOOGLE_TOKEN_URL,
+        google_client_id=_runtime_env_value("RUNTRAINER_GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_ID"),
+        google_client_secret=_runtime_env_value(
+            "RUNTRAINER_GOOGLE_CLIENT_SECRET",
+            "GOOGLE_CLIENT_SECRET",
+        ),
+        google_redirect_uri=_runtime_env_value(
+            "RUNTRAINER_GOOGLE_REDIRECT_URI",
+            "GOOGLE_REDIRECT_URI",
+            default=GOOGLE_REDIRECT_URI,
+        )
+        or GOOGLE_REDIRECT_URI,
+        oidc_issuer=_runtime_env_value("RUNTRAINER_OIDC_ISSUER", "OIDC_ISSUER"),
+        oidc_auth_url=_runtime_env_value("RUNTRAINER_OIDC_AUTH_URL", "OIDC_AUTH_URL"),
+        oidc_token_url=_runtime_env_value("RUNTRAINER_OIDC_TOKEN_URL", "OIDC_TOKEN_URL"),
+        oidc_jwks_url=_runtime_env_value("RUNTRAINER_OIDC_JWKS_URL", "OIDC_JWKS_URL"),
+        oidc_client_id=_runtime_env_value("RUNTRAINER_OIDC_CLIENT_ID", "OIDC_CLIENT_ID"),
+        oidc_client_secret=_runtime_env_value(
+            "RUNTRAINER_OIDC_CLIENT_SECRET",
+            "OIDC_CLIENT_SECRET",
+        ),
+    )
+
+
+def _oidc_enabled(config: RuntimeAuthConfig | None = None) -> bool:
+    """Return True when the Authentik-backed OIDC broker is configured."""
+    resolved = config or _current_auth_config()
+    return all(
+        [
+            resolved.oidc_issuer,
+            resolved.oidc_auth_url,
+            resolved.oidc_token_url,
+            resolved.oidc_jwks_url,
+            resolved.oidc_client_id,
+            resolved.oidc_client_secret,
+        ]
+    )
+
+
+def _active_client_id(config: RuntimeAuthConfig | None = None) -> str | None:
+    """Return the active client ID for the current auth backend."""
+    resolved = config or _current_auth_config()
+    return resolved.oidc_client_id or resolved.google_client_id
+
+
+def _active_scope(config: RuntimeAuthConfig | None = None) -> str:
+    """Return the scope used for the current auth backend."""
+    resolved = config or _current_auth_config()
+    return resolved.oidc_scope if _oidc_enabled(resolved) else resolved.default_scope
+
+
+def _is_allowed_openai_redirect_uri(redirect_uri: str) -> bool:
+    """Allow only OpenAI-hosted OAuth callbacks for GPT app flows."""
+    parsed = urlparse(redirect_uri)
+    return (
+        parsed.scheme == "https"
+        and parsed.hostname in OPENAI_REDIRECT_HOSTS
+        and bool(OPENAI_REDIRECT_PATH.match(parsed.path))
+        and not parsed.params
+        and not parsed.fragment
+    )
+
+
+def _resolve_redirect_uri(
+    requested_redirect_uri: Optional[str],
+    configured_redirect_uri: str,
+) -> str:
+    """Use the caller-supplied ChatGPT callback when valid, else the configured default."""
+    redirect_uri = requested_redirect_uri or configured_redirect_uri
+    if not redirect_uri or not _is_allowed_openai_redirect_uri(redirect_uri):
+        raise HTTPException(status_code=400, detail="Invalid redirect_uri")
+    return redirect_uri
+
+
+@lru_cache(maxsize=2)
+def _get_jwks_client(jwks_url: str) -> jwt.PyJWKClient:
+    """Return a cached JWK client for JWT validation."""
+    return jwt.PyJWKClient(jwks_url)
+
+
+def verify_oidc_bearer(token: str, audience: str) -> dict:
+    """Validate an Authentik-issued bearer token."""
+    config = _current_auth_config()
+    if not config.oidc_issuer or not config.oidc_jwks_url:
+        raise HTTPException(status_code=500, detail="Server missing OIDC issuer configuration")
+    try:
+        signing_key = _get_jwks_client(config.oidc_jwks_url).get_signing_key_from_jwt(token)
+        claims = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"],
+            audience=audience,
+            issuer=config.oidc_issuer,
+            options={"require": ["exp", "iat", "iss"]},
+        )
+        claims["_token_type"] = "jwt"
+        claims["_provider"] = "oidc"
+        return claims
+    except jwt.PyJWTError as err:
+        logger.info(
+            "OIDC bearer validation failed",
+            extra={"error": str(err), "error_type": type(err).__name__},
+        )
+        raise HTTPException(status_code=401, detail="Invalid OIDC token") from err
 
 
 def verify_google_bearer(token: str, audience: str) -> dict:
@@ -126,37 +308,58 @@ def verify_google_bearer(token: str, audience: str) -> dict:
         raise HTTPException(status_code=401, detail="Invalid Google token") from err
 
 
+def verify_bearer(token: str, audience: str) -> dict:
+    """Validate a bearer token against OIDC first, then Google as migration fallback."""
+    config = _current_auth_config()
+    google_client_id = config.google_client_id
+    oidc_error: HTTPException | None = None
+    if _oidc_enabled(config):
+        try:
+            return verify_oidc_bearer(token, audience)
+        except HTTPException as err:
+            oidc_error = err
+            if not google_client_id:
+                raise
+    if google_client_id:
+        return verify_google_bearer(token, audience)
+    if oidc_error is not None:
+        raise oidc_error
+    raise HTTPException(status_code=500, detail="Server missing auth configuration")
+
+
 def require_google_auth(
     authorization: Optional[str] = Header(None, alias="Authorization")
 ) -> dict:
-    """Dependency to enforce a valid Google bearer token on protected endpoints."""
+    """Dependency to enforce a valid bearer token on protected endpoints."""
     from services.training_agent import main as training_main  # pylint: disable=import-outside-toplevel
-    env_client_id = os.environ.get("RUNTRAINER_GOOGLE_CLIENT_ID") or os.environ.get("GOOGLE_CLIENT_ID")
-    client_id = getattr(training_main, "GOOGLE_CLIENT_ID", None) or env_client_id
+    config = _current_auth_config()
+    client_id = _active_client_id(config)
     if not client_id:
-        raise HTTPException(
-            status_code=500, detail="Server missing RUNTRAINER_GOOGLE_CLIENT_ID env"
-    )
+        raise HTTPException(status_code=500, detail="Server missing auth client configuration")
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
     token = authorization.split(" ", 1)[1].strip()
     if not token:
         raise HTTPException(status_code=401, detail="Missing bearer token")
-    verifier = getattr(training_main, "verify_google_bearer", verify_google_bearer)
+    verifier = getattr(training_main, "verify_bearer", verify_bearer)
     return verifier(token, client_id)
 
 
 @router.get("/oauth/google/auth")
 def oauth_google_auth(params: OAuthAuthorizeParams = Depends()):
-    """Proxy to Google's OAuth authorize endpoint for the configured client."""
-    if not GOOGLE_CLIENT_ID or not GOOGLE_REDIRECT_URI:
-        raise HTTPException(status_code=500, detail="Server missing Google OAuth env")
+    """Proxy to the configured OAuth authorize endpoint for GPT actions."""
+    config = _current_auth_config()
+    redirect_uri = _resolve_redirect_uri(params.redirect_uri, config.google_redirect_uri)
+    client_id = config.oidc_client_id or config.google_client_id
+    authorize_url = config.oidc_auth_url or config.google_auth_url
+    if not client_id or not authorize_url:
+        raise HTTPException(status_code=500, detail="Server missing OAuth authorize configuration")
 
     payload = {
-        "client_id": GOOGLE_CLIENT_ID,
-        "redirect_uri": GOOGLE_REDIRECT_URI,
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
         "response_type": params.response_type,
-        "scope": params.scope,
+        "scope": params.scope or _active_scope(config),
         "access_type": params.access_type,
         "prompt": params.prompt,
     }
@@ -167,17 +370,19 @@ def oauth_google_auth(params: OAuthAuthorizeParams = Depends()):
     if params.code_challenge_method:
         payload["code_challenge_method"] = params.code_challenge_method
 
-    url = requests.Request("GET", GOOGLE_AUTH_URL, params=payload).prepare().url
+    url = requests.Request("GET", authorize_url, params=payload).prepare().url
     return RedirectResponse(url)
 
 
 @router.post("/oauth/google/token")
 async def oauth_google_token(request: Request):
-    """Proxy to Google's token endpoint; accepts form/JSON/query and forwards with client credentials."""
-    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not GOOGLE_REDIRECT_URI:
-        raise HTTPException(
-            status_code=500, detail="Server missing Google client credentials/env"
-        )
+    """Proxy to the configured OAuth token endpoint; accepts form/JSON/query and forwards client credentials."""
+    config = _current_auth_config()
+    client_id = config.oidc_client_id or config.google_client_id
+    client_secret = config.oidc_client_secret or config.google_client_secret
+    token_url = config.oidc_token_url or config.google_token_url
+    if not client_id or not client_secret or not token_url:
+        raise HTTPException(status_code=500, detail="Server missing OAuth token configuration")
 
     data: dict = {}
     try:
@@ -212,6 +417,8 @@ async def oauth_google_token(request: Request):
     grant_type = data.get("grant_type", "authorization_code")
     code_verifier = data.get("code_verifier")
     refresh_token = data.get("refresh_token")
+    requested_redirect_uri = data.get("redirect_uri") or request.query_params.get("redirect_uri")
+    redirect_uri = _resolve_redirect_uri(requested_redirect_uri, config.google_redirect_uri)
 
     if grant_type == "refresh_token":
         if not refresh_token:
@@ -227,8 +434,8 @@ async def oauth_google_token(request: Request):
             )
         payload = {
             "refresh_token": refresh_token,
-            "client_id": GOOGLE_CLIENT_ID,
-            "client_secret": GOOGLE_CLIENT_SECRET,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "grant_type": "refresh_token",
         }
     else:
@@ -243,9 +450,9 @@ async def oauth_google_token(request: Request):
             )
         payload = {
             "code": code,
-            "client_id": GOOGLE_CLIENT_ID,
-            "client_secret": GOOGLE_CLIENT_SECRET,
-            "redirect_uri": GOOGLE_REDIRECT_URI,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
         }
         if code_verifier:
@@ -255,15 +462,15 @@ async def oauth_google_token(request: Request):
         safe_payload = dict(payload)
         if "client_secret" in safe_payload:
             safe_payload["client_secret"] = "***REDACTED***"
-        logger.info("Posting token request to Google", extra={"payload": safe_payload})
+        logger.info("Posting token request to upstream provider", extra={"payload": safe_payload})
         resp = requests.post(
-            GOOGLE_TOKEN_URL,
+            token_url,
             data=payload,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=10,
         )
         logger.info(
-            "Token response from Google",
+            "Token response from upstream provider",
             extra={"status_code": resp.status_code, "response_body": resp.text},
         )
         return JSONResponse(status_code=resp.status_code, content=resp.json())
