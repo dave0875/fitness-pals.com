@@ -5,8 +5,10 @@
 import importlib
 import os
 from types import SimpleNamespace
+from urllib.parse import quote
 
 import pytest
+from fastapi.testclient import TestClient
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
@@ -21,8 +23,17 @@ os.environ.setdefault("RUNTRAINER_GOOGLE_CLIENT_SECRET", "test-google-secret")
 os.environ.setdefault(
     "RUNTRAINER_GOOGLE_REDIRECT_URI", "https://example.com/auth/google/callback"
 )
+os.environ.setdefault(
+    "RUNTRAINER_OIDC_ISSUER", "https://auth.fitness-pals.com/application/o/fitness-pals-web/"
+)
+os.environ.setdefault("RUNTRAINER_OIDC_CLIENT_ID", "test-oidc-client")
+os.environ.setdefault("RUNTRAINER_OIDC_CLIENT_SECRET", "test-oidc-secret")
+os.environ.setdefault(
+    "RUNTRAINER_OIDC_REDIRECT_URI", "https://example.com/auth/callback"
+)
 
 import app.auth.oauth as oauth_mod
+from app import main
 from app.utils.security import APP_REFRESH_COOKIE, APP_SESSION_COOKIE
 
 
@@ -88,6 +99,20 @@ class FakeClient:
         return token.get("userinfo")
 
 
+class SessionAwareClient(FakeClient):
+    """OAuth client stub that requires request.session to exist."""
+
+    def __init__(self, provider: str):
+        super().__init__(provider)
+        self.seen_session = False
+
+    async def authorize_redirect(self, request: Request, redirect_uri: str):
+        """Touch request.session so missing SessionMiddleware fails loudly."""
+        request.session["oauth_provider"] = self.provider
+        self.seen_session = True
+        return await super().authorize_redirect(request, redirect_uri)
+
+
 @pytest.fixture()
 def reload_oauth(monkeypatch):
     """Reload the OAuth module after injecting env vars for providers."""
@@ -104,10 +129,59 @@ def reload_oauth(monkeypatch):
             f"RUNTRAINER_{provider}_REDIRECT_URI",
             f"https://example.com/auth/{provider.lower()}/callback",
         )
+    monkeypatch.delenv("RUNTRAINER_OIDC_ISSUER", raising=False)
+    monkeypatch.delenv("RUNTRAINER_OIDC_CLIENT_ID", raising=False)
+    monkeypatch.delenv("RUNTRAINER_OIDC_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("RUNTRAINER_OIDC_REDIRECT_URI", raising=False)
 
     # Reload module to pick up the env
     importlib.reload(oauth_mod)
     return oauth_mod
+
+
+def test_discovery_url_uses_authentik_application_issuer():
+    """Authentik login should use the issuer discovery document."""
+    issuer = "https://auth.fitness-pals.com/application/o/fitness-pals-web/"
+
+    assert (
+        oauth_mod._discovery_url_for_issuer(issuer)  # pylint: disable=protected-access
+        == "https://auth.fitness-pals.com/application/o/fitness-pals-web/.well-known/openid-configuration"
+    )
+
+
+def test_reload_registers_authentik_provider_from_oidc_issuer(monkeypatch):
+    """Reloading auth config should register the Authentik broker via discovery."""
+    registrations: list[dict[str, object]] = []
+
+    def fake_register(self, name=None, **kwargs):  # pylint: disable=unused-argument
+        registrations.append({"name": name, **kwargs})
+
+    monkeypatch.setattr("authlib.integrations.starlette_client.OAuth.register", fake_register)
+    monkeypatch.setenv(
+        "RUNTRAINER_OIDC_ISSUER",
+        "https://auth.fitness-pals.com/application/o/fitness-pals-web/",
+    )
+    monkeypatch.setenv("RUNTRAINER_OIDC_CLIENT_ID", "oidc-client")
+    monkeypatch.setenv("RUNTRAINER_OIDC_CLIENT_SECRET", "oidc-secret")
+    monkeypatch.setenv(
+        "RUNTRAINER_OIDC_REDIRECT_URI",
+        "https://fitness-pals.com/auth/callback",
+    )
+
+    reloaded = importlib.reload(oauth_mod)
+
+    assert "authentik" in reloaded._registered  # pylint: disable=protected-access
+    assert reloaded._redirect_uri_for("authentik") == "https://fitness-pals.com/auth/callback"
+    assert any(
+        registration == {
+            "name": "authentik",
+            "server_metadata_url": "https://auth.fitness-pals.com/application/o/fitness-pals-web/.well-known/openid-configuration",
+            "client_id": "oidc-client",
+            "client_secret": "oidc-secret",
+            "client_kwargs": {"scope": "openid email profile"},
+        }
+        for registration in registrations
+    )
 
 
 @pytest.mark.asyncio
@@ -164,7 +238,7 @@ async def test_callback_redirects_to_safe_next_when_present(reload_oauth):
     oauth_mod._registered["google"] = True  # pylint: disable=protected-access
     setattr(oauth_mod.oauth, "google", fake_client)
 
-    request = Request(scope={"type": "http", "query_string": b"", "headers": []})
+    request = Request(scope={"type": "http", "query_string": b"", "headers": [], "session": {}})
     request._cookies = {"runtrainer_auth_next": "/welcome"}  # pylint: disable=protected-access
 
     db = FakeSession()
@@ -182,7 +256,7 @@ async def test_callback_rejects_unsafe_next_redirect(reload_oauth):
     oauth_mod._registered["google"] = True  # pylint: disable=protected-access
     setattr(oauth_mod.oauth, "google", fake_client)
 
-    request = Request(scope={"type": "http", "query_string": b"", "headers": []})
+    request = Request(scope={"type": "http", "query_string": b"", "headers": [], "session": {}})
     request._cookies = {"runtrainer_auth_next": "https://evil.example.com"}  # pylint: disable=protected-access
 
     db = FakeSession()
@@ -199,3 +273,50 @@ async def test_missing_provider_raises(reload_oauth):
     request = Request(scope={"type": "http", "query_string": b"", "headers": []})
     with pytest.raises(Exception):
         await oauth_mod.login("unknown", request)
+
+
+@pytest.mark.asyncio
+async def test_login_alias_uses_authentik_provider(monkeypatch):
+    """The default /auth/login alias should use the Authentik broker."""
+    monkeypatch.setenv(
+        "RUNTRAINER_OIDC_ISSUER",
+        "https://auth.fitness-pals.com/application/o/fitness-pals-web/",
+    )
+    monkeypatch.setenv("RUNTRAINER_OIDC_CLIENT_ID", "oidc-client")
+    monkeypatch.setenv("RUNTRAINER_OIDC_CLIENT_SECRET", "oidc-secret")
+    monkeypatch.setenv("RUNTRAINER_OIDC_REDIRECT_URI", "https://example.com/auth/callback")
+    reloaded = importlib.reload(oauth_mod)
+    fake_client = FakeClient(reloaded.DEFAULT_PROVIDER)
+    reloaded._registered[reloaded.DEFAULT_PROVIDER] = True  # pylint: disable=protected-access
+    setattr(reloaded.oauth, reloaded.DEFAULT_PROVIDER, fake_client)
+
+    next_path = "/welcome?step=connect"
+    request = Request(
+        scope={
+            "type": "http",
+            "query_string": f"next={quote(next_path, safe='')}".encode(),
+            "headers": [],
+        }
+    )
+    response = await reloaded.login_google(request)
+
+    assert isinstance(response, RedirectResponse)
+    assert fake_client.redirects == ["https://example.com/auth/callback"]
+    cookies = response.headers.getlist("set-cookie")
+    assert any("runtrainer_auth_next=" in cookie and "step=connect" in cookie for cookie in cookies)
+
+
+def test_auth_login_route_supports_session_backed_redirects(monkeypatch):
+    """The app-level /auth/login route should expose request.session for OAuth state handling."""
+    fake_client = SessionAwareClient("authentik")
+    monkeypatch.setitem(oauth_mod._registered, "authentik", True)  # pylint: disable=protected-access
+    monkeypatch.setitem(oauth_mod._registered, "google", True)  # pylint: disable=protected-access
+    monkeypatch.setattr(oauth_mod.oauth, "authentik", fake_client, raising=False)
+    monkeypatch.setattr(oauth_mod.oauth, "google", fake_client, raising=False)
+
+    client = TestClient(main.app)
+    response = client.get("/auth/login?next=/welcome", follow_redirects=False)
+
+    assert response.status_code in {302, 307}
+    assert fake_client.seen_session is True
+    assert "runtrainer_auth_next=" in response.headers.get("set-cookie", "")

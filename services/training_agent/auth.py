@@ -161,15 +161,14 @@ def _current_auth_config() -> RuntimeAuthConfig:
 def _oidc_enabled(config: RuntimeAuthConfig | None = None) -> bool:
     """Return True when the Authentik-backed OIDC broker is configured."""
     resolved = config or _current_auth_config()
-    return all(
-        [
-            resolved.oidc_issuer,
-            resolved.oidc_auth_url,
-            resolved.oidc_token_url,
-            resolved.oidc_jwks_url,
-            resolved.oidc_client_id,
-            resolved.oidc_client_secret,
-        ]
+    return bool(
+        resolved.oidc_client_id
+        and (
+            resolved.oidc_issuer
+            or resolved.oidc_auth_url
+            or resolved.oidc_token_url
+            or resolved.oidc_jwks_url
+        )
     )
 
 
@@ -183,6 +182,63 @@ def _active_scope(config: RuntimeAuthConfig | None = None) -> str:
     """Return the scope used for the current auth backend."""
     resolved = config or _current_auth_config()
     return resolved.oidc_scope if _oidc_enabled(resolved) else resolved.default_scope
+
+
+def _oidc_discovery_url(issuer: str) -> str:
+    """Build the OIDC discovery URL from an issuer base URL."""
+    return f"{issuer.rstrip('/')}/.well-known/openid-configuration"
+
+
+@lru_cache(maxsize=4)
+def _load_oidc_discovery(issuer: str) -> dict:
+    """Load and cache OIDC discovery metadata from the configured issuer."""
+    discovery_url = _oidc_discovery_url(issuer)
+    try:
+        response = requests.get(discovery_url, timeout=GOOGLE_REQUEST_TIMEOUT)
+        if response.status_code != 200:
+            raise HTTPException(status_code=502, detail="OIDC discovery failed")
+        payload = response.json()
+    except HTTPException:
+        raise
+    except (requests.RequestException, ValueError) as err:
+        logger.error(
+            "OIDC discovery failed",
+            extra={"issuer": issuer, "error": str(err), "error_type": type(err).__name__},
+        )
+        raise HTTPException(status_code=502, detail="OIDC discovery failed") from err
+    return payload
+
+
+def _oidc_discovery_metadata(config: RuntimeAuthConfig | None = None) -> dict:
+    """Return discovery metadata when an issuer is configured."""
+    resolved = config or _current_auth_config()
+    if not resolved.oidc_issuer:
+        return {}
+    return _load_oidc_discovery(resolved.oidc_issuer)
+
+
+def _resolved_oidc_auth_url(config: RuntimeAuthConfig | None = None) -> str | None:
+    """Return the effective OIDC authorize endpoint."""
+    resolved = config or _current_auth_config()
+    if resolved.oidc_auth_url:
+        return resolved.oidc_auth_url
+    return _oidc_discovery_metadata(resolved).get("authorization_endpoint")
+
+
+def _resolved_oidc_token_url(config: RuntimeAuthConfig | None = None) -> str | None:
+    """Return the effective OIDC token endpoint."""
+    resolved = config or _current_auth_config()
+    if resolved.oidc_token_url:
+        return resolved.oidc_token_url
+    return _oidc_discovery_metadata(resolved).get("token_endpoint")
+
+
+def _resolved_oidc_jwks_url(config: RuntimeAuthConfig | None = None) -> str | None:
+    """Return the effective OIDC JWKS endpoint."""
+    resolved = config or _current_auth_config()
+    if resolved.oidc_jwks_url:
+        return resolved.oidc_jwks_url
+    return _oidc_discovery_metadata(resolved).get("jwks_uri")
 
 
 def _is_allowed_openai_redirect_uri(redirect_uri: str) -> bool:
@@ -217,10 +273,11 @@ def _get_jwks_client(jwks_url: str) -> jwt.PyJWKClient:
 def verify_oidc_bearer(token: str, audience: str) -> dict:
     """Validate an Authentik-issued bearer token."""
     config = _current_auth_config()
-    if not config.oidc_issuer or not config.oidc_jwks_url:
+    jwks_url = _resolved_oidc_jwks_url(config)
+    if not config.oidc_issuer or not jwks_url:
         raise HTTPException(status_code=500, detail="Server missing OIDC issuer configuration")
     try:
-        signing_key = _get_jwks_client(config.oidc_jwks_url).get_signing_key_from_jwt(token)
+        signing_key = _get_jwks_client(jwks_url).get_signing_key_from_jwt(token)
         claims = jwt.decode(
             token,
             signing_key.key,
@@ -351,7 +408,7 @@ def oauth_google_auth(params: OAuthAuthorizeParams = Depends()):
     config = _current_auth_config()
     redirect_uri = _resolve_redirect_uri(params.redirect_uri, config.google_redirect_uri)
     client_id = config.oidc_client_id or config.google_client_id
-    authorize_url = config.oidc_auth_url or config.google_auth_url
+    authorize_url = _resolved_oidc_auth_url(config) or config.google_auth_url
     if not client_id or not authorize_url:
         raise HTTPException(status_code=500, detail="Server missing OAuth authorize configuration")
 
@@ -380,7 +437,7 @@ async def oauth_google_token(request: Request):
     config = _current_auth_config()
     client_id = config.oidc_client_id or config.google_client_id
     client_secret = config.oidc_client_secret or config.google_client_secret
-    token_url = config.oidc_token_url or config.google_token_url
+    token_url = _resolved_oidc_token_url(config) or config.google_token_url
     if not client_id or not client_secret or not token_url:
         raise HTTPException(status_code=500, detail="Server missing OAuth token configuration")
 

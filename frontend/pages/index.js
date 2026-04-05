@@ -2,9 +2,32 @@ import { useEffect, useState } from "react";
 
 const HERO_DOSSIER_URL =
   "https://fitness-pals.com/reports/urban-feet-coach-dossier-third-edition-2026-04-05.html";
-const AUTH_WELCOME_HREF = "/auth/login?next=/welcome";
+const DEFAULT_AUTH_NEXT = "/welcome";
+const AUTH_WELCOME_HREF = `/auth/login?next=${encodeURIComponent(DEFAULT_AUTH_NEXT)}`;
 const GARMIN_WELCOME_HREF =
   "/api/providers/garmin/login?next=%2Fwelcome%3Fgarmin%3Dconnected";
+
+function isSafeNextPath(candidate) {
+  return Boolean(candidate && candidate.startsWith("/") && !candidate.startsWith("//"));
+}
+
+function authLoginHref(nextPath = DEFAULT_AUTH_NEXT) {
+  return `/auth/login?next=${encodeURIComponent(nextPath)}`;
+}
+
+function resolveAuthNextFromLocation(defaultPath = DEFAULT_AUTH_NEXT) {
+  if (typeof window === "undefined") {
+    return defaultPath;
+  }
+
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const requestedNext = params.get("next");
+    return isSafeNextPath(requestedNext) ? requestedNext : defaultPath;
+  } catch (_error) {
+    return defaultPath;
+  }
+}
 
 function ctaButtonStyle(kind) {
   if (kind === "primary") {
@@ -72,8 +95,8 @@ function CtaSkeleton({ compact = false }) {
   );
 }
 
-function renderHeroCtas(sessionState) {
-  if (sessionState === "loading" || sessionState === "checkingProvider") {
+function renderHeroCtas(sessionState, authWelcomeHref) {
+  if (sessionState === "loading" || sessionState === "checkingOnboarding") {
     return <CtaSkeleton />;
   }
 
@@ -90,7 +113,20 @@ function renderHeroCtas(sessionState) {
     );
   }
 
-  if (sessionState === "authenticatedGarmin") {
+  if (sessionState === "readyToSync" || sessionState === "syncQueued") {
+    return (
+      <>
+        <a href="/welcome" style={ctaButtonStyle("primary")}>
+          Import my training history
+        </a>
+        <a href="#how-it-works" style={ctaButtonStyle("secondary")}>
+          What happens next
+        </a>
+      </>
+    );
+  }
+
+  if (sessionState === "synced") {
     return (
       <>
         <a href="/dashboard" style={ctaButtonStyle("primary")}>
@@ -104,10 +140,10 @@ function renderHeroCtas(sessionState) {
   }
 
   return (
-      <>
-        <a href={AUTH_WELCOME_HREF} style={ctaButtonStyle("primary")}>
-          Start with Google
-        </a>
+    <>
+      <a href={authWelcomeHref} style={ctaButtonStyle("primary")}>
+        Continue with Gmail
+      </a>
       <a href={HERO_DOSSIER_URL} style={ctaButtonStyle("secondary")}>
         View sample coach dossier
       </a>
@@ -124,8 +160,8 @@ function renderHeroCtas(sessionState) {
   );
 }
 
-function renderNavCtas(sessionState) {
-  if (sessionState === "loading" || sessionState === "checkingProvider") {
+function renderNavCtas(sessionState, authWelcomeHref) {
+  if (sessionState === "loading" || sessionState === "checkingOnboarding") {
     return <CtaSkeleton compact />;
   }
 
@@ -142,7 +178,20 @@ function renderNavCtas(sessionState) {
     );
   }
 
-  if (sessionState === "authenticatedGarmin") {
+  if (sessionState === "readyToSync" || sessionState === "syncQueued") {
+    return (
+      <>
+        <a href="/welcome" style={navButtonStyle("primary")}>
+          Import my training history
+        </a>
+        <a href={HERO_DOSSIER_URL} style={navButtonStyle("secondary")}>
+          View sample coach dossier
+        </a>
+      </>
+    );
+  }
+
+  if (sessionState === "synced") {
     return (
       <>
         <a href="/dashboard" style={navButtonStyle("primary")}>
@@ -156,10 +205,10 @@ function renderNavCtas(sessionState) {
   }
 
   return (
-      <>
-        <a href={AUTH_WELCOME_HREF} style={navButtonStyle("secondary")}>
-          Sign in
-        </a>
+    <>
+      <a href={authWelcomeHref} style={navButtonStyle("secondary")}>
+        Sign in
+      </a>
       <a href={HERO_DOSSIER_URL} style={navButtonStyle("secondary")}>
         View sample coach dossier
       </a>
@@ -169,6 +218,11 @@ function renderNavCtas(sessionState) {
 
 export default function Home() {
   const [sessionState, setSessionState] = useState("loading");
+  const [authWelcomeHref, setAuthWelcomeHref] = useState(AUTH_WELCOME_HREF);
+
+  useEffect(() => {
+    setAuthWelcomeHref(authLoginHref(resolveAuthNextFromLocation()));
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -188,9 +242,9 @@ export default function Home() {
           return;
         }
 
-        setSessionState("checkingProvider");
+        setSessionState("checkingOnboarding");
 
-        const garminResponse = await fetch("/api/providers/garmin/token-status", {
+        const onboardingResponse = await fetch("/api/onboarding/status", {
           credentials: "include",
         });
 
@@ -198,22 +252,38 @@ export default function Home() {
           return;
         }
 
-        if (!garminResponse.ok) {
+        if (!onboardingResponse.ok) {
           setSessionState("authenticatedNoGarmin");
           return;
         }
 
-        const garminStatus = await garminResponse.json();
+        const onboardingStatus = await onboardingResponse.json();
         if (!active) {
           return;
         }
 
-        if (garminStatus.status === "active" || garminStatus.status === "expired") {
-          setSessionState("authenticatedGarmin");
+        if (!onboardingStatus.garmin_connected) {
+          setSessionState("authenticatedNoGarmin");
           return;
         }
 
-        setSessionState("authenticatedNoGarmin");
+        if (
+          onboardingStatus.first_sync?.state === "completed" &&
+          onboardingStatus.latest_activities?.length
+        ) {
+          setSessionState("synced");
+          return;
+        }
+
+        if (
+          onboardingStatus.first_sync?.state === "queued" ||
+          onboardingStatus.first_sync?.state === "running"
+        ) {
+          setSessionState("syncQueued");
+          return;
+        }
+
+        setSessionState("readyToSync");
       } catch (_error) {
         if (active) {
           setSessionState("anonymous");
@@ -256,7 +326,7 @@ export default function Home() {
             FITNESS PALS
           </div>
           <nav style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            {renderNavCtas(sessionState)}
+            {renderNavCtas(sessionState, authWelcomeHref)}
           </nav>
         </header>
 
@@ -303,8 +373,8 @@ export default function Home() {
               }}
                 >
                   Fitness Pals turns workouts, recovery, sleep, and consistency into coaching you can
-                  actually use. Sign in, connect Garmin, and start building a training record that can
-                  shape better next decisions.
+                  actually use. Continue through Fitness Pals sign-in, choose Gmail, connect Garmin,
+                  and start building a training record that can shape better next decisions.
                 </p>
                 <div
                   style={{
@@ -316,10 +386,10 @@ export default function Home() {
                     alignItems: "center",
                   }}
                 >
-                  {renderHeroCtas(sessionState)}
+                  {renderHeroCtas(sessionState, authWelcomeHref)}
                 </div>
                 <p style={{ marginTop: "1rem", color: "#5a6d7b", fontSize: "0.96rem" }}>
-                  Google for identity. Garmin for training data. Revocable anytime.
+                  Fitness Pals sign-in handles Gmail SSO. Garmin handles training data. Revocable anytime.
                 </p>
               </div>
 
@@ -371,7 +441,7 @@ export default function Home() {
             }}
           >
             {[
-              ["1. Sign in", "Use your Google account to create an app-backed session."],
+              ["1. Sign in", "Use the Fitness Pals sign-in screen and continue with Gmail to create an app-backed session."],
               ["2. Connect Garmin", "Authorize Garmin so your training history can flow in."],
               ["3. Sync your data", "Queue your first import and let the product build context."],
               ["4. Get coaching value", "See readiness, recent activity patterns, and next actions."],
