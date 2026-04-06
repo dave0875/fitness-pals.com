@@ -409,9 +409,9 @@ jobs:
             --timeout 150 \
             --request-timeout 15
 
-        - name: Smoke check external Cloudflare ingress
-          if: steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
-          run: |
+      - name: Smoke check external Cloudflare ingress
+        if: steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
+        run: |
           CLOUDFLARE_SMOKE_URLS="$(python3 scripts/read_env_value.py "$ENV_FILE" CLOUDFLARE_SMOKE_URLS)"
           CLOUDFLARE_SMOKE_TIMEOUT_SECONDS="$(python3 scripts/read_env_value.py "$ENV_FILE" CLOUDFLARE_SMOKE_TIMEOUT_SECONDS --default 90)"
           if [ -z "${CLOUDFLARE_SMOKE_URLS}" ]; then
@@ -571,9 +571,9 @@ jobs:
           fi
           python3 scripts/smoke_urls.py --urls "$(printf '%s\n' "${urls[@]}")" --timeout 90
 
-        - name: Smoke check external Cloudflare ingress
-          if: steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
-          run: |
+      - name: Smoke check external Cloudflare ingress
+        if: steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
+        run: |
           CLOUDFLARE_SMOKE_URLS="$(python3 scripts/read_env_value.py "$ENV_FILE" CLOUDFLARE_SMOKE_URLS)"
           CLOUDFLARE_SMOKE_TIMEOUT_SECONDS="$(python3 scripts/read_env_value.py "$ENV_FILE" CLOUDFLARE_SMOKE_TIMEOUT_SECONDS --default 90)"
           if [ -z "${CLOUDFLARE_SMOKE_URLS}" ]; then
