@@ -1,23 +1,23 @@
 # There is support for influxdb v3 (core) OSS, but it's highly recommended to use Influxdb 1.x versions with this project. 
 
 services:
-  postgres:
+  runtrainer-postgres:
     image: postgres:15
     restart: unless-stopped
     container_name: runtrainer-postgres
     environment:
-      - POSTGRES_DB=${RUNTRAINER_POSTGRES_DB:-runtrainer}
-      - POSTGRES_USER=${RUNTRAINER_POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${RUNTRAINER_POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${RUNTRAINER_POSTGRES_DB:?RUNTRAINER_POSTGRES_DB is required}
+      - POSTGRES_USER=${RUNTRAINER_POSTGRES_USER:?RUNTRAINER_POSTGRES_USER is required}
+      - POSTGRES_PASSWORD=${RUNTRAINER_POSTGRES_PASSWORD:?RUNTRAINER_POSTGRES_PASSWORD is required}
     healthcheck:
       test:
         - CMD-SHELL
         - >
           pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 5s
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -26,22 +26,13 @@ services:
     container_name: influxdb
     hostname: influxdb
     environment:
-      - INFLUXDB_DB=${INFLUXDB_DATABASE}
-      - INFLUXDB_USER=${INFLUXDB_USERNAME}
-      - INFLUXDB_USER_PASSWORD=${INFLUXDB_PASSWORD}
+      - INFLUXDB_DB=${INFLUXDB_DATABASE:?INFLUXDB_DATABASE is required}
+      - INFLUXDB_USER=${INFLUXDB_USERNAME:?INFLUXDB_USERNAME is required}
+      - INFLUXDB_USER_PASSWORD=${INFLUXDB_PASSWORD:?INFLUXDB_PASSWORD is required}
       - INFLUXDB_DATA_INDEX_VERSION=tsi1
       - INFLUXDB_HTTP_FLUX_ENABLED=true
-      #############################################################
-      # The following ENV variables are applicable for InfluxDB V3
-      #############################################################
-      # - INFLUXDB3_MAX_HTTP_REQUEST_SIZE=10485760
-      # - INFLUXDB3_NODE_IDENTIFIER_PREFIX=Influxdb-node1
-      # - INFLUXDB3_BUCKET=GarminStats
-      # - INFLUXDB3_OBJECT_STORE=file
-      # - INFLUXDB3_DB_DIR=/data
-      # - INFLUXDB3_QUERY_FILE_LIMIT=5000 # this set to be a very high value if you want to view long term data
     expose:
-      - '8086' # Influxdb V3 should expose "8181" (Change INFLUXDB_PORT on garmin-fetch-data appropriately for InfluxDB V3)
+      - '8086' 
     ports:
       - '8086:8086'
     healthcheck:
@@ -54,8 +45,8 @@ services:
       retries: 5
       start_period: 20s
     volumes:
-      - influxdb_data:/var/lib/influxdb # InfluxDB V3 bind mount should be set like - influxdb_data:/data if you set INFLUXDB3_DB_DIR=/data (instead of /var/lib/influxdb)
-    image: 'influxdb:1.11' # You must change this to 'quay.io/influxdb/influxdb3-core:latest' for influxdb V3
+      - influxdb_data:/var/lib/influxdb
+    image: 'influxdb:1.11' 
 
   grafana:
     restart: unless-stopped
@@ -85,24 +76,43 @@ services:
       - '3000:3000'
     image: 'grafana/grafana:latest'
 
+  # Added mandatory Redis cache for Authentik
+  authentik-redis:
+    image: redis:alpine
+    container_name: authentik-redis
+    restart: unless-stopped
+    command: --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    volumes:
+      - redis_data:/data
+
   authentik-server:
     image: ghcr.io/goauthentik/server:${AUTHENTIK_TAG:-2026.2.1}
     container_name: authentik-server
     restart: unless-stopped
     command: server
     environment:
-      - AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY}
-      - AUTHENTIK_POSTGRESQL__HOST=postgres
-      - AUTHENTIK_POSTGRESQL__NAME=${AUTHENTIK_POSTGRES_DB:-authentik}
-      - AUTHENTIK_POSTGRESQL__USER=${RUNTRAINER_POSTGRES_USER:-postgres}
-      - AUTHENTIK_POSTGRESQL__PASSWORD=${RUNTRAINER_POSTGRES_PASSWORD:-postgres}
+      - AUTHENTIK_REDIS__HOST=authentik-redis
+      - AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY:?AUTHENTIK_SECRET_KEY is required}
+      - AUTHENTIK_POSTGRESQL__HOST=runtrainer-postgres
+      - AUTHENTIK_POSTGRESQL__NAME=${RUNTRAINER_POSTGRES_DB:?RUNTRAINER_POSTGRES_DB is required}
+      - AUTHENTIK_POSTGRESQL__USER=${RUNTRAINER_POSTGRES_USER:?RUNTRAINER_POSTGRES_USER is required}
+      - AUTHENTIK_POSTGRESQL__PASSWORD=${RUNTRAINER_POSTGRES_PASSWORD:?RUNTRAINER_POSTGRES_PASSWORD is required}
     ports:
       - "9100:9000"
     depends_on:
-      postgres:
+      runtrainer-postgres:
+        condition: service_healthy
+      authentik-redis:
         condition: service_healthy
     volumes:
-      - authentik_data:/data
+      - authentik_data:/media
+      - authentik_data:/templates
 
   authentik-worker:
     image: ghcr.io/goauthentik/server:${AUTHENTIK_TAG:-2026.2.1}
@@ -111,20 +121,25 @@ services:
     user: root
     command: worker
     environment:
-      - AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY}
-      - AUTHENTIK_POSTGRESQL__HOST=postgres
-      - AUTHENTIK_POSTGRESQL__NAME=${AUTHENTIK_POSTGRES_DB:-authentik}
-      - AUTHENTIK_POSTGRESQL__USER=${RUNTRAINER_POSTGRES_USER:-postgres}
-      - AUTHENTIK_POSTGRESQL__PASSWORD=${RUNTRAINER_POSTGRES_PASSWORD:-postgres}
-      - AUTHENTIK_BOOTSTRAP_EMAIL=${AUTHENTIK_BOOTSTRAP_EMAIL}
-      - AUTHENTIK_BOOTSTRAP_PASSWORD=${AUTHENTIK_BOOTSTRAP_PASSWORD}
-      - AUTHENTIK_BOOTSTRAP_TOKEN=${AUTHENTIK_BOOTSTRAP_TOKEN}
+      - AUTHENTIK_REDIS__HOST=authentik-redis
+      - AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY:?AUTHENTIK_SECRET_KEY is required}
+      - AUTHENTIK_POSTGRESQL__HOST=runtrainer-postgres
+      - AUTHENTIK_POSTGRESQL__NAME=${RUNTRAINER_POSTGRES_DB:?RUNTRAINER_POSTGRES_DB is required}
+      - AUTHENTIK_POSTGRESQL__USER=${RUNTRAINER_POSTGRES_USER:?RUNTRAINER_POSTGRES_USER is required}
+      - AUTHENTIK_POSTGRESQL__PASSWORD=${RUNTRAINER_POSTGRES_PASSWORD:?RUNTRAINER_POSTGRES_PASSWORD is required}
+      - AUTHENTIK_BOOTSTRAP_EMAIL=${AUTHENTIK_BOOTSTRAP_EMAIL:?AUTHENTIK_BOOTSTRAP_EMAIL is required}
+      - AUTHENTIK_BOOTSTRAP_PASSWORD=${AUTHENTIK_BOOTSTRAP_PASSWORD:?AUTHENTIK_BOOTSTRAP_PASSWORD is required}
+      - AUTHENTIK_BOOTSTRAP_TOKEN=${AUTHENTIK_BOOTSTRAP_TOKEN:?AUTHENTIK_BOOTSTRAP_TOKEN is required}
     depends_on:
-      postgres:
+      runtrainer-postgres:
+        condition: service_healthy
+      authentik-redis:
         condition: service_healthy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - authentik_data:/data
+      - authentik_data:/media
+      - authentik_data:/certs
+      - authentik_data:/custom-templates
 
   cloudflared:
     image: cloudflare/cloudflared:latest
@@ -202,19 +217,26 @@ services:
     build:
       context: ./backend
     container_name: runtrainer-backend
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        export PYTHONPATH=$PYTHONPATH:/app
+        alembic upgrade head
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
     environment:
-      - RUNTRAINER_DATABASE_URL=postgresql://${RUNTRAINER_POSTGRES_USER:-postgres}:${RUNTRAINER_POSTGRES_PASSWORD:-postgres}@postgres:5432/${RUNTRAINER_POSTGRES_DB:-runtrainer}
-      - RUNTRAINER_JWT_SECRET=${RUNTRAINER_JWT_SECRET}
-      - RUNTRAINER_FERNET_KEY=${RUNTRAINER_FERNET_KEY}
-      - RUNTRAINER_GOOGLE_CLIENT_ID=${RUNTRAINER_GOOGLE_CLIENT_ID}
-      - RUNTRAINER_GOOGLE_CLIENT_SECRET=${RUNTRAINER_GOOGLE_CLIENT_SECRET}
-      - RUNTRAINER_GOOGLE_REDIRECT_URI=${RUNTRAINER_GOOGLE_REDIRECT_URI}
+      - RUNTRAINER_DATABASE_URL=postgresql://${RUNTRAINER_POSTGRES_USER:?RUNTRAINER_POSTGRES_USER is required}:${RUNTRAINER_POSTGRES_PASSWORD:?RUNTRAINER_POSTGRES_PASSWORD is required}@runtrainer-postgres:5432/${RUNTRAINER_POSTGRES_DB:?RUNTRAINER_POSTGRES_DB is required}
+      - RUNTRAINER_JWT_SECRET=${RUNTRAINER_JWT_SECRET:?RUNTRAINER_JWT_SECRET is required}
+      - RUNTRAINER_FERNET_KEY=${RUNTRAINER_FERNET_KEY:?RUNTRAINER_FERNET_KEY is required}
+      - RUNTRAINER_GOOGLE_CLIENT_ID=${RUNTRAINER_GOOGLE_CLIENT_ID:?RUNTRAINER_GOOGLE_CLIENT_ID is required}
+      - RUNTRAINER_GOOGLE_CLIENT_SECRET=${RUNTRAINER_GOOGLE_CLIENT_SECRET:?RUNTRAINER_GOOGLE_CLIENT_SECRET is required}
+      - RUNTRAINER_GOOGLE_REDIRECT_URI=${RUNTRAINER_GOOGLE_REDIRECT_URI:?RUNTRAINER_GOOGLE_REDIRECT_URI is required}
       - RUNTRAINER_WEB_OIDC_ISSUER=${RUNTRAINER_WEB_OIDC_ISSUER}
       - RUNTRAINER_WEB_OIDC_CLIENT_ID=${RUNTRAINER_WEB_OIDC_CLIENT_ID}
       - RUNTRAINER_WEB_OIDC_CLIENT_SECRET=${RUNTRAINER_WEB_OIDC_CLIENT_SECRET}
       - RUNTRAINER_WEB_OIDC_REDIRECT_URI=${RUNTRAINER_WEB_OIDC_REDIRECT_URI}
       - RUNTRAINER_WEB_OIDC_SCOPE=${RUNTRAINER_WEB_OIDC_SCOPE:-openid email profile}
-      - RUNTRAINER_INFLUX_DEFAULT_URL=${RUNTRAINER_INFLUX_DEFAULT_URL}
+      - RUNTRAINER_INFLUX_DEFAULT_URL=${RUNTRAINER_INFLUX_DEFAULT_URL:-http://influxdb:8086}
       - RUNTRAINER_OPENAI_API_KEY=${RUNTRAINER_OPENAI_API_KEY}
       - GARMIN_MODE=${GARMIN_MODE}
       - GARMIN_FIT_FILE=${GARMIN_FIT_FILE:-0}
@@ -230,7 +252,9 @@ services:
       retries: 10
       start_period: 30s
     depends_on:
-      postgres:
+      runtrainer-postgres:
+        condition: service_healthy
+      influxdb:
         condition: service_healthy
 
   worker:
@@ -240,31 +264,26 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "app.workers.sync_jobs_worker"]
     environment:
-      - RUNTRAINER_DATABASE_URL=postgresql://${RUNTRAINER_POSTGRES_USER:-postgres}:${RUNTRAINER_POSTGRES_PASSWORD:-postgres}@postgres:5432/${RUNTRAINER_POSTGRES_DB:-runtrainer}
-      - RUNTRAINER_JWT_SECRET=${RUNTRAINER_JWT_SECRET}
-      - RUNTRAINER_FERNET_KEY=${RUNTRAINER_FERNET_KEY}
-      - RUNTRAINER_GOOGLE_CLIENT_ID=${RUNTRAINER_GOOGLE_CLIENT_ID}
-      - RUNTRAINER_GOOGLE_CLIENT_SECRET=${RUNTRAINER_GOOGLE_CLIENT_SECRET}
-      - RUNTRAINER_GOOGLE_REDIRECT_URI=${RUNTRAINER_GOOGLE_REDIRECT_URI}
-      - RUNTRAINER_INFLUX_DEFAULT_URL=${RUNTRAINER_INFLUX_DEFAULT_URL}
+      - RUNTRAINER_DATABASE_URL=postgresql://${RUNTRAINER_POSTGRES_USER:?RUNTRAINER_POSTGRES_USER is required}:${RUNTRAINER_POSTGRES_PASSWORD:?RUNTRAINER_POSTGRES_PASSWORD is required}@runtrainer-postgres:5432/${RUNTRAINER_POSTGRES_DB:?RUNTRAINER_POSTGRES_DB is required}
+      - RUNTRAINER_JWT_SECRET=${RUNTRAINER_JWT_SECRET:?RUNTRAINER_JWT_SECRET is required}
+      - RUNTRAINER_FERNET_KEY=${RUNTRAINER_FERNET_KEY:?RUNTRAINER_FERNET_KEY is required}
+      - RUNTRAINER_GOOGLE_CLIENT_ID=${RUNTRAINER_GOOGLE_CLIENT_ID:?RUNTRAINER_GOOGLE_CLIENT_ID is required}
+      - RUNTRAINER_GOOGLE_CLIENT_SECRET=${RUNTRAINER_GOOGLE_CLIENT_SECRET:?RUNTRAINER_GOOGLE_CLIENT_SECRET is required}
+      - RUNTRAINER_GOOGLE_REDIRECT_URI=${RUNTRAINER_GOOGLE_REDIRECT_URI:?RUNTRAINER_GOOGLE_REDIRECT_URI is required}
+      - RUNTRAINER_INFLUX_DEFAULT_URL=${RUNTRAINER_INFLUX_DEFAULT_URL:-http://influxdb:8086}
       - RUNTRAINER_OPENAI_API_KEY=${RUNTRAINER_OPENAI_API_KEY}
       - GARMIN_MODE=${GARMIN_MODE}
       - GARMIN_FIT_FILE=${GARMIN_FIT_FILE:-0}
       - SYNC_WORKER_POLL_INTERVAL_SECONDS=${SYNC_WORKER_POLL_INTERVAL_SECONDS:-5}
     depends_on:
-      postgres:
+      backend:
         condition: service_healthy
       influxdb:
         condition: service_healthy
 
 volumes:
   influxdb_data:
-    external: true
-    name: garmin-grafana_influxdb_data
   grafana_data:
-    external: true
-    name: garmin-grafana_grafana_data
   authentik_data:
-    external: false
   postgres_data:
-    external: false
+  redis_data:
