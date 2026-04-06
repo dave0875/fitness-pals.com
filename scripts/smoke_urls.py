@@ -86,6 +86,7 @@ def wait_for_url(
     user_agent: str = DEFAULT_USER_AGENT,
     test_mode: str | None = None,
     retry_interval_seconds: float = 2,
+    request_timeout_seconds: int = 5,
 ) -> None:
     """Wait until a URL returns a healthy HTTP response or raise SystemExit."""
     deadline = time.time() + timeout_seconds
@@ -93,7 +94,9 @@ def wait_for_url(
     last_error: Exception | str | None = None
     while True:
         try:
-            with opener(_build_request(url, user_agent), timeout=5) as response:
+            with opener(
+                _build_request(url, user_agent), timeout=request_timeout_seconds
+            ) as response:
                 if 200 <= response.status < 400:
                     return
                 last_error = f"Unexpected HTTP status {response.status}"
@@ -112,6 +115,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--urls", required=True, help="Comma or newline-delimited list of URLs")
     parser.add_argument("--timeout", type=int, default=90)
+    parser.add_argument("--request-timeout", type=int, default=5)
     parser.add_argument(
         "--test-mode",
         choices=[TEST_MODE_CLOUDFLARE_403],
@@ -124,7 +128,12 @@ def main() -> int:
         raise SystemExit("No smoke-check URLs were provided")
 
     for url in urls:
-        wait_for_url(url, args.timeout, test_mode=args.test_mode)
+        wait_for_url(
+            url,
+            args.timeout,
+            test_mode=args.test_mode,
+            request_timeout_seconds=args.request_timeout,
+        )
     return 0
 
 
