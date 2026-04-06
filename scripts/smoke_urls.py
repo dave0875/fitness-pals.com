@@ -8,6 +8,9 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from http.client import HTTPMessage
+from types import TracebackType
+from typing import Literal
 
 DEFAULT_USER_AGENT = "curl/8.7.1 fitness-pals-smoke/1.0"
 TEST_MODE_CLOUDFLARE_403 = "cloudflare-403"
@@ -32,7 +35,13 @@ class _FakeResponse:
     def __enter__(self) -> _FakeResponse:
         return self
 
-    def __exit__(self, exc_type, exc, exc_tb) -> bool:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> Literal[False]:
+        del exc_type, exc, exc_tb
         return False
 
 
@@ -52,7 +61,7 @@ def _cloudflare_test_urlopen(request: urllib.request.Request, timeout: int = 5) 
         request.full_url,
         403,
         "Forbidden",
-        hdrs=None,
+        hdrs=HTTPMessage(),
         fp=None,
     )
 
