@@ -224,11 +224,11 @@ services:
       test:
         - CMD-SHELL
         - >
-          python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')"
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+          python3 -c "import sys, urllib.request; resp = urllib.request.urlopen('http://localhost:8000/ready'); sys.exit(0) if resp.getcode() == 200 else sys.exit(1)"
+      interval: 10s
+      timeout: 15s
+      retries: 10
+      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
