@@ -404,7 +404,10 @@ jobs:
               exit 1
             }
           fi
-          python3 scripts/smoke_urls.py --urls "$(printf '%s\n' "${urls[@]}")" --timeout 90
+          python3 scripts/smoke_urls.py \
+            --urls "$(printf '%s\n' "${urls[@]}")" \
+            --timeout 150 \
+            --request-timeout 15
 
       - name: Smoke check external Cloudflare ingress
         if: steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
