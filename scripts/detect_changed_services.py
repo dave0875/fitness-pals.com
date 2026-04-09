@@ -20,6 +20,10 @@ KNOWN_SERVICES = (
     "training-agent",
 )
 
+SERVICE_ALIASES = {
+    "runtrainer-postgres": "postgres",
+}
+
 
 @dataclass(frozen=True)
 class ServiceRange:
@@ -62,7 +66,7 @@ def parse_service_ranges(text: str) -> list[ServiceRange]:
 def changed_line_numbers(diff_text: str, prefix: str) -> set[int]:
     """Extract changed line numbers from unified diff hunk headers."""
     line_numbers: set[int] = set()
-    pattern = re.compile(rf"^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+    pattern = re.compile(r"^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
     old_pattern = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@")
     for line in diff_text.splitlines():
         if prefix == "new":
@@ -92,6 +96,11 @@ def services_for_lines(ranges: list[ServiceRange], line_numbers: set[int]) -> se
     return changed
 
 
+def normalize_service_name(name: str) -> str:
+    """Collapse compose service aliases into stable workflow names."""
+    return SERVICE_ALIASES.get(name, name)
+
+
 def changed_files(before_sha: str, head_sha: str) -> list[str]:
     """Return changed files for the push range, or all files on first push."""
     if not before_sha or before_sha == ("0" * 40):
@@ -119,7 +128,8 @@ def detect_compose_services(before_sha: str, head_sha: str) -> set[str]:
     old_lines = changed_line_numbers(diff_text, "old")
     changed = services_for_lines(parse_service_ranges(current_compose), new_lines)
     changed.update(services_for_lines(parse_service_ranges(previous_compose), old_lines))
-    return changed.intersection(KNOWN_SERVICES)
+    normalized = {normalize_service_name(service) for service in changed}
+    return normalized.intersection(KNOWN_SERVICES)
 
 
 def write_outputs(path: str, outputs: dict[str, bool]) -> None:
@@ -127,6 +137,23 @@ def write_outputs(path: str, outputs: dict[str, bool]) -> None:
     with open(path, "a", encoding="utf-8") as handle:
         for key, value in outputs.items():
             handle.write(f"{key}={'true' if value else 'false'}\n")
+
+
+def build_outputs(files: list[str], compose_services: set[str]) -> dict[str, bool]:
+    """Translate changed files and compose services into workflow outputs."""
+    normalized_services = {normalize_service_name(service) for service in compose_services}
+    return {
+        "postgres_changed": "postgres" in normalized_services,
+        "influxdb_changed": "influxdb" in normalized_services,
+        "grafana_changed": "grafana" in normalized_services,
+        "cloudflared_changed": "cloudflared" in normalized_services,
+        "backend_changed": any(path.startswith("backend/") for path in files)
+        or "backend" in normalized_services,
+        "worker_changed": any(path.startswith("backend/") for path in files)
+        or "worker" in normalized_services,
+        "training_agent_changed": any(path.startswith("services/") for path in files)
+        or "training-agent" in normalized_services,
+    }
 
 
 def main() -> int:
@@ -139,17 +166,7 @@ def main() -> int:
 
     files = changed_files(args.before, args.head)
     compose_services = detect_compose_services(args.before, args.head) if "compose.yml" in files else set()
-
-    outputs = {
-        "postgres_changed": "postgres" in compose_services,
-        "influxdb_changed": "influxdb" in compose_services,
-        "grafana_changed": "grafana" in compose_services,
-        "cloudflared_changed": "cloudflared" in compose_services,
-        "backend_changed": any(path.startswith("backend/") for path in files) or "backend" in compose_services,
-        "worker_changed": any(path.startswith("backend/") for path in files) or "worker" in compose_services,
-        "training_agent_changed": any(path.startswith("services/") for path in files)
-        or "training-agent" in compose_services,
-    }
+    outputs = build_outputs(files, compose_services)
 
     print("Changed files:")
     for path in files:

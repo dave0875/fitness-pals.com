@@ -283,7 +283,11 @@ services:
 
 volumes:
   influxdb_data:
+    external: true
+    name: garmin-grafana_influxdb_data
   grafana_data:
+    external: true
+    name: garmin-grafana_grafana_data
   authentik_data:
   postgres_data:
   redis_data:
