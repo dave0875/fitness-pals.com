@@ -371,7 +371,7 @@ jobs:
           if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ]; then
             services+=(training-agent)
           fi
-          docker compose --env-file "$ENV_FILE" up -d "${services[@]}"
+          docker compose --env-file "$ENV_FILE" up -d --no-deps "${services[@]}"
 
       - name: Skip deploy when no app services changed
         if: steps.changes.outputs.backend_changed != 'true' && steps.changes.outputs.worker_changed != 'true' && steps.changes.outputs.training_agent_changed != 'true'
@@ -478,7 +478,7 @@ jobs:
         run: |
           services=()
           if [ "${{ steps.changes.outputs.postgres_changed }}" = "true" ]; then
-            services+=(postgres)
+            services+=(runtrainer-postgres)
           fi
           if [ "${{ steps.changes.outputs.influxdb_changed }}" = "true" ]; then
             services+=(influxdb)
@@ -510,30 +510,36 @@ jobs:
       - name: Restart changed services
         if: steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true' || steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
         run: |
-          services=()
+          infra_services=()
+          app_services=()
           if [ "${{ steps.changes.outputs.postgres_changed }}" = "true" ]; then
-            services+=(postgres)
+            infra_services+=(runtrainer-postgres)
           fi
           if [ "${{ steps.changes.outputs.influxdb_changed }}" = "true" ]; then
-            services+=(influxdb)
+            infra_services+=(influxdb)
           fi
           if [ "${{ steps.changes.outputs.grafana_changed }}" = "true" ]; then
-            services+=(grafana)
+            infra_services+=(grafana)
           fi
           if [ "${{ steps.changes.outputs.cloudflared_changed }}" = "true" ]; then
-            services+=(cloudflared)
+            infra_services+=(cloudflared)
           fi
           if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ]; then
-            services+=(backend)
-            services+=(worker)
+            app_services+=(backend)
+            app_services+=(worker)
           fi
           if [ "${{ steps.changes.outputs.worker_changed }}" = "true" ] && [ "${{ steps.changes.outputs.backend_changed }}" != "true" ]; then
-            services+=(worker)
+            app_services+=(worker)
           fi
           if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ]; then
-            services+=(training-agent)
+            app_services+=(training-agent)
           fi
-          docker compose --env-file "$ENV_FILE" up -d "${services[@]}"
+          if [ ${#infra_services[@]} -gt 0 ]; then
+            docker compose --env-file "$ENV_FILE" up -d "${infra_services[@]}"
+          fi
+          if [ ${#app_services[@]} -gt 0 ]; then
+            docker compose --env-file "$ENV_FILE" up -d --no-deps "${app_services[@]}"
+          fi
 
       - name: Skip deploy when no managed services changed
         if: steps.changes.outputs.postgres_changed != 'true' && steps.changes.outputs.influxdb_changed != 'true' && steps.changes.outputs.grafana_changed != 'true' && steps.changes.outputs.cloudflared_changed != 'true' && steps.changes.outputs.backend_changed != 'true' && steps.changes.outputs.worker_changed != 'true' && steps.changes.outputs.training_agent_changed != 'true'
