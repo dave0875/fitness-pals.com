@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 
 def parse_args() -> argparse.Namespace:
@@ -35,13 +36,31 @@ def read_env_file(path: Path) -> list[tuple[str, str]]:
     return entries
 
 
-def main() -> int:
-    args = parse_args()
+def _derive_runtrainer_postgres_env(values: dict[str, str]) -> list[tuple[str, str]]:
+    database_url = values.get("RUNTRAINER_DATABASE_URL", "").strip()
+    if not database_url:
+        return []
+
+    parsed = urlparse(database_url)
+    if not parsed.scheme.startswith("postgresql"):
+        return []
+
+    derived: list[tuple[str, str]] = []
+    if "RUNTRAINER_POSTGRES_USER" not in values and parsed.username:
+        derived.append(("RUNTRAINER_POSTGRES_USER", unquote(parsed.username)))
+    if "RUNTRAINER_POSTGRES_PASSWORD" not in values and parsed.password:
+        derived.append(("RUNTRAINER_POSTGRES_PASSWORD", unquote(parsed.password)))
+    database_name = parsed.path.lstrip("/")
+    if "RUNTRAINER_POSTGRES_DB" not in values and database_name:
+        derived.append(("RUNTRAINER_POSTGRES_DB", unquote(database_name)))
+    return derived
+
+
+def merge_env_files(output_path: Path, inputs: list[Path]) -> None:
     merged: dict[str, str] = {}
     order: list[str] = []
 
-    for file_name in args.inputs:
-        path = Path(file_name)
+    for path in inputs:
         if not path.is_file():
             raise SystemExit(f"Missing env file: {path}")
         for key, value in read_env_file(path):
@@ -49,10 +68,19 @@ def main() -> int:
                 order.append(key)
             merged[key] = value
 
-    output_path = Path(args.output)
+    for key, value in _derive_runtrainer_postgres_env(merged):
+        if key not in merged:
+            order.append(key)
+            merged[key] = value
+
     output_path.write_text(
         "".join(f"{key}={merged[key]}\n" for key in order),
     )
+
+
+def main() -> int:
+    args = parse_args()
+    merge_env_files(Path(args.output), [Path(file_name) for file_name in args.inputs])
     return 0
 
 
