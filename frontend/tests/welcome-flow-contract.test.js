@@ -57,6 +57,10 @@ test("welcome page calls onboarding and sync endpoints", () => {
     welcomeSource.includes("/auth/login?next=/welcome"),
     "expected welcome page to send unauthenticated users through /auth/login?next=/welcome"
   );
+  assert.ok(
+    welcomeSource.includes("/import/garmin-export"),
+    "expected welcome page to expose the Garmin export import entry"
+  );
 });
 
 test("welcome page removes direct Google login copy", () => {

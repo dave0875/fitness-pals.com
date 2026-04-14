@@ -18,6 +18,7 @@ from app.routes.chat import router as chat_router
 from app.routes import auth_status, providers as provider_router
 from app.routes.onboarding import router as onboarding_router
 from app.routes import providers_garmin
+from app.routes.dossiers import router as dossier_router
 from app.routes.ingest import router as ingest_router
 from app.config import get_settings
 from app.db import engine
@@ -31,6 +32,7 @@ REQUIRED_TABLES = (
     "data_sources",
     "provider_apps",
     "user_provider_tokens",
+    "published_dossiers",
 )
 
 app.add_middleware(
@@ -56,6 +58,7 @@ app.include_router(provider_router.router)
 app.include_router(providers_garmin.router)
 app.include_router(auth_status.router)
 app.include_router(onboarding_router)
+app.include_router(dossier_router)
 app.include_router(ingest_router)
 
 
