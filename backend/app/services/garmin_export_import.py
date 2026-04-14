@@ -23,6 +23,16 @@ def _normalize_email(value: str | None) -> str | None:
     return value.strip().lower()
 
 
+def _extract_candidate_email(value: Any) -> str | None:
+    if isinstance(value, dict):
+        for key in ("emailAddress", "value", "address"):
+            normalized = _normalize_email(value.get(key))
+            if normalized:
+                return normalized
+        return None
+    return _normalize_email(value)
+
+
 def _slugify(value: str) -> str:
     lowered = value.strip().lower()
     normalized = re.sub(r"[^a-z0-9]+", "-", lowered).strip("-")
@@ -44,14 +54,14 @@ def _extract_export_identity(archive: zipfile.ZipFile) -> tuple[str | None, set[
     if isinstance(customer, dict):
         athlete_name = customer.get("fullName") or customer.get("displayName")
         for key in ("primaryEmailAddress", "username"):
-            normalized = _normalize_email(customer.get(key))
+            normalized = _extract_candidate_email(customer.get(key))
             if normalized:
                 emails.add(normalized)
         for identifier in customer.get("loginIdentifiers") or []:
             if not isinstance(identifier, dict):
                 continue
             for key in ("id", "value", "loginId"):
-                normalized = _normalize_email(identifier.get(key))
+                normalized = _extract_candidate_email(identifier.get(key))
                 if normalized:
                     emails.add(normalized)
 

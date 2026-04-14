@@ -117,9 +117,18 @@ def _activity(user_id, provider_activity_id: str) -> Activity:
     )
 
 
-def _archive_bytes(*, athlete_name: str, emails: list[str], contact_emails: list[str] | None = None) -> bytes:
+def _archive_bytes(
+    *,
+    athlete_name: str,
+    emails: list[str],
+    contact_emails: list[str] | None = None,
+    include_username: bool = True,
+    primary_email_as_object: bool = False,
+) -> bytes:
     payload = io.BytesIO()
     contact_emails = list(contact_emails or emails)
+    primary_email = emails[0]
+    primary_email_value = {"emailAddress": primary_email} if primary_email_as_object else primary_email
     with zipfile.ZipFile(payload, "w") as archive:
         archive.writestr(
             "customer_data/customer.json",
@@ -127,7 +136,8 @@ def _archive_bytes(*, athlete_name: str, emails: list[str], contact_emails: list
                 {
                     "fullName": athlete_name,
                     "displayName": athlete_name,
-                    "primaryEmailAddress": emails[0],
+                    "primaryEmailAddress": primary_email_value,
+                    "username": primary_email if include_username else None,
                 }
             ),
         )
@@ -247,6 +257,26 @@ def test_import_ignores_contact_list_emails_when_matching_athlete_identity():
     assert result["activity_count"] == 2
     assert len(dossiers) == 1
     assert dossiers[0].slug == "gaurav-hariani-garmin-archive-dossier"
+
+
+def test_import_accepts_primary_email_address_object_shape():
+    """Garmin customer exports can nest the primary email inside an object."""
+    athlete = _user("gaurav.hariani@gmail.com", "Gaurav Hariani")
+    db = FakeSession()
+
+    result = garmin_export_import.import_garmin_export_archive(
+        db=db,
+        user=athlete,
+        filename="Garmin Export.zip",
+        archive_bytes=_archive_bytes(
+            athlete_name="Gaurav Hariani",
+            emails=["gaurav.hariani@gmail.com"],
+            include_username=False,
+            primary_email_as_object=True,
+        ),
+    )
+
+    assert result["activity_count"] == 2
 
 
 def test_import_is_idempotent_for_replayed_archive():
