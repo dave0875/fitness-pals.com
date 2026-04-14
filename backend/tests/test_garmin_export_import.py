@@ -117,8 +117,9 @@ def _activity(user_id, provider_activity_id: str) -> Activity:
     )
 
 
-def _archive_bytes(*, athlete_name: str, emails: list[str]) -> bytes:
+def _archive_bytes(*, athlete_name: str, emails: list[str], contact_emails: list[str] | None = None) -> bytes:
     payload = io.BytesIO()
+    contact_emails = list(contact_emails or emails)
     with zipfile.ZipFile(payload, "w") as archive:
         archive.writestr(
             "customer_data/customer.json",
@@ -132,7 +133,15 @@ def _archive_bytes(*, athlete_name: str, emails: list[str]) -> bytes:
         )
         archive.writestr(
             "DI_CONNECT/DI-Connect-User/user_contact.json",
-            json.dumps([{"firstName": athlete_name.split()[0], "lastName": athlete_name.split()[-1], "emails": emails}]),
+            json.dumps(
+                [
+                    {
+                        "firstName": athlete_name.split()[0],
+                        "lastName": athlete_name.split()[-1],
+                        "emails": contact_emails,
+                    }
+                ]
+            ),
         )
         archive.writestr(
             "DI_CONNECT/DI-Connect-Fitness/sample_0_summarizedActivities.json",
@@ -215,6 +224,29 @@ def test_import_persists_only_current_users_history_and_creates_dossier():
     assert dossiers[0].user_id == athlete.id
     assert dossiers[0].slug == "priya-hariani-garmin-archive-dossier"
     assert "Priya Hariani" in dossiers[0].title
+
+
+def test_import_ignores_contact_list_emails_when_matching_athlete_identity():
+    """Archive contact emails should not block import for the signed-in athlete."""
+    athlete = _user("gaurav.hariani@gmail.com", "Gaurav Hariani")
+    db = FakeSession()
+
+    result = garmin_export_import.import_garmin_export_archive(
+        db=db,
+        user=athlete,
+        filename="Garmin Export.zip",
+        archive_bytes=_archive_bytes(
+            athlete_name="Gaurav Hariani",
+            emails=["gaurav.hariani@gmail.com"],
+            contact_emails=["priya.hariani@gmail.com", "pavinder40@hotmail.com"],
+        ),
+    )
+
+    dossiers = [item for item in db.items if isinstance(item, PublishedDossier)]
+
+    assert result["activity_count"] == 2
+    assert len(dossiers) == 1
+    assert dossiers[0].slug == "gaurav-hariani-garmin-archive-dossier"
 
 
 def test_import_is_idempotent_for_replayed_archive():

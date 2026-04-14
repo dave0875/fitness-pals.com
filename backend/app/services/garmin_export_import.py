@@ -66,10 +66,6 @@ def _extract_export_identity(archive: zipfile.ZipFile) -> tuple[str | None, set[
                 full_name = f"{first} {last}".strip()
                 if full_name:
                     athlete_name = full_name
-            for email in contact.get("emails") or []:
-                normalized = _normalize_email(email)
-                if normalized:
-                    emails.add(normalized)
 
     return athlete_name, emails
 
