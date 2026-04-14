@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 
 const AUTH_HREF = "/auth/login?next=/import/garmin-export";
+const POLL_INTERVAL_MS = 3000;
+const POLL_ATTEMPTS = 120;
 
 export default function GarminExportImportPage() {
   const [sessionState, setSessionState] = useState("checking");
@@ -31,6 +33,31 @@ export default function GarminExportImportPage() {
     };
   }, []);
 
+  async function pollImportStatus(statusUrl) {
+    for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt += 1) {
+      const response = await fetch(statusUrl, { credentials: "include" });
+      if (response.status === 401) {
+        setSessionState("unauthenticated");
+        throw new Error("Sign in first, then retry the import.");
+      }
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.detail || "Garmin export import failed.");
+      }
+      if (payload.status === "completed" && payload.dossier_url) {
+        return payload;
+      }
+      if (payload.status === "failed") {
+        throw new Error(payload.error?.message || "Garmin export import failed.");
+      }
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, POLL_INTERVAL_MS);
+      });
+    }
+
+    throw new Error("Import is still running. Check back in a few minutes.");
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     if (!selectedFile) {
@@ -38,34 +65,60 @@ export default function GarminExportImportPage() {
       return;
     }
 
-    const formData = new FormData();
-    formData.append("archive", selectedFile);
-
     setIsSubmitting(true);
-    setMessage("Importing Garmin export...");
+    setMessage("Preparing direct upload...");
 
     try {
-      const response = await fetch("/api/dossiers/import/garmin-export", {
+      const startResponse = await fetch("/api/dossiers/import/garmin-export/start", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: selectedFile.name,
+          content_type: selectedFile.type || "application/zip",
+          size_bytes: selectedFile.size,
+        }),
         credentials: "include",
       });
 
-      if (response.status === 401) {
+      if (startResponse.status === 401) {
         setSessionState("unauthenticated");
         setMessage("Sign in first, then retry the import.");
         return;
       }
 
-      const payload = await response.json();
-      if (!response.ok) {
-        setMessage(payload.detail || "Garmin export import failed.");
+      const startPayload = await startResponse.json();
+      if (!startResponse.ok) {
+        setMessage(startPayload.detail || "Garmin export import failed.");
         return;
       }
 
-      window.location.assign(payload.dossier_url);
+      setMessage("Uploading archive directly to storage...");
+      const uploadResponse = await fetch(startPayload.upload.url, {
+        method: startPayload.upload.method || "PUT",
+        headers: startPayload.upload.headers || {},
+        body: selectedFile,
+      });
+      if (!uploadResponse.ok) {
+        setMessage("Archive upload failed.");
+        return;
+      }
+
+      setMessage("Archive uploaded. Queuing dossier import...");
+      const completeResponse = await fetch(startPayload.complete_url, {
+        method: "POST",
+        credentials: "include",
+      });
+      const completePayload = await completeResponse.json();
+      if (!completeResponse.ok) {
+        setMessage(completePayload.detail || "Garmin export import failed.");
+        return;
+      }
+
+      setMessage("Import queued. Building athlete dossier...");
+      const status = await pollImportStatus(startPayload.status_url);
+      window.location.assign(status.dossier_url);
     } catch (_error) {
-      setMessage("Garmin export import failed.");
+      setMessage(_error?.message || "Garmin export import failed.");
     } finally {
       setIsSubmitting(false);
     }
@@ -97,8 +150,9 @@ export default function GarminExportImportPage() {
           Import a Garmin export zip safely
         </h1>
         <p style={{ maxWidth: "60ch", color: "#526472", lineHeight: 1.75 }}>
-          Sign in with the athlete account first. The import only proceeds when the signed-in email
-          matches the athlete contact inside the Garmin export zip.
+          Sign in with the athlete account first. Large Garmin exports upload directly to storage,
+          then the worker builds the dossier asynchronously once the signed-in email matches the
+          athlete identity inside the archive.
         </p>
 
         {sessionState !== "authenticated" && (
@@ -157,8 +211,9 @@ export default function GarminExportImportPage() {
               />
             </label>
             <p style={{ margin: 0, color: "#526472", lineHeight: 1.7 }}>
-              The import stays bound to the current athlete account and publishes a separate coach
-              dossier without touching the sample dossier pages.
+              The import stays bound to the current athlete account, uploads the archive outside the
+              normal app request path, and publishes a separate coach dossier without touching the
+              sample dossier pages.
             </p>
             <div style={{ display: "flex", gap: "0.9rem", flexWrap: "wrap" }}>
               <button

@@ -21,14 +21,23 @@ test("garmin export import page exists and is authentication-aware", () => {
   );
 });
 
-test("garmin export import page posts the zip file to the authenticated import endpoint", () => {
+test("garmin export import page uses the async signed-upload flow for large archives", () => {
   const source = fs.readFileSync(pagePath, "utf8");
 
-  assert.match(source, /new FormData\(/, "expected import page to build multipart form data");
   assert.match(
     source,
-    /\/api\/dossiers\/import\/garmin-export/,
-    "expected import page to post to the Garmin export import endpoint"
+    /\/api\/dossiers\/import\/garmin-export\/start/,
+    "expected import page to request a signed upload plan from the backend first"
+  );
+  assert.match(
+    source,
+    /complete_url|\/complete/,
+    "expected import page to mark the upload complete after storing the archive"
+  );
+  assert.match(
+    source,
+    /status_url|setInterval|\/api\/dossiers\/import\/garmin-export\/\$\{/,
+    "expected import page to poll async job status until the dossier is ready"
   );
   assert.match(
     source,
