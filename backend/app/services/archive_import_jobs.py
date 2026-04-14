@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.models import ArchiveImportJob, User
 from app.services.archive_storage import get_archive_storage_client
 from app.services.garmin_export_import import import_garmin_export_archive
+from app.types import CurrentUserLike
 
 
 def _get_storage_client():
@@ -58,7 +59,7 @@ def _job_status_payload(job: ArchiveImportJob) -> dict[str, Any]:
     return payload
 
 
-def _owned_job(db: Session, user: User, job_id: UUID) -> ArchiveImportJob:
+def _owned_job(db: Session, user: CurrentUserLike, job_id: UUID) -> ArchiveImportJob:
     job = (
         db.query(ArchiveImportJob)
         .filter(ArchiveImportJob.id == job_id, ArchiveImportJob.user_id == user.id)
@@ -71,7 +72,7 @@ def _owned_job(db: Session, user: User, job_id: UUID) -> ArchiveImportJob:
 
 def create_archive_import_job(
     db: Session,
-    user: User,
+    user: CurrentUserLike,
     *,
     filename: str,
     content_type: str,
@@ -143,7 +144,7 @@ def receive_archive_import_upload(
     return {"job_id": str(job.id), "status": job.status}
 
 
-def complete_archive_import_job(db: Session, user: User, job_id: UUID) -> dict[str, Any]:
+def complete_archive_import_job(db: Session, user: CurrentUserLike, job_id: UUID) -> dict[str, Any]:
     """Mark an uploaded archive as ready for worker ingestion."""
     job = _owned_job(db, user, job_id)
     if job.status == "completed":
@@ -163,7 +164,7 @@ def complete_archive_import_job(db: Session, user: User, job_id: UUID) -> dict[s
     return _job_status_payload(job)
 
 
-def get_archive_import_job_status(db: Session, user: User, job_id: UUID) -> dict[str, Any]:
+def get_archive_import_job_status(db: Session, user: CurrentUserLike, job_id: UUID) -> dict[str, Any]:
     """Return the current user-facing status for an archive import job."""
     return _job_status_payload(_owned_job(db, user, job_id))
 
