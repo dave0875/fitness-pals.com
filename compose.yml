@@ -253,6 +253,8 @@ services:
       - GARMIN_FIT_FILE=${GARMIN_FIT_FILE:-0}
     ports:
       - "8000:8000"
+    volumes:
+      - archive_imports_data:/tmp/runtrainer-archive-imports
     healthcheck:
       test:
         - CMD-SHELL
@@ -316,6 +318,8 @@ services:
       - GARMIN_MODE=${GARMIN_MODE}
       - GARMIN_FIT_FILE=${GARMIN_FIT_FILE:-0}
       - SYNC_WORKER_POLL_INTERVAL_SECONDS=${SYNC_WORKER_POLL_INTERVAL_SECONDS:-5}
+    volumes:
+      - archive_imports_data:/tmp/runtrainer-archive-imports
     depends_on:
       backend:
         condition: service_healthy
@@ -332,3 +336,4 @@ volumes:
   authentik_data:
   postgres_data:
   redis_data:
+  archive_imports_data:
