@@ -33,6 +33,7 @@ REQUIRED_TABLES = (
     "provider_apps",
     "user_provider_tokens",
     "published_dossiers",
+    "archive_import_jobs",
 )
 
 app.add_middleware(

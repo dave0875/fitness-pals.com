@@ -130,7 +130,7 @@ jobs:
           fi
 
           echo "=== Docker build ==="
-          bash -c "docker build --pull -t \"$CI_IMAGE_TAG\" -f services/training_agent/Dockerfile .; rc=$?; docker rmi \"$CI_IMAGE_TAG\" >/dev/null 2>&1 || true; exit $rc" >"ci-logs/docker-build.log" 2>&1
+          bash -c 'docker build --pull -t "$CI_IMAGE_TAG" -f services/training_agent/Dockerfile .; rc=$?; docker rmi "$CI_IMAGE_TAG" >/dev/null 2>&1 || true; exit $rc' >"ci-logs/docker-build.log" 2>&1
           rc=$?
           cat "ci-logs/docker-build.log"
           if [[ $rc -eq 0 ]]; then

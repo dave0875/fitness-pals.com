@@ -57,6 +57,14 @@ class Settings(BaseSettings):
     influx_default_url: Optional[str] = None
     openai_api_key: Optional[str] = None
 
+    # --- Archive import storage ---
+    archive_import_storage_backend: str = "filesystem"
+    archive_import_upload_url_ttl_seconds: int = 3600
+    archive_import_filesystem_root: str = "/tmp/runtrainer-archive-imports"
+    archive_import_gcs_bucket: Optional[str] = None
+    archive_import_gcs_credentials_json: Optional[str] = None
+    archive_import_gcs_credentials_file: Optional[str] = None
+
     # --- Token encryption ---
     fernet_key: str
 
