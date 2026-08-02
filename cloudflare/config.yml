@@ -1,13 +1,21 @@
 tunnel: c6e52ad1-8dc5-47f1-aa4c-4431b3becb7c
 ingress:
   - hostname: fitness-pals.com
-    service: http://127.0.0.1:80
-    originRequest:
-      httpHostHeader: fitness-pals.com
+    path: ^/(api|auth)(/.*)?$
+    service: http://backend:8000
+  - hostname: fitness-pals.com
+    path: ^/(health|ready|docs|redoc|openapi\.json)(/.*)?$
+    service: http://backend:8000
+  - hostname: fitness-pals.com
+    service: http://frontend:3000
   - hostname: www.fitness-pals.com
-    service: http://127.0.0.1:80
-    originRequest:
-      httpHostHeader: www.fitness-pals.com
+    path: ^/(api|auth)(/.*)?$
+    service: http://backend:8000
+  - hostname: www.fitness-pals.com
+    path: ^/(health|ready|docs|redoc|openapi\.json)(/.*)?$
+    service: http://backend:8000
+  - hostname: www.fitness-pals.com
+    service: http://frontend:3000
   - hostname: api.fitness-pals.com
     service: http://backend:8000
   - hostname: grafana.fitness-pals.com
