@@ -92,8 +92,7 @@ class FakeSession:
 def _make_activity(user_id, days_ago, distance_m):
     return Activity(
         user_id=user_id,
-        start_time=datetime(2026, 4, 5, 9, 0, tzinfo=timezone.utc)
-        - timedelta(days=days_ago),
+        start_time=datetime.now(timezone.utc) - timedelta(days=days_ago),
         duration_seconds=3600,
         distance_m=distance_m,
         sport="run",
