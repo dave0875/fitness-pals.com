@@ -15,7 +15,12 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import get_db
 from app.models import User
-from app.utils.security import create_access_token, create_refresh_token, set_auth_cookies
+from app.utils.security import (
+    clear_auth_cookies,
+    create_access_token,
+    create_refresh_token,
+    set_auth_cookies,
+)
 
 if hasattr(get_settings, "cache_clear"):
     get_settings.cache_clear()
@@ -207,6 +212,14 @@ def _require_provider(provider: str) -> str:
             status_code=404, detail=f"Provider {canonical} not configured"
         )
     return canonical
+
+
+@router.get("/logout")
+async def logout():
+    """Clear the app session and return to the public home page."""
+    response = RedirectResponse(url="/", status_code=303)
+    clear_auth_cookies(response)
+    return response
 
 
 @router.get("/{provider}/login")

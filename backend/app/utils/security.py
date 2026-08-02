@@ -57,6 +57,24 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str) 
     )
 
 
+def clear_auth_cookies(response: Response) -> None:
+    """Expire both app-issued authentication cookies."""
+    response.delete_cookie(
+        APP_SESSION_COOKIE,
+        httponly=True,
+        secure=not settings.debug,
+        samesite="lax",
+        path="/",
+    )
+    response.delete_cookie(
+        APP_REFRESH_COOKIE,
+        httponly=True,
+        secure=not settings.debug,
+        samesite="lax",
+        path="/",
+    )
+
+
 def encrypt_token(raw: str) -> bytes:
     """Encrypt a sensitive token for persistence."""
     return fernet.encrypt(raw.encode())
