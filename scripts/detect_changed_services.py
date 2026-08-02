@@ -15,6 +15,7 @@ KNOWN_SERVICES = (
     "influxdb",
     "grafana",
     "cloudflared",
+    "frontend",
     "backend",
     "worker",
     "training-agent",
@@ -147,6 +148,8 @@ def build_outputs(files: list[str], compose_services: set[str]) -> dict[str, boo
         "influxdb_changed": "influxdb" in normalized_services,
         "grafana_changed": "grafana" in normalized_services,
         "cloudflared_changed": "cloudflared" in normalized_services,
+        "frontend_changed": any(path.startswith("frontend/") for path in files)
+        or "frontend" in normalized_services,
         "backend_changed": any(path.startswith("backend/") for path in files)
         or "backend" in normalized_services,
         "worker_changed": any(path.startswith("backend/") for path in files)
