@@ -15,7 +15,12 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import get_db
 from app.models import User
-from app.utils.security import (\n    clear_auth_cookies,\n    create_access_token,\n    create_refresh_token,\n    set_auth_cookies,\n)
+from app.utils.security import (
+    clear_auth_cookies,
+    create_access_token,
+    create_refresh_token,
+    set_auth_cookies,
+)
 
 if hasattr(get_settings, "cache_clear"):
     get_settings.cache_clear()
