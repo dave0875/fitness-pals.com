@@ -1,0 +1,200 @@
+.pageHeader {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 1.5rem;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #176b47;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pageHeader h1 {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  line-height: 1.04;
+  letter-spacing: -0.045em;
+}
+
+.lede {
+  max-width: 680px;
+  margin: 0.35rem 0 0;
+  color: #5a685f;
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+.sectionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.card,
+.wideCard {
+  padding: clamp(1rem, 3vw, 1.5rem);
+  background: #ffffff;
+  border: 1px solid #dce5dd;
+  border-radius: 1rem;
+  box-shadow: 0 8px 30px rgba(28, 51, 37, 0.05);
+}
+
+.wideCard {
+  grid-column: 1 / -1;
+}
+
+.card h2,
+.wideCard h2 {
+  margin: 0 0 0.45rem;
+  font-size: 1.2rem;
+}
+
+.card p,
+.wideCard p {
+  color: #5a685f;
+  line-height: 1.55;
+}
+
+.metricGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.7rem;
+  margin-top: 1rem;
+}
+
+.metric {
+  min-height: 92px;
+  padding: 0.85rem;
+  background: #f4f7f3;
+  border-radius: 0.75rem;
+}
+
+.metric span,
+.metric strong {
+  display: block;
+}
+
+.metric span {
+  margin-bottom: 0.35rem;
+  color: #5a685f;
+  font-size: 0.76rem;
+  text-transform: capitalize;
+}
+
+.metric strong {
+  font-size: 1.05rem;
+}
+
+.chatForm {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+}
+
+.chatForm textarea,
+.form input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0.8rem;
+  color: #17211b;
+  background: white;
+  border: 1px solid #bdcbbf;
+  border-radius: 0.65rem;
+  font: inherit;
+}
+
+.chatForm textarea {
+  min-height: 112px;
+  resize: vertical;
+}
+
+.primaryButton,
+.secondaryButton,
+.textLink {
+  min-height: 44px;
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  justify-content: center;
+  padding: 0 1rem;
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.primaryButton {
+  color: white;
+  background: #176b47;
+  border: 1px solid #176b47;
+}
+
+.secondaryButton {
+  color: #176b47;
+  background: white;
+  border: 1px solid #bdcbbf;
+}
+
+.textLink {
+  color: #176b47;
+  text-decoration: none;
+  border: 1px solid #dce5dd;
+}
+
+.form {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 540px;
+}
+
+.form label {
+  display: grid;
+  gap: 0.3rem;
+  color: #39463e;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.buttonRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.statusRow {
+  margin-top: 1rem;
+}
+
+.details {
+  margin-top: 1rem;
+}
+
+.details summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  color: #176b47;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+@media (max-width: 720px) {
+  .sectionGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .wideCard {
+    grid-column: auto;
+  }
+
+  .primaryButton,
+  .secondaryButton,
+  .textLink {
+    width: 100%;
+  }
+}
