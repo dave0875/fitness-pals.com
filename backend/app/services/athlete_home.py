@@ -11,10 +11,8 @@ from app.models import Activity, SleepSession, SyncCheckpoint
 METERS_PER_MILE = 1609.344
 
 
-def _utc(value: datetime | date | None) -> datetime | None:
+def _utc(value: datetime | date) -> datetime:
     """Normalize persisted dates and datetimes for freshness comparisons."""
-    if value is None:
-        return None
     if isinstance(value, date) and not isinstance(value, datetime):
         return datetime.combine(value, time.max, tzinfo=timezone.utc)
     if value.tzinfo is None:
@@ -272,7 +270,6 @@ def build_athlete_home(
             if checkpoint.last_synced_at is not None
         ),
     ]
-    data_candidates = [candidate for candidate in data_candidates if candidate is not None]
     data_through = max(data_candidates) if data_candidates else None
 
     missing = []
