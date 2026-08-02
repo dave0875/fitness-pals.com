@@ -46,9 +46,7 @@ export default function Dashboard() {
 
   const loadHome = useCallback(() => {
     setViewState("loading");
-    axios
-      .get("/api/athlete-home")
-      .then((res) => {
+    axios.get("/api/athlete-home").then((res) => {
         setHome(res.data);
         setViewState("ready");
       })
