@@ -24,3 +24,13 @@ def test_build_outputs_marks_backend_and_worker_for_backend_tree_changes() -> No
 
     assert outputs["backend_changed"] is True
     assert outputs["worker_changed"] is True
+
+
+def test_build_outputs_marks_frontend_for_frontend_tree_changes() -> None:
+    outputs = detect_changed_services.build_outputs(
+        ["frontend/pages/dashboard.js"],
+        set(),
+    )
+
+    assert outputs["frontend_changed"] is True
+    assert outputs["backend_changed"] is False
