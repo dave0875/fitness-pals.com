@@ -241,7 +241,7 @@ def _persist_activities(
             or item.get("startTimeGMT")
             or item.get("date")
         )
-        metadata = {
+        metadata: dict[str, Any] = {
             "source_provider": "pulsai",
             "upstream_provider": "garmin",
             "provider_activity_id": source_id,
@@ -345,7 +345,7 @@ class PulsaiProvider(FitnessProvider):
         access_token: str,
         since: Optional[str] = None,
         **kwargs: Any,
-    ) -> IngestRun:
+    ) -> Any:
         """Fetch PulsAI activities and persist canonical Garmin-backed rows."""
         del access_token
         db = kwargs["db"]
