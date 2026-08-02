@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -21,7 +20,7 @@ os.environ.setdefault(
 os.environ.setdefault("RUNTRAINER_DATABASE_URL", "sqlite:///./test.db")
 
 
-from app.models import Activity, ActivitySource, IngestRun, SyncCheckpoint, SyncJob
+from app.models import Activity, ActivitySource
 from app.providers import pulsai
 from app.routes import providers_pulsai
 from app.services import sync_jobs
