@@ -312,6 +312,7 @@ jobs:
       SECRET_ENV_PATH: /home/dbarker/fitness-pals.com-secrets/.env
       OVERLAY_ENV_PATH: /home/dbarker/fitness-pals.com-secrets/.env.authentik-oidc
       COMPOSE_PROJECT_NAME: fitness-palscom
+      RUNTRAINER_RELEASE_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -378,7 +379,11 @@ jobs:
           if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ]; then
             services+=(training-agent)
           fi
-          docker compose --env-file "$ENV_FILE" up -d --no-deps "${services[@]}"
+          recreate_args=()
+          if [ "${{ steps.changes.outputs.frontend_changed }}" = "true" ]; then
+            recreate_args+=(--force-recreate)
+          fi
+          docker compose --env-file "$ENV_FILE" up -d --no-deps "${recreate_args[@]}" "${services[@]}"
 
       - name: Skip deploy when no app services changed
         if: steps.changes.outputs.frontend_changed != 'true' && steps.changes.outputs.backend_changed != 'true' && steps.changes.outputs.worker_changed != 'true' && steps.changes.outputs.training_agent_changed != 'true'
@@ -422,6 +427,11 @@ jobs:
               echo "Frontend container health is $frontend_health, expected healthy." >&2
               exit 1
             fi
+            frontend_release="$(docker inspect -f '{{index .Config.Labels "com.fitness-pals.release-sha"}}' "$frontend_cid")"
+            if [ "$frontend_release" != "$RUNTRAINER_RELEASE_SHA" ]; then
+              echo "Frontend container is release $frontend_release, expected release $RUNTRAINER_RELEASE_SHA." >&2
+              exit 1
+            fi
           fi
           if [ ${#urls[@]} -gt 0 ]; then
             python3 scripts/smoke_urls.py \
@@ -456,6 +466,7 @@ jobs:
       SECRET_ENV_PATH: /home/fitness-pals/fitness-pals.com-secrets/.env
       OVERLAY_ENV_PATH: /home/dbarker/fitness-pals-deploy/.env.authentik-oidc
       COMPOSE_PROJECT_NAME: fitness-palscom
+      RUNTRAINER_RELEASE_SHA: ${{ github.sha }}
       RUN_AS_USER: fitness-pals
     steps:
       - name: Checkout
@@ -565,7 +576,11 @@ jobs:
             docker compose --env-file "$ENV_FILE" up -d "${infra_services[@]}"
           fi
           if [ ${#app_services[@]} -gt 0 ]; then
-            docker compose --env-file "$ENV_FILE" up -d --no-deps "${app_services[@]}"
+            recreate_args=()
+            if [ "${{ steps.changes.outputs.frontend_changed }}" = "true" ]; then
+              recreate_args+=(--force-recreate)
+            fi
+            docker compose --env-file "$ENV_FILE" up -d --no-deps "${recreate_args[@]}" "${app_services[@]}"
           fi
 
       - name: Skip deploy when no managed services changed
@@ -613,6 +628,11 @@ jobs:
               echo "Frontend container health is $frontend_health, expected healthy." >&2
               exit 1
             fi
+            frontend_release="$(docker inspect -f '{{index .Config.Labels "com.fitness-pals.release-sha"}}' "$frontend_cid")"
+            if [ "$frontend_release" != "$RUNTRAINER_RELEASE_SHA" ]; then
+              echo "Frontend container is release $frontend_release, expected release $RUNTRAINER_RELEASE_SHA." >&2
+              exit 1
+            fi
           fi
           if [ ${#urls[@]} -gt 0 ]; then
             python3 scripts/smoke_urls.py --urls "$(printf '%s\n' "${urls[@]}")" --timeout 90
@@ -630,3 +650,13 @@ jobs:
           python3 scripts/smoke_urls.py \
             --urls "$CLOUDFLARE_SMOKE_URLS" \
             --timeout "$CLOUDFLARE_SMOKE_TIMEOUT_SECONDS"
+
+
+      - name: Verify public frontend release
+        if: steps.changes.outputs.frontend_changed == 'true'
+        run: |
+          python3 scripts/smoke_urls.py \
+            --urls "https://fitness-pals.com/deploy-version" \
+            --timeout 180 \
+            --request-timeout 15 \
+            --expect-text "$RUNTRAINER_RELEASE_SHA"
