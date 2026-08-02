@@ -29,11 +29,16 @@ def parse_urls(raw_urls: str) -> list[str]:
 class _FakeResponse:
     """Small context-manager response used by local smoke test modes."""
 
-    def __init__(self, status: int):
+    def __init__(self, status: int, body: bytes = b""):
         self.status = status
+        self.body = body
 
     def __enter__(self) -> _FakeResponse:
         return self
+
+    def read(self) -> bytes:
+        """Return the configured response body."""
+        return self.body
 
     def __exit__(
         self,
@@ -87,6 +92,7 @@ def wait_for_url(
     test_mode: str | None = None,
     retry_interval_seconds: float = 2,
     request_timeout_seconds: int = 5,
+    expected_text: str | None = None,
 ) -> None:
     """Wait until a URL returns a healthy HTTP response or raise SystemExit."""
     deadline = time.time() + timeout_seconds
@@ -98,8 +104,17 @@ def wait_for_url(
                 _build_request(url, user_agent), timeout=request_timeout_seconds
             ) as response:
                 if 200 <= response.status < 400:
-                    return
-                last_error = f"Unexpected HTTP status {response.status}"
+                    if expected_text is None:
+                        return
+                    body = response.read().decode("utf-8", errors="replace")
+                    if expected_text in body:
+                        return
+                    last_error = (
+                        f"HTTP {response.status} did not contain expected release "
+                        f"{expected_text}"
+                    )
+                else:
+                    last_error = f"Unexpected HTTP status {response.status}"
         except Exception as exc:  # pylint: disable=broad-except
             last_error = exc
         if time.time() >= deadline:
@@ -117,6 +132,10 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=90)
     parser.add_argument("--request-timeout", type=int, default=5)
     parser.add_argument(
+        "--expect-text",
+        help="Require this text in each healthy response body.",
+    )
+    parser.add_argument(
         "--test-mode",
         choices=[TEST_MODE_CLOUDFLARE_403],
         help="Local-only simulation mode for smoke checker verification.",
@@ -128,12 +147,13 @@ def main() -> int:
         raise SystemExit("No smoke-check URLs were provided")
 
     for url in urls:
-        wait_for_url(
-            url,
-            args.timeout,
-            test_mode=args.test_mode,
-            request_timeout_seconds=args.request_timeout,
-        )
+        wait_kwargs = {
+            "test_mode": args.test_mode,
+            "request_timeout_seconds": args.request_timeout,
+        }
+        if args.expect_text:
+            wait_kwargs["expected_text"] = args.expect_text
+        wait_for_url(url, args.timeout, **wait_kwargs)
     return 0
 
 

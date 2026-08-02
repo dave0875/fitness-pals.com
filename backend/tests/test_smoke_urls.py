@@ -84,3 +84,26 @@ def test_main_supports_cloudflare_test_mode_and_request_timeout(monkeypatch):
 
     assert smoke_urls.main() == 0
     assert seen == [("https://fitness-pals.com/auth/login", 1, 15, "cloudflare-403")]
+
+
+def test_wait_for_url_requires_expected_release_text(monkeypatch):
+    """A healthy response with stale release content must not pass deployment."""
+    responses = iter(
+        [
+            smoke_urls._FakeResponse(200, b"old-release"),
+            smoke_urls._FakeResponse(200, b"expected-release"),
+        ]
+    )
+
+    def fake_urlopen(request, timeout):
+        del request, timeout
+        return next(responses)
+
+    monkeypatch.setattr(smoke_urls, "_urlopen_for_test_mode", lambda test_mode: fake_urlopen)
+
+    smoke_urls.wait_for_url(
+        "https://fitness-pals.com/deploy-version",
+        timeout_seconds=1,
+        expected_text="expected-release",
+        retry_interval_seconds=0,
+    )
