@@ -216,7 +216,11 @@ services:
   frontend:
     build:
       context: ./frontend
+      args:
+        RUNTRAINER_RELEASE_SHA: ${RUNTRAINER_RELEASE_SHA:-unknown}
     container_name: runtrainer-frontend
+    labels:
+      com.fitness-pals.release-sha: ${RUNTRAINER_RELEASE_SHA:-unknown}
     restart: unless-stopped
     environment:
       - NODE_ENV=production
