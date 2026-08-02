@@ -343,9 +343,12 @@ jobs:
         run: docker compose --env-file "$ENV_FILE" config -q
 
       - name: Build changed app services
-        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+        if: steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
         run: |
           services=()
+          if [ "${{ steps.changes.outputs.frontend_changed }}" = "true" ]; then
+            services+=(frontend)
+          fi
           if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ]; then
             services+=(backend)
             services+=(worker)
@@ -359,9 +362,12 @@ jobs:
           docker compose --env-file "$ENV_FILE" build "${services[@]}"
 
       - name: Restart changed app services
-        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+        if: steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
         run: |
           services=()
+          if [ "${{ steps.changes.outputs.frontend_changed }}" = "true" ]; then
+            services+=(frontend)
+          fi
           if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ]; then
             services+=(backend)
             services+=(worker)
@@ -375,11 +381,11 @@ jobs:
           docker compose --env-file "$ENV_FILE" up -d --no-deps "${services[@]}"
 
       - name: Skip deploy when no app services changed
-        if: steps.changes.outputs.backend_changed != 'true' && steps.changes.outputs.worker_changed != 'true' && steps.changes.outputs.training_agent_changed != 'true'
+        if: steps.changes.outputs.frontend_changed != 'true' && steps.changes.outputs.backend_changed != 'true' && steps.changes.outputs.worker_changed != 'true' && steps.changes.outputs.training_agent_changed != 'true'
         run: echo "No backend, worker, or training-agent changes detected; skipping DEV deploy."
 
       - name: Smoke check changed service readiness
-        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+        if: steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
         run: |
           urls=()
           if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ] || [ "${{ steps.changes.outputs.worker_changed }}" = "true" ]; then
@@ -405,13 +411,25 @@ jobs:
               exit 1
             }
           fi
+          if [ "${{ steps.changes.outputs.frontend_changed }}" = "true" ]; then
+            frontend_cid="$(docker compose --env-file "$ENV_FILE" ps -q frontend)"
+            if [ -z "$frontend_cid" ]; then
+              echo "Frontend container is not running." >&2
+              exit 1
+            fi
+            frontend_health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$frontend_cid")"
+            if [ "$frontend_health" != "healthy" ]; then
+              echo "Frontend container health is $frontend_health, expected healthy." >&2
+              exit 1
+            fi
+          fi
           python3 scripts/smoke_urls.py \
             --urls "$(printf '%s\n' "${urls[@]}")" \
             --timeout 150 \
             --request-timeout 15
 
       - name: Smoke check external Cloudflare ingress
-        if: steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
+        if: steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
         run: |
           CLOUDFLARE_SMOKE_URLS="$(python3 scripts/read_env_value.py "$ENV_FILE" CLOUDFLARE_SMOKE_URLS)"
           CLOUDFLARE_SMOKE_TIMEOUT_SECONDS="$(python3 scripts/read_env_value.py "$ENV_FILE" CLOUDFLARE_SMOKE_TIMEOUT_SECONDS --default 90)"
@@ -493,9 +511,12 @@ jobs:
           docker compose --env-file "$ENV_FILE" pull "${services[@]}"
 
       - name: Build changed app images
-        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+        if: steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
         run: |
           services=()
+          if [ "${{ steps.changes.outputs.frontend_changed }}" = "true" ]; then
+            services+=(frontend)
+          fi
           if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ]; then
             services+=(backend)
             services+=(worker)
@@ -509,10 +530,13 @@ jobs:
           docker compose --env-file "$ENV_FILE" build "${services[@]}"
 
       - name: Restart changed services
-        if: steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true' || steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+        if: steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true' || steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
         run: |
           infra_services=()
           app_services=()
+          if [ "${{ steps.changes.outputs.frontend_changed }}" = "true" ]; then
+            app_services+=(frontend)
+          fi
           if [ "${{ steps.changes.outputs.postgres_changed }}" = "true" ]; then
             infra_services+=(runtrainer-postgres)
           fi
@@ -543,11 +567,11 @@ jobs:
           fi
 
       - name: Skip deploy when no managed services changed
-        if: steps.changes.outputs.postgres_changed != 'true' && steps.changes.outputs.influxdb_changed != 'true' && steps.changes.outputs.grafana_changed != 'true' && steps.changes.outputs.cloudflared_changed != 'true' && steps.changes.outputs.backend_changed != 'true' && steps.changes.outputs.worker_changed != 'true' && steps.changes.outputs.training_agent_changed != 'true'
+        if: steps.changes.outputs.postgres_changed != 'true' && steps.changes.outputs.influxdb_changed != 'true' && steps.changes.outputs.grafana_changed != 'true' && steps.changes.outputs.cloudflared_changed != 'true' && steps.changes.outputs.frontend_changed != 'true' && steps.changes.outputs.backend_changed != 'true' && steps.changes.outputs.worker_changed != 'true' && steps.changes.outputs.training_agent_changed != 'true'
         run: echo "No managed service changes detected; skipping PROD deploy."
 
       - name: Smoke check changed service readiness
-        if: steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
+        if: steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
         run: |
           urls=()
           if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ] || [ "${{ steps.changes.outputs.worker_changed }}" = "true" ] || [ "${{ steps.changes.outputs.postgres_changed }}" = "true" ]; then
@@ -576,10 +600,22 @@ jobs:
               exit 1
             }
           fi
+          if [ "${{ steps.changes.outputs.frontend_changed }}" = "true" ]; then
+            frontend_cid="$(docker compose --env-file "$ENV_FILE" ps -q frontend)"
+            if [ -z "$frontend_cid" ]; then
+              echo "Frontend container is not running." >&2
+              exit 1
+            fi
+            frontend_health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$frontend_cid")"
+            if [ "$frontend_health" != "healthy" ]; then
+              echo "Frontend container health is $frontend_health, expected healthy." >&2
+              exit 1
+            fi
+          fi
           python3 scripts/smoke_urls.py --urls "$(printf '%s\n' "${urls[@]}")" --timeout 90
 
       - name: Smoke check external Cloudflare ingress
-        if: steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
+        if: steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
         run: |
           CLOUDFLARE_SMOKE_URLS="$(python3 scripts/read_env_value.py "$ENV_FILE" CLOUDFLARE_SMOKE_URLS)"
           CLOUDFLARE_SMOKE_TIMEOUT_SECONDS="$(python3 scripts/read_env_value.py "$ENV_FILE" CLOUDFLARE_SMOKE_TIMEOUT_SECONDS --default 90)"
