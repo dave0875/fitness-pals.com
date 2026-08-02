@@ -422,9 +422,17 @@ jobs:
               echo "Frontend container is not running." >&2
               exit 1
             fi
-            frontend_health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$frontend_cid")"
+            frontend_health_deadline=$((SECONDS + 120))
+            frontend_health="starting"
+            while [ "$SECONDS" -lt "$frontend_health_deadline" ]; do
+              frontend_health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$frontend_cid")"
+              if [ "$frontend_health" = "healthy" ]; then
+                break
+              fi
+              sleep 2
+            done
             if [ "$frontend_health" != "healthy" ]; then
-              echo "Frontend container health is $frontend_health, expected healthy." >&2
+              echo "Frontend did not become healthy; last status was $frontend_health." >&2
               exit 1
             fi
             frontend_release="$(docker inspect -f '{{index .Config.Labels "com.fitness-pals.release-sha"}}' "$frontend_cid")"
@@ -623,9 +631,17 @@ jobs:
               echo "Frontend container is not running." >&2
               exit 1
             fi
-            frontend_health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$frontend_cid")"
+            frontend_health_deadline=$((SECONDS + 120))
+            frontend_health="starting"
+            while [ "$SECONDS" -lt "$frontend_health_deadline" ]; do
+              frontend_health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$frontend_cid")"
+              if [ "$frontend_health" = "healthy" ]; then
+                break
+              fi
+              sleep 2
+            done
             if [ "$frontend_health" != "healthy" ]; then
-              echo "Frontend container health is $frontend_health, expected healthy." >&2
+              echo "Frontend did not become healthy; last status was $frontend_health." >&2
               exit 1
             fi
             frontend_release="$(docker inspect -f '{{index .Config.Labels "com.fitness-pals.release-sha"}}' "$frontend_cid")"
