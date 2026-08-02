@@ -42,13 +42,19 @@ def _validated_endpoint(secret: SecretStr) -> tuple[str, str]:
     host = (parsed.hostname or "").lower()
     allowed = _allowed_hosts()
     host_allowed = any(host == base or host.endswith(f".{base}") for base in allowed)
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400, detail="Invalid PulsAI MCP endpoint"
+        ) from exc
     if (
         parsed.scheme != "https"
         or not host_allowed
         or parsed.username
         or parsed.password
         or parsed.fragment
-        or parsed.port not in (None, 443)
+        or port not in (None, 443)
     ):
         raise HTTPException(status_code=400, detail="Invalid PulsAI MCP endpoint")
     return endpoint, host
