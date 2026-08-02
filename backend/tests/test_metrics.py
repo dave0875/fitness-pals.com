@@ -90,6 +90,7 @@ class FakeSession:
 
 
 def _make_activity(user_id, days_ago, distance_m):
+    """Create activity data relative to the current rolling metrics window."""
     return Activity(
         user_id=user_id,
         start_time=datetime.now(timezone.utc) - timedelta(days=days_ago),
