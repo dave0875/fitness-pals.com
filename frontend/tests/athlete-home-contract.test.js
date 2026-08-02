@@ -1,0 +1,46 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+
+const dashboardSource = fs.readFileSync(
+  path.join(__dirname, "..", "pages", "dashboard.js"),
+  "utf8"
+);
+
+test("athlete home reads the canonical home contract", () => {
+  assert.ok(dashboardSource.includes('axios.get("/api/athlete-home")'));
+  assert.ok(!dashboardSource.includes("/api/metrics/summary"));
+  assert.ok(!dashboardSource.includes("JSON.stringify"));
+});
+
+test("athlete home answers happened, current state, and next action", () => {
+  for (const label of [
+    "What happened",
+    "Where you are now",
+    "What to do next",
+    "Latest activities",
+    "Coaching dossier",
+  ]) {
+    assert.ok(dashboardSource.includes(label), `expected athlete home to include ${label}`);
+  }
+});
+
+test("athlete home presents trustworthy data states", () => {
+  for (const state of [
+    "Loading your athlete home",
+    "No training history yet",
+    "Some signals are still unknown",
+    "Your data needs a refresh",
+    "We could not load your athlete home",
+    "Data through",
+  ]) {
+    assert.ok(dashboardSource.includes(state), `expected athlete home state copy: ${state}`);
+  }
+  assert.ok(dashboardSource.includes('role="status"'));
+  assert.ok(dashboardSource.includes('role="alert"'));
+});
+
+test("athlete home preserves the requested route for sign in", () => {
+  assert.ok(dashboardSource.includes("/auth/login?next=%2Fdashboard"));
+});

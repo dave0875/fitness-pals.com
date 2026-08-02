@@ -198,3 +198,156 @@
     width: 100%;
   }
 }
+
+.goalPill {
+  width: fit-content;
+  margin: 0.5rem 0 0;
+  padding: 0.45rem 0.75rem;
+  color: #135a3c;
+  background: #e6f4eb;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.statePanel {
+  display: grid;
+  gap: 0.5rem;
+  padding: clamp(1rem, 3vw, 1.5rem);
+  background: #ffffff;
+  border: 1px solid #dce5dd;
+  border-radius: 1rem;
+}
+
+.statePanel strong {
+  font-size: 1.15rem;
+}
+
+.statePanel p,
+.dataThrough {
+  margin: 0;
+  color: #5a685f;
+}
+
+.freshnessRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dataThrough {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.questionLabel {
+  margin: 0 0 0.35rem !important;
+  color: #176b47 !important;
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.featureValue {
+  margin: 0.75rem 0 0.25rem !important;
+  color: #17211b !important;
+  font-size: clamp(1.55rem, 4vw, 2.4rem);
+  font-weight: 900;
+  letter-spacing: -0.035em;
+}
+
+.signalGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.signalCard {
+  min-width: 0;
+  padding: 0.8rem;
+  background: #f4f7f3;
+  border-radius: 0.75rem;
+}
+
+.signalCard span,
+.signalCard strong {
+  display: block;
+}
+
+.signalCard span {
+  color: #5a685f;
+  font-size: 0.75rem;
+}
+
+.signalCard strong {
+  margin-top: 0.25rem;
+  overflow-wrap: anywhere;
+}
+
+.signalCard p {
+  margin-bottom: 0;
+  font-size: 0.82rem;
+}
+
+.sectionHeading {
+  display: flex;
+  gap: 1rem;
+  align-items: start;
+  justify-content: space-between;
+}
+
+.activityList {
+  display: grid;
+  gap: 0;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activityList li {
+  display: flex;
+  min-height: 64px;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 0;
+  border-top: 1px solid #e6ece7;
+}
+
+.activityList li > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.activityList li span {
+  color: #5a685f;
+  font-size: 0.85rem;
+}
+
+.primaryButton:focus-visible,
+.secondaryButton:focus-visible,
+.textLink:focus-visible,
+.chatForm textarea:focus-visible {
+  outline: 3px solid #f2b84b;
+  outline-offset: 3px;
+}
+
+@media (max-width: 720px) {
+  .signalGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .sectionHeading,
+  .activityList li {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .activityList li {
+    gap: 0.35rem;
+  }
+}
