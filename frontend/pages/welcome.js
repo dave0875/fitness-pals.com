@@ -8,6 +8,7 @@ const GOAL_OPTIONS = [
 ];
 
 const GARMIN_WELCOME_NEXT = encodeURIComponent("/welcome?garmin=connected");
+const GARMIN_EXPORT_IMPORT_HREF = "/import/garmin-export";
 
 function panelStyle() {
   return {
@@ -305,6 +306,20 @@ export default function Welcome() {
                 >
                   Why Garmin?
                 </a>
+                <a
+                  href={GARMIN_EXPORT_IMPORT_HREF}
+                  style={{
+                    textDecoration: "none",
+                    border: "1px solid #c7d5df",
+                    padding: "0.95rem 1.3rem",
+                    borderRadius: "999px",
+                    color: "#13202c",
+                    fontWeight: 700,
+                    background: "#fff",
+                  }}
+                >
+                  Import Garmin export zip instead
+                </a>
               </div>
             </div>
             <GoalHandshake selectedGoal={selectedGoal} onSelect={persistGoal} />
@@ -349,6 +364,20 @@ export default function Welcome() {
                   }}
                 >
                   What sync includes
+                </a>
+                <a
+                  href={GARMIN_EXPORT_IMPORT_HREF}
+                  style={{
+                    textDecoration: "none",
+                    border: "1px solid #c7d5df",
+                    padding: "0.95rem 1.3rem",
+                    borderRadius: "999px",
+                    color: "#13202c",
+                    fontWeight: 700,
+                    background: "#fff",
+                  }}
+                >
+                  Import Garmin export zip instead
                 </a>
               </div>
             </div>

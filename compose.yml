@@ -148,6 +148,8 @@ services:
     profiles:
       - docker-tunnel
     depends_on:
+      frontend:
+        condition: service_healthy
       backend:
         condition: service_healthy
       grafana:
@@ -238,10 +240,21 @@ services:
       - RUNTRAINER_WEB_OIDC_SCOPE=${RUNTRAINER_WEB_OIDC_SCOPE:-openid email profile}
       - RUNTRAINER_INFLUX_DEFAULT_URL=${RUNTRAINER_INFLUX_DEFAULT_URL:-http://influxdb:8086}
       - RUNTRAINER_OPENAI_API_KEY=${RUNTRAINER_OPENAI_API_KEY}
+      - RUNTRAINER_ARCHIVE_IMPORT_STORAGE_BACKEND=${RUNTRAINER_ARCHIVE_IMPORT_STORAGE_BACKEND:-filesystem}
+      - RUNTRAINER_ARCHIVE_IMPORT_UPLOAD_URL_TTL_SECONDS=${RUNTRAINER_ARCHIVE_IMPORT_UPLOAD_URL_TTL_SECONDS:-3600}
+      - RUNTRAINER_ARCHIVE_IMPORT_FILESYSTEM_ROOT=${RUNTRAINER_ARCHIVE_IMPORT_FILESYSTEM_ROOT:-/tmp/runtrainer-archive-imports}
+      - RUNTRAINER_ARCHIVE_IMPORT_GCS_BUCKET=${RUNTRAINER_ARCHIVE_IMPORT_GCS_BUCKET}
+      - RUNTRAINER_ARCHIVE_IMPORT_GCS_CREDENTIALS_JSON=${RUNTRAINER_ARCHIVE_IMPORT_GCS_CREDENTIALS_JSON}
+      - RUNTRAINER_ARCHIVE_IMPORT_GCS_CREDENTIALS_FILE=${RUNTRAINER_ARCHIVE_IMPORT_GCS_CREDENTIALS_FILE}
+      - GARMIN_CLIENT_ID=${GARMIN_CLIENT_ID}
+      - GARMIN_CLIENT_SECRET=${GARMIN_CLIENT_SECRET}
+      - GARMIN_REDIRECT_URI=${GARMIN_REDIRECT_URI}
       - GARMIN_MODE=${GARMIN_MODE}
       - GARMIN_FIT_FILE=${GARMIN_FIT_FILE:-0}
     ports:
       - "8000:8000"
+    volumes:
+      - archive_imports_data:/tmp/runtrainer-archive-imports
     healthcheck:
       test:
         - CMD-SHELL
@@ -255,6 +268,27 @@ services:
       runtrainer-postgres:
         condition: service_healthy
       influxdb:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: runtrainer-frontend
+    restart: unless-stopped
+    expose:
+      - "3000"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          wget -qO- http://localhost:3000/ >/dev/null
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      backend:
         condition: service_healthy
 
   worker:
@@ -272,9 +306,20 @@ services:
       - RUNTRAINER_GOOGLE_REDIRECT_URI=${RUNTRAINER_GOOGLE_REDIRECT_URI:?RUNTRAINER_GOOGLE_REDIRECT_URI is required}
       - RUNTRAINER_INFLUX_DEFAULT_URL=${RUNTRAINER_INFLUX_DEFAULT_URL:-http://influxdb:8086}
       - RUNTRAINER_OPENAI_API_KEY=${RUNTRAINER_OPENAI_API_KEY}
+      - RUNTRAINER_ARCHIVE_IMPORT_STORAGE_BACKEND=${RUNTRAINER_ARCHIVE_IMPORT_STORAGE_BACKEND:-filesystem}
+      - RUNTRAINER_ARCHIVE_IMPORT_UPLOAD_URL_TTL_SECONDS=${RUNTRAINER_ARCHIVE_IMPORT_UPLOAD_URL_TTL_SECONDS:-3600}
+      - RUNTRAINER_ARCHIVE_IMPORT_FILESYSTEM_ROOT=${RUNTRAINER_ARCHIVE_IMPORT_FILESYSTEM_ROOT:-/tmp/runtrainer-archive-imports}
+      - RUNTRAINER_ARCHIVE_IMPORT_GCS_BUCKET=${RUNTRAINER_ARCHIVE_IMPORT_GCS_BUCKET}
+      - RUNTRAINER_ARCHIVE_IMPORT_GCS_CREDENTIALS_JSON=${RUNTRAINER_ARCHIVE_IMPORT_GCS_CREDENTIALS_JSON}
+      - RUNTRAINER_ARCHIVE_IMPORT_GCS_CREDENTIALS_FILE=${RUNTRAINER_ARCHIVE_IMPORT_GCS_CREDENTIALS_FILE}
+      - GARMIN_CLIENT_ID=${GARMIN_CLIENT_ID}
+      - GARMIN_CLIENT_SECRET=${GARMIN_CLIENT_SECRET}
+      - GARMIN_REDIRECT_URI=${GARMIN_REDIRECT_URI}
       - GARMIN_MODE=${GARMIN_MODE}
       - GARMIN_FIT_FILE=${GARMIN_FIT_FILE:-0}
       - SYNC_WORKER_POLL_INTERVAL_SECONDS=${SYNC_WORKER_POLL_INTERVAL_SECONDS:-5}
+    volumes:
+      - archive_imports_data:/tmp/runtrainer-archive-imports
     depends_on:
       backend:
         condition: service_healthy
@@ -291,3 +336,4 @@ volumes:
   authentik_data:
   postgres_data:
   redis_data:
+  archive_imports_data:

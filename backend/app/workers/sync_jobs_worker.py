@@ -7,6 +7,7 @@ import os
 import time
 
 from app.db import SESSION_FACTORY
+from app.services.archive_import_jobs import process_pending_archive_import_jobs
 from app.services.sync_jobs import process_pending_sync_jobs
 
 
@@ -17,7 +18,14 @@ def run_once() -> dict[str, int]:
     """Process the currently queued sync jobs one time."""
     session = SESSION_FACTORY()
     try:
-        return process_pending_sync_jobs(session)
+        archive_summary = process_pending_archive_import_jobs(session)
+        sync_summary = process_pending_sync_jobs(session)
+        return {
+            "archive_imports_processed": archive_summary["processed"],
+            "archive_imports_failed": archive_summary["failed"],
+            "sync_processed": sync_summary["processed"],
+            "sync_failed": sync_summary["failed"],
+        }
     finally:
         session.close()
 

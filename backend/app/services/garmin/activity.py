@@ -307,6 +307,7 @@ def persist_activity_summaries(
     run: IngestRun,
     activities: list[dict],
     *,
+    provider: str = "garmin",
     test_run: bool = False,
 ) -> None:
     """Persist basic activity rows in Postgres with ingest linkage."""
@@ -374,7 +375,7 @@ def persist_activity_summaries(
         source = _find_existing_activity_source(
             db,
             activity.id,
-            provider="garmin",
+            provider=provider,
             provider_activity_id=provider_activity_id,
         )
         if source is not None:
@@ -383,7 +384,7 @@ def persist_activity_summaries(
             ActivitySource(
                 id=uuid4(),
                 activity_id=activity.id,
-                provider="garmin",
+                provider=provider,
                 provider_activity_id=provider_activity_id,
                 raw_hash=fingerprint,
                 decision="new",
