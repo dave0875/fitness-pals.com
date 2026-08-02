@@ -428,6 +428,8 @@ def oauth_google_auth(params: OAuthAuthorizeParams = Depends()):
         payload["code_challenge_method"] = params.code_challenge_method
 
     url = requests.Request("GET", authorize_url, params=payload).prepare().url
+    if url is None:
+        raise HTTPException(status_code=500, detail="Failed to construct OAuth authorize URL")
     return RedirectResponse(url)
 
 
