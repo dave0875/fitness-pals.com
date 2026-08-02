@@ -258,6 +258,7 @@ def _persist_activities(
         # PulsAI replay links to an existing direct-Garmin canonical row.
         fingerprint = source_id
         activity = _find_activity(db, user.id, fingerprint)
+        was_created = activity is None
         if activity is None:
             duration = _number(item, "duration_seconds", "duration", "elapsedDuration")
             activity = Activity(
@@ -290,7 +291,7 @@ def _persist_activities(
                     provider="pulsai",
                     provider_activity_id=source_id,
                     raw_hash=source_id,
-                    decision="new" if created else "duplicate",
+                    decision="new" if was_created else "duplicate",
                     reason="Garmin-backed activity delivered through PulsAI MCP",
                     chosen_fields=metadata,
                     raw_payload=None,
