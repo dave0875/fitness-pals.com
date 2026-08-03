@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 import json
-from typing import Any, Callable
+from typing import Any, Callable, cast
 import uuid
 
 from fastapi import HTTPException
@@ -326,7 +326,7 @@ def process_dossier_job(
         db.commit()
         return existing
 
-    version = _artifact_version(db, job.user_id)
+    version = _artifact_version(db, cast(uuid.UUID, job.user_id))
     content = build_dossier_content(snapshot, version=version)
     finished = _now()
     artifact = DossierArtifact(
