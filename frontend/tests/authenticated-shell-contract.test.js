@@ -42,8 +42,8 @@ test("shell has a compact mobile navigation treatment", () => {
 });
 
 test("shell links to implemented product pages and remaining dashboard sections", () => {
-  assert.ok(shellSource.includes('href="/journey"'));
-  assert.ok(shellSource.includes('href="/journey#activities"'));
+  assert.ok(shellSource.includes('href: "/journey"'));
+  assert.ok(shellSource.includes('href: "/journey#activities"'));
   for (const section of ["dossiers", "coach"]) {
     assert.ok(shellSource.includes(`/dashboard#${section}`));
     assert.ok(dashboardSource.includes(`id="${section}"`));
