@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -21,6 +21,7 @@ from app.types import CurrentUserLike
 router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 settings = get_settings()
 GOAL_COOKIE = "runtrainer_goal_handshake"
+FRESHNESS_WINDOW = timedelta(hours=72)
 
 
 class GoalHandshakeRequest(BaseModel):
@@ -33,7 +34,6 @@ class FirstSyncRequest(BaseModel):
     """Payload used to queue the user's first PulsAI sync."""
 
     goal: str
-
 
 
 def _enqueue_pulsai_sync_job(
@@ -50,6 +50,7 @@ def _enqueue_pulsai_sync_job(
         test_run=False,
         payload={"goal": goal},
     )
+
 
 def _set_goal_cookie(response: Response, goal: str) -> None:
     """Attach the selected goal to a response for later onboarding steps."""
@@ -81,6 +82,57 @@ def _latest_sync_job(db: Session, user: CurrentUserLike) -> SyncJob | None:
         .order_by(SyncJob.created_at.desc())
         .first()
     )
+
+
+def _utc(value: datetime) -> datetime:
+    """Normalize persisted datetimes before freshness comparisons."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _failure_category(job: SyncJob | None) -> str | None:
+    """Reduce provider errors to a safe recovery category."""
+    if job is None or not isinstance(job.error_json, dict):
+        return None
+    error = job.error_json
+    status_code = str(error.get("status_code", ""))
+    searchable = " ".join(
+        str(error.get(key, "")) for key in ("type", "message")
+    ).lower()
+    if status_code in {"401", "403", "410"} or any(
+        marker in searchable
+        for marker in ("authorization", "unauthorized", "forbidden", "credential")
+    ):
+        return "authorization"
+    return "upstream"
+
+
+def _first_sync_state(
+    connected: bool,
+    job: SyncJob | None,
+    activities: list[dict],
+    now: datetime,
+) -> tuple[str, str | None]:
+    """Resolve a recoverable state without returning raw provider failures."""
+    if not connected:
+        return "not_started", None
+    if job and job.status in {"queued", "running"}:
+        return job.status, None
+    if job and job.status == "failed":
+        category = _failure_category(job)
+        if category == "authorization":
+            return "authorization_required", category
+        return "failed", category
+    if job and job.status == "completed":
+        if not activities:
+            return "partial", None
+        if job.finished_at and now - _utc(job.finished_at) > FRESHNESS_WINDOW:
+            return "stale", None
+        return "completed", None
+    if activities:
+        return "completed", None
+    return "not_started", None
 
 
 def _latest_activities(db: Session, user: CurrentUserLike, limit: int = 5) -> list[dict]:
@@ -250,14 +302,12 @@ def status(
     selected_goal = _selected_goal(latest_job, request)
     latest_activities = _latest_activities(db, user)
 
-    if not pulsai_connected:
-        first_sync_state = "not_started"
-    elif latest_activities:
-        first_sync_state = "completed"
-    elif latest_job and latest_job.status in {"queued", "running"}:
-        first_sync_state = latest_job.status
-    else:
-        first_sync_state = "not_started"
+    first_sync_state, failure_category = _first_sync_state(
+        pulsai_connected,
+        latest_job,
+        latest_activities,
+        datetime.now(timezone.utc),
+    )
 
     preview = _readiness_preview(db, user, selected_goal) if latest_activities else None
     coach_insight = _coach_insight(db, user, selected_goal) if latest_activities else None
@@ -271,6 +321,8 @@ def status(
             "state": first_sync_state,
             "last_synced_at": latest_activities[0]["start_time"] if latest_activities else None,
             "sync_job_id": str(latest_job.id) if latest_job else None,
+            "failure_category": failure_category,
+            "retryable": first_sync_state in {"failed", "partial", "stale"},
         },
         "latest_activities": latest_activities,
         "readiness_preview": preview,
@@ -296,10 +348,22 @@ def first_sync(
     if pulsai_token is None:
         raise HTTPException(status_code=409, detail="PulsAI must be connected first")
 
+    existing_job = _latest_sync_job(db, user)
+    if existing_job and existing_job.status in {"queued", "running"}:
+        _set_goal_cookie(response, body.goal)
+        queued_at = existing_job.created_at or datetime.now(timezone.utc)
+        return {
+            "state": existing_job.status,
+            "sync_job_id": str(existing_job.id),
+            "queued_at": _utc(queued_at).isoformat(),
+            "reused": True,
+        }
+
     job = _enqueue_pulsai_sync_job(db, user, body.goal)
     _set_goal_cookie(response, body.goal)
     return {
         "state": "queued",
         "sync_job_id": str(job.id),
         "queued_at": datetime.now(timezone.utc).isoformat(),
+        "reused": False,
     }
