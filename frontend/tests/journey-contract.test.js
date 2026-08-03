@@ -10,10 +10,10 @@ const read = (relativePath) =>
 test("authenticated navigation exposes real Journey and Activities routes", () => {
   const shell = read("components/AuthenticatedShell.js");
 
-  assert.ok(shell.includes('href="/journey"'));
-  assert.ok(shell.includes('href="/journey#activities"'));
-  assert.ok(!shell.includes('href="/dashboard#journey"'));
-  assert.ok(!shell.includes('href="/dashboard#activities"'));
+  assert.ok(shell.includes('href: "/journey"'));
+  assert.ok(shell.includes('href: "/journey#activities"'));
+  assert.ok(!shell.includes('href: "/dashboard#journey"'));
+  assert.ok(!shell.includes('href: "/dashboard#activities"'));
 });
 
 test("journey page preserves filters and renders reconciled time summaries", () => {
