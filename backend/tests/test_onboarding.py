@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -173,6 +174,112 @@ def test_onboarding_status_returns_sync_queued_with_selected_goal(monkeypatch):
     assert result["first_sync"]["state"] == "queued"
     assert result["selected_goal"] == "half"
 
+
+
+@pytest.mark.parametrize(
+    ("error_payload", "expected_state", "expected_category"),
+    [
+        (
+            {
+                "status_code": 401,
+                "message": "authorization failed for https://private.pulsai.me/mcp/secret",
+            },
+            "authorization_required",
+            "authorization",
+        ),
+        (
+            {
+                "type": "TimeoutError",
+                "message": "upstream timed out at https://private.pulsai.me/mcp/secret",
+            },
+            "failed",
+            "upstream",
+        ),
+    ],
+)
+def test_onboarding_status_redacts_failed_sync_details(
+    monkeypatch, error_payload, expected_state, expected_category
+):
+    """Failed syncs expose a recovery category without leaking provider details."""
+    user = _fake_user()
+    monkeypatch.setattr(
+        onboarding,
+        "get_user_provider_token",
+        lambda *_args, **_kwargs: _pulsai_token(user.id),
+    )
+    job = _sync_job(user.id, status="failed")
+    job.error_json = error_payload
+    monkeypatch.setattr(onboarding, "_latest_sync_job", lambda *_args, **_kwargs: job)
+    monkeypatch.setattr(onboarding, "_latest_activities", lambda *_args, **_kwargs: [])
+
+    result = onboarding.status(
+        request=SimpleNamespace(cookies={}),
+        user=user,
+        db=FakeSession([_pulsai_token(user.id), job]),
+    )
+
+    assert result["first_sync"]["state"] == expected_state
+    assert result["first_sync"]["failure_category"] == expected_category
+    assert "private.pulsai.me" not in json.dumps(result)
+
+
+def test_onboarding_status_reports_partial_completed_sync(monkeypatch):
+    """A completed sync with no canonical activities is honest about partial data."""
+    user = _fake_user()
+    monkeypatch.setattr(
+        onboarding,
+        "get_user_provider_token",
+        lambda *_args, **_kwargs: _pulsai_token(user.id),
+    )
+    job = _sync_job(user.id, status="completed")
+    job.finished_at = datetime.now(timezone.utc)
+    monkeypatch.setattr(onboarding, "_latest_sync_job", lambda *_args, **_kwargs: job)
+    monkeypatch.setattr(onboarding, "_latest_activities", lambda *_args, **_kwargs: [])
+
+    result = onboarding.status(
+        request=SimpleNamespace(cookies={}),
+        user=user,
+        db=FakeSession([_pulsai_token(user.id), job]),
+    )
+
+    assert result["first_sync"]["state"] == "partial"
+    assert result["first_sync"]["retryable"] is True
+
+
+def test_onboarding_status_reports_stale_completed_sync(monkeypatch):
+    """A completed sync older than the product freshness window requests refresh."""
+    user = _fake_user()
+    monkeypatch.setattr(
+        onboarding,
+        "get_user_provider_token",
+        lambda *_args, **_kwargs: _pulsai_token(user.id),
+    )
+    job = _sync_job(user.id, status="completed")
+    job.finished_at = datetime.now(timezone.utc) - timedelta(hours=73)
+    activity = _activity(user.id, 1, 12000.0)
+    monkeypatch.setattr(onboarding, "_latest_sync_job", lambda *_args, **_kwargs: job)
+    monkeypatch.setattr(
+        onboarding,
+        "_latest_activities",
+        lambda *_args, **_kwargs: [
+            {
+                "id": str(activity.id),
+                "sport": activity.sport,
+                "start_time": activity.start_time.isoformat(),
+                "distance_m": float(activity.distance_m or 0),
+                "duration_seconds": activity.duration_seconds,
+            }
+        ],
+    )
+
+    result = onboarding.status(
+        request=SimpleNamespace(cookies={}),
+        user=user,
+        db=FakeSession([_pulsai_token(user.id), job, activity]),
+    )
+
+    assert result["first_sync"]["state"] == "stale"
+    assert result["first_sync"]["retryable"] is True
 
 def test_onboarding_status_returns_first_win_preview_when_synced(monkeypatch):
     """Completed sync with canonical activity data should expose first-win preview."""
