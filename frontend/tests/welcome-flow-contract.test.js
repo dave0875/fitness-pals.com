@@ -95,3 +95,12 @@ test("welcome page presents recoverable PulsAI sync states", () => {
     "expected welcome page to avoid rendering raw provider errors"
   );
 });
+
+
+test("synced athletes can queue an incremental fitness refresh", () => {
+  assert.match(
+    welcomeSource,
+    /welcomeState === "synced"[\s\S]*onClick=\{queueFirstSync\}[\s\S]*Refresh fitness data/i,
+    "expected the normal synced view to expose the incremental sync action"
+  );
+});
