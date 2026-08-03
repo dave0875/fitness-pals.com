@@ -582,6 +582,21 @@ export default function Welcome() {
                 >
                   Open dashboard
                 </a>
+                <button
+                  type="button"
+                  onClick={queueFirstSync}
+                  style={{
+                    border: "1px solid #c7d5df",
+                    padding: "0.95rem 1.3rem",
+                    borderRadius: "999px",
+                    color: "#13202c",
+                    fontWeight: 700,
+                    background: "#fff",
+                    cursor: "pointer",
+                  }}
+                >
+                  Refresh fitness data
+                </button>
                 <a
                   href="/dashboard#readiness"
                   style={{
