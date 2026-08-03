@@ -17,7 +17,6 @@ from app.services.journey import build_journey
 
 TERMINAL_JOB_STATES = {"completed", "insufficient_data", "failed"}
 RETRYABLE_JOB_STATES = {"insufficient_data", "failed"}
-ACTIVE_JOB_STATES = {"queued", "generating", "completed"}
 
 
 def _now() -> datetime:
@@ -100,6 +99,17 @@ def build_dossier_content(
     gaps = list(freshness.get("missing") or [])
     freshness_state = freshness.get("state") or "unknown"
     goal = snapshot.get("goal")
+    goal_key = filters.get("goal")
+    if not isinstance(goal, dict) and isinstance(goal_key, str) and goal_key != "all":
+        goal = {
+            "key": goal_key,
+            "label": {
+                "marathon": "Marathon",
+                "half": "Half marathon",
+                "recovery": "Recovery",
+                "consistency": "Consistency",
+            }.get(goal_key, goal_key.replace("_", " ").title()),
+        }
     goal_label = goal.get("label") if isinstance(goal, dict) else None
     distance_miles = _distance_miles(totals.get("distance_m"))
     activity_count = int(totals.get("activity_count") or 0)
@@ -236,7 +246,6 @@ def enqueue_dossier(
             .all()
             if getattr(item, "user_id", None) == user_id
             and getattr(item, "snapshot_hash", None) == digest
-            and getattr(item, "status", None) in ACTIVE_JOB_STATES
         ),
         None,
     )
