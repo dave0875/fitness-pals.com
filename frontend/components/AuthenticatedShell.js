@@ -3,8 +3,8 @@ import styles from "../styles/AuthenticatedShell.module.css";
 
 const navigation = [
   { key: "home", label: "Home", href: "/dashboard" },
-  { key: "journey", label: "Journey", href: "/dashboard#journey" },
-  { key: "activities", label: "Activities", href: "/dashboard#activities" },
+  { key: "journey", label: "Journey", href: "/journey" },
+  { key: "activities", label: "Activities", href: "/journey#activities" },
   { key: "dossiers", label: "Dossiers", href: "/dashboard#dossiers" },
   { key: "coach", label: "Coach", href: "/dashboard#coach" },
   { key: "settings", label: "Settings", href: "/settings" },
