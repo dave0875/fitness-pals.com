@@ -5,12 +5,13 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, cast
+from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models import Activity, ActivitySource, SleepSession
+from app.models import Activity, ActivitySource, SleepSession, SyncJob
 
 
 WINDOW_DAYS = {"30d": 30, "90d": 90, "365d": 365}
@@ -54,7 +55,7 @@ def _activity_intensity(activity: Activity) -> str | None:
     return value if value in KNOWN_INTENSITIES else None
 
 
-def _activity_payload(activity: Activity) -> dict[str, Any]:
+def _activity_payload(activity: Activity, goal: str | None = None) -> dict[str, Any]:
     """Serialize only canonical activity fields used by the journey UI."""
     return {
         "id": str(activity.id),
@@ -65,7 +66,47 @@ def _activity_payload(activity: Activity) -> dict[str, Any]:
         "duration_seconds": activity.duration_seconds,
         "intensity": _activity_intensity(activity),
         "status": activity.status,
+        "goal": goal,
     }
+
+
+
+def _goal_periods(db: Session, user_id: UUID) -> list[tuple[datetime, str]]:
+    """Return recorded athlete goal changes in chronological order."""
+    jobs = (
+        db.query(SyncJob)
+        .filter(SyncJob.user_id == user_id, SyncJob.test_run.is_(False))
+        .all()
+    )
+    periods: list[tuple[datetime, str]] = []
+    for job in jobs:
+        if getattr(job, "user_id", None) != user_id or getattr(job, "test_run", False):
+            continue
+        payload = job.payload_json if isinstance(job.payload_json, dict) else {}
+        raw_goal = payload.get("goal")
+        if not isinstance(raw_goal, str):
+            continue
+        key = raw_goal.strip().lower()
+        created_at = getattr(job, "created_at", None)
+        if not key or created_at is None:
+            continue
+        periods.append((_utc(created_at), key))
+    periods.sort(key=lambda item: item[0])
+    return periods
+
+
+def _goal_for_moment(
+    value: datetime | date,
+    periods: list[tuple[datetime, str]],
+) -> str | None:
+    """Attribute a record only to the latest goal selected before it occurred."""
+    moment = _utc(value)
+    selected = None
+    for started_at, goal in periods:
+        if started_at > moment:
+            break
+        selected = goal
+    return selected
 
 
 def _sleep_hours(session: SleepSession) -> float | None:
@@ -142,15 +183,18 @@ def build_journey(
     window: str = "90d",
     sport: str = "all",
     goal: str | None = None,
+    goal_filter: str = "all",
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Build one athlete's filterable journey from canonical records."""
     current_time = _utc(now or datetime.now(timezone.utc))
     selected_window = window if window in {*WINDOW_DAYS, "all"} else "90d"
     selected_sport = sport.strip().lower() or "all"
+    selected_goal_filter = goal_filter.strip().lower() or "all"
     start = _window_start(selected_window, current_time)
+    goal_periods = _goal_periods(db, user_id)
 
-    activities = [
+    candidate_activities = [
         activity
         for activity in db.query(Activity).filter(Activity.user_id == user_id).all()
         if getattr(activity, "user_id", None) == user_id
@@ -158,7 +202,32 @@ def build_journey(
         and (start is None or _utc(activity.start_time) >= start)
         and (selected_sport == "all" or (activity.sport or "").lower() == selected_sport)
     ]
-    activities.sort(key=lambda item: _utc(item.start_time), reverse=True)
+    candidate_activities.sort(key=lambda item: _utc(item.start_time), reverse=True)
+    activity_goals = {
+        activity.id: _goal_for_moment(activity.start_time, goal_periods)
+        for activity in candidate_activities
+    }
+    goal_counts: dict[str, int] = defaultdict(int)
+    for attributed_goal in activity_goals.values():
+        if attributed_goal:
+            goal_counts[attributed_goal] += 1
+    available_goals = [
+        {
+            "key": key,
+            "label": GOAL_LABELS.get(key, key.replace("_", " ").title()),
+            "activity_count": goal_counts[key],
+        }
+        for key in sorted(goal_counts)
+    ]
+    activities = (
+        candidate_activities
+        if selected_goal_filter == "all"
+        else [
+            activity
+            for activity in candidate_activities
+            if activity_goals.get(activity.id) == selected_goal_filter
+        ]
+    )
 
     sleep_sessions = [
         session
@@ -166,9 +235,19 @@ def build_journey(
         if getattr(session, "user_id", None) == user_id
         and (start is None or _utc(cast(date, session.calendar_date)) >= start)
     ]
+    if selected_goal_filter != "all":
+        sleep_sessions = [
+            session
+            for session in sleep_sessions
+            if _goal_for_moment(cast(date, session.calendar_date), goal_periods)
+            == selected_goal_filter
+        ]
     sleep_sessions.sort(key=lambda item: _utc(cast(date, item.calendar_date)), reverse=True)
 
-    activity_payloads = [_activity_payload(activity) for activity in activities]
+    activity_payloads = [
+        _activity_payload(activity, activity_goals.get(activity.id))
+        for activity in activities
+    ]
     known_intensities = [
         intensity
         for intensity in (_activity_intensity(activity) for activity in activities)
@@ -249,7 +328,7 @@ def build_journey(
         "filters": {
             "window": selected_window,
             "sport": selected_sport,
-            "goal": goal or "all",
+            "goal": selected_goal_filter,
         },
         "window": {
             "start": start.isoformat() if start else None,
@@ -261,6 +340,28 @@ def build_journey(
             "missing": missing,
         },
         "goal": goal_payload,
+        "available_goals": available_goals,
+        "goal_attribution": {
+            "attributed_count": sum(goal_counts.values()),
+            "unattributed_count": sum(
+                1 for value in activity_goals.values() if value is None
+            ),
+        },
+        "dossier_handoff": {
+            "state": "preview",
+            "label": "Review coaching dossier for this journey",
+            "href": (
+                "/dashboard?"
+                + urlencode(
+                    {
+                        "window": selected_window,
+                        "sport": selected_sport,
+                        "goal": selected_goal_filter,
+                    }
+                )
+                + "#dossiers"
+            ),
+        },
         "totals": totals,
         "weekly_summaries": weekly,
         "monthly_summaries": monthly,
