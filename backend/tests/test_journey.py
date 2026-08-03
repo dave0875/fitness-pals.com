@@ -108,6 +108,43 @@ def test_journey_totals_reconcile_with_visible_filtered_activities():
     assert result["goal"]["label"] == "Marathon"
 
 
+def test_journey_maps_product_sport_filters_to_canonical_provider_values():
+    """Product sport families include provider-specific canonical sport names."""
+    now = datetime(2026, 8, 3, 12, tzinfo=timezone.utc)
+    athlete_id = uuid.uuid4()
+    road_run = make_activity(athlete_id, now, 1, 10000, "running")
+    treadmill_run = make_activity(athlete_id, now, 2, 5000, "treadmill_running")
+    strength = make_activity(athlete_id, now, 3, 0, "strength_training")
+    db = FakeSession([road_run, treadmill_run, strength])
+
+    running = build_journey(
+        db,
+        athlete_id,
+        window="30d",
+        sport="run",
+        goal=None,
+        now=now,
+    )
+    strength_work = build_journey(
+        db,
+        athlete_id,
+        window="30d",
+        sport="strength",
+        goal=None,
+        now=now,
+    )
+
+    assert [item["id"] for item in running["activities"]] == [
+        str(road_run.id),
+        str(treadmill_run.id),
+    ]
+    assert running["totals"]["activity_count"] == 2
+    assert running["filters"]["sport"] == "run"
+    assert [item["id"] for item in strength_work["activities"]] == [
+        str(strength.id)
+    ]
+
+
 def test_journey_marks_missing_signals_unknown_and_stale():
     """Missing recovery/intensity remain unknown and old data is marked stale."""
     now = datetime(2026, 8, 3, 12, tzinfo=timezone.utc)
