@@ -15,7 +15,6 @@ from app.deps import get_current_user
 from app.models import Activity, SyncJob
 from app.services.activity_summary import build_canonical_summary
 from app.services.providers import get_user_provider_token
-from app.services.sync_jobs import enqueue_sync_job
 from app.types import CurrentUserLike
 
 
@@ -35,6 +34,22 @@ class FirstSyncRequest(BaseModel):
 
     goal: str
 
+
+
+def _enqueue_pulsai_sync_job(
+    db: Session, user: CurrentUserLike, goal: str
+) -> SyncJob:
+    """Queue PulsAI work lazily to avoid provider-service import cycles."""
+    from app.services.sync_jobs import enqueue_sync_job
+
+    return enqueue_sync_job(
+        db,
+        user_id=user.id,
+        provider="pulsai",
+        trigger="manual",
+        test_run=False,
+        payload={"goal": goal},
+    )
 
 def _set_goal_cookie(response: Response, goal: str) -> None:
     """Attach the selected goal to a response for later onboarding steps."""
@@ -281,14 +296,7 @@ def first_sync(
     if pulsai_token is None:
         raise HTTPException(status_code=409, detail="PulsAI must be connected first")
 
-    job = enqueue_sync_job(
-        db,
-        user_id=user.id,
-        provider="pulsai",
-        trigger="manual",
-        test_run=False,
-        payload={"goal": body.goal},
-    )
+    job = _enqueue_pulsai_sync_job(db, user, body.goal)
     _set_goal_cookie(response, body.goal)
     return {
         "state": "queued",
