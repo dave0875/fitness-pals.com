@@ -583,6 +583,22 @@ jobs:
           if [ ${#infra_services[@]} -gt 0 ]; then
             docker compose --env-file "$ENV_FILE" up -d --no-deps "${infra_services[@]}"
           fi
+          if [ "${{ steps.changes.outputs.frontend_changed }}" = "true" ]; then
+            frontend_cids=()
+            while IFS= read -r frontend_cid; do
+              if [ -n "$frontend_cid" ]; then
+                frontend_cids+=("$frontend_cid")
+              fi
+            done < <(
+              docker ps -aq \
+                --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" \
+                --filter "label=com.docker.compose.service=frontend"
+            )
+            if [ ${#frontend_cids[@]} -gt 0 ]; then
+              echo "Removing existing project frontend containers before replacement."
+              docker rm -f "${frontend_cids[@]}"
+            fi
+          fi
           if [ ${#app_services[@]} -gt 0 ]; then
             recreate_args=()
             if [ "${{ steps.changes.outputs.frontend_changed }}" = "true" ]; then
