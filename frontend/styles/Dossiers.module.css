@@ -1,0 +1,223 @@
+.pageHeader {
+  align-items: flex-start;
+  display: flex;
+  gap: 1.25rem;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+}
+
+.pageHeader h1,
+.pageHeader p,
+.card h2,
+.sample h2 {
+  margin-top: 0;
+}
+
+.eyebrow {
+  color: #176b55;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.35rem;
+  text-transform: uppercase;
+}
+
+.pageHeader button,
+.jobList button,
+.sample a,
+.exportButton,
+.journeyLink,
+.backLink {
+  align-items: center;
+  border: 0;
+  border-radius: 0.65rem;
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 700;
+  min-height: 44px;
+  padding: 0.7rem 0.9rem;
+  text-decoration: none;
+}
+
+.pageHeader button,
+.exportButton,
+.sample a {
+  background: #145844;
+  color: #fff;
+}
+
+.pageHeader button:disabled,
+.jobList button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.jobList button,
+.journeyLink,
+.backLink {
+  background: #e8f6f1;
+  color: #145844;
+}
+
+.pageHeader button:focus-visible,
+.jobList button:focus-visible,
+.sample a:focus-visible,
+.exportButton:focus-visible,
+.journeyLink:focus-visible,
+.backLink:focus-visible,
+.artifactList a:focus-visible,
+.evidenceList a:focus-visible {
+  outline: 3px solid #2b8a6e;
+  outline-offset: 2px;
+}
+
+.selection,
+.privacy {
+  background: #f6f8fa;
+  border-left: 4px solid #aeb7c2;
+  color: #596474;
+  padding: 0.85rem 1rem;
+}
+
+.statePanel,
+.card,
+.sample {
+  background: #fff;
+  border: 1px solid #dfe4e8;
+  border-radius: 1rem;
+  margin-bottom: 1rem;
+  padding: 1.15rem;
+}
+
+.sectionHeading,
+.sample {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.jobList,
+.artifactList,
+.findings,
+.evidenceList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.jobList,
+.artifactList,
+.findings,
+.evidenceList {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.jobList li {
+  align-items: center;
+  border-bottom: 1px solid #edf0f2;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding-bottom: 0.75rem;
+}
+
+.jobList strong,
+.jobList span,
+.jobList small,
+.artifactList strong,
+.artifactList span,
+.artifactList small,
+.evidenceList strong,
+.evidenceList span {
+  display: block;
+}
+
+.jobList span,
+.jobList small,
+.artifactList span,
+.artifactList small,
+.evidenceList span {
+  color: #596474;
+  margin-top: 0.2rem;
+}
+
+.artifactList a,
+.evidenceList a {
+  align-items: center;
+  background: #f6f8fa;
+  border-radius: 0.75rem;
+  color: inherit;
+  display: flex;
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 0.8rem;
+  text-decoration: none;
+}
+
+.boundaries,
+.columns {
+  display: grid;
+  gap: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.boundaries {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.columns {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.boundaries div {
+  background: #e8f6f1;
+  border: 1px solid #a9d8c9;
+  border-radius: 0.8rem;
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.9rem;
+}
+
+.boundaries span {
+  color: #596474;
+  font-size: 0.85rem;
+}
+
+.backLink,
+.journeyLink {
+  margin-bottom: 1rem;
+}
+
+.srOnly {
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  width: 1px;
+  clip: rect(0, 0, 0, 0);
+}
+
+@media (max-width: 720px) {
+  .pageHeader,
+  .sample,
+  .jobList li,
+  .artifactList a {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .boundaries,
+  .columns {
+    grid-template-columns: 1fr;
+  }
+
+  .pageHeader button,
+  .exportButton,
+  .sample a {
+    justify-content: center;
+    width: 100%;
+  }
+}
