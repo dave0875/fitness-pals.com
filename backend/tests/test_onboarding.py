@@ -214,13 +214,12 @@ def test_first_sync_persists_goal_in_sync_job_payload(monkeypatch):
     user = _fake_user()
     captured = {}
 
-    def fake_enqueue(db, *, user_id, provider, trigger, test_run, payload):  # pylint: disable=unused-argument,redefined-outer-name
-        captured["user_id"] = user_id
-        captured["provider"] = provider
-        captured["payload"] = payload
+    def fake_enqueue(db, user, goal):  # pylint: disable=unused-argument,redefined-outer-name
+        captured["user_id"] = user.id
+        captured["goal"] = goal
         return SimpleNamespace(id=uuid.uuid4())
 
-    monkeypatch.setattr(onboarding, "enqueue_sync_job", fake_enqueue)
+    monkeypatch.setattr(onboarding, "_enqueue_pulsai_sync_job", fake_enqueue)
 
     result = onboarding.first_sync(
         body=onboarding.FirstSyncRequest(goal="recovery"),
@@ -231,8 +230,7 @@ def test_first_sync_persists_goal_in_sync_job_payload(monkeypatch):
 
     assert result["state"] == "queued"
     assert captured["user_id"] == user.id
-    assert captured["provider"] == "pulsai"
-    assert captured["payload"] == {"goal": "recovery"}
+    assert captured["goal"] == "recovery"
 
 def test_first_sync_requires_pulsai_connection():
     """First sync cannot be queued until the current user has a PulsAI endpoint."""
