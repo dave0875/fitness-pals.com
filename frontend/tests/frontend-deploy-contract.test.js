@@ -39,3 +39,13 @@ test("deployment waits for frontend health and routes public traffic to it", () 
   assert.ok(tunnel.includes("service: http://backend:8000"));
   assert.ok(tunnel.includes("service: http://frontend:3000"));
 });
+
+test("infrastructure restarts do not recreate dependency containers", () => {
+  const workflow = read(".github/workflows/ci-cd.yml");
+
+  assert.ok(
+    workflow.includes(
+      'docker compose --env-file "$ENV_FILE" up -d --no-deps "${infra_services[@]}"'
+    )
+  );
+});

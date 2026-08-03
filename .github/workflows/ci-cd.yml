@@ -581,7 +581,7 @@ jobs:
             app_services+=(training-agent)
           fi
           if [ ${#infra_services[@]} -gt 0 ]; then
-            docker compose --env-file "$ENV_FILE" up -d "${infra_services[@]}"
+            docker compose --env-file "$ENV_FILE" up -d --no-deps "${infra_services[@]}"
           fi
           if [ ${#app_services[@]} -gt 0 ]; then
             recreate_args=()
