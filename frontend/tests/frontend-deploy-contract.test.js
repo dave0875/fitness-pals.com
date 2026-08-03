@@ -63,3 +63,21 @@ test("frontend replacement removes only stale project frontend containers", () =
   );
   assert.ok(workflow.includes('docker rm -f "${frontend_cids[@]}"'));
 });
+
+test("manual deploys target the frontend without restarting infrastructure", () => {
+  const workflow = read(".github/workflows/ci-cd.yml");
+  const manualDispatchGuard =
+    'if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then';
+
+  assert.equal(workflow.split(manualDispatchGuard).length - 1, 2);
+  assert.equal(
+    workflow.split('echo "frontend_changed=true"').length - 1,
+    2
+  );
+  for (const service of ["postgres", "influxdb", "grafana", "cloudflared"]) {
+    assert.equal(
+      workflow.split(`echo "${service}_changed=false"`).length - 1,
+      2
+    );
+  }
+});
