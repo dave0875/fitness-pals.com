@@ -211,7 +211,8 @@ export default function Dashboard() {
 
             <section className={styles.card} id="dossiers">
               <p className={styles.questionLabel}>A durable coaching narrative</p>
-              <h2>Your private dossier library</h2>
+              <h2>Coaching dossier library</h2>
+              <p>Your private dossier library keeps each generated version available.</p>
               <h3>{home.dossier.title}</h3>
               <p>{home.dossier.summary}</p>
               {hasJourneyContext && (
