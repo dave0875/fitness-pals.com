@@ -152,7 +152,7 @@ def build_journey(
 
     activities = [
         activity
-        for activity in db.query(Activity).all()
+        for activity in db.query(Activity).filter(Activity.user_id == user_id).all()
         if getattr(activity, "user_id", None) == user_id
         and getattr(activity, "status", None) != "conflict"
         and (start is None or _utc(activity.start_time) >= start)
@@ -162,7 +162,7 @@ def build_journey(
 
     sleep_sessions = [
         session
-        for session in db.query(SleepSession).all()
+        for session in db.query(SleepSession).filter(SleepSession.user_id == user_id).all()
         if getattr(session, "user_id", None) == user_id
         and (start is None or _utc(session.calendar_date) >= start)
     ]
@@ -278,7 +278,9 @@ def build_activity_detail(
     activity = next(
         (
             item
-            for item in db.query(Activity).all()
+            for item in db.query(Activity)
+            .filter(Activity.id == activity_id, Activity.user_id == user_id)
+            .all()
             if getattr(item, "id", None) == activity_id
             and getattr(item, "user_id", None) == user_id
         ),
@@ -289,7 +291,9 @@ def build_activity_detail(
 
     sources = [
         source
-        for source in db.query(ActivitySource).all()
+        for source in db.query(ActivitySource)
+        .filter(ActivitySource.activity_id == activity_id)
+        .all()
         if getattr(source, "activity_id", None) == activity_id
     ]
     provenance = []
