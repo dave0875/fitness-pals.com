@@ -157,6 +157,11 @@ def test_onboarding_status_requires_pulsai_connection():
 def test_onboarding_status_returns_sync_queued_with_selected_goal(monkeypatch):
     """Queued first-sync work should expose selected goal and queued state."""
     user = _fake_user()
+    monkeypatch.setattr(
+        onboarding,
+        "get_user_provider_token",
+        lambda *_args, **_kwargs: _pulsai_token(user.id),
+    )
     job = _sync_job(user.id, status="queued", goal="half")
     monkeypatch.setattr(onboarding, "_latest_sync_job", lambda *_args, **_kwargs: job)
     monkeypatch.setattr(onboarding, "_latest_activities", lambda *_args, **_kwargs: [])
@@ -172,6 +177,11 @@ def test_onboarding_status_returns_sync_queued_with_selected_goal(monkeypatch):
 def test_onboarding_status_returns_first_win_preview_when_synced(monkeypatch):
     """Completed sync with canonical activity data should expose first-win preview."""
     user = _fake_user()
+    monkeypatch.setattr(
+        onboarding,
+        "get_user_provider_token",
+        lambda *_args, **_kwargs: _pulsai_token(user.id),
+    )
     job = _sync_job(user.id, status="completed", goal="marathon")
     activities = [_activity(user.id, 1, 12000.0), _activity(user.id, 3, 8000.0)]
     monkeypatch.setattr(onboarding, "_latest_sync_job", lambda *_args, **_kwargs: job)
@@ -213,6 +223,11 @@ def test_first_sync_persists_goal_in_sync_job_payload(monkeypatch):
     """Queueing first sync should persist the selected goal into the sync job payload."""
     user = _fake_user()
     captured = {}
+    monkeypatch.setattr(
+        onboarding,
+        "get_user_provider_token",
+        lambda *_args, **_kwargs: _pulsai_token(user.id),
+    )
 
     def fake_enqueue(db, user, goal):  # pylint: disable=unused-argument,redefined-outer-name
         captured["user_id"] = user.id
