@@ -8,13 +8,13 @@ const welcomeSource = fs.readFileSync(path.join(__dirname, "..", "pages", "welco
 test("welcome page includes the core onboarding states", () => {
   assert.match(
     welcomeSource,
-    /connect_garmin|ready_to_sync|sync_queued|synced/i,
+    /connect_pulsai|ready_to_sync|sync_queued|synced/i,
     "expected welcome page to define honest onboarding states"
   );
 });
 
 test("welcome page supports connect, first sync, and first-win copy", () => {
-  assert.ok(welcomeSource.includes("Connect Garmin"), 'expected "Connect Garmin" state');
+  assert.ok(welcomeSource.includes("Connect PulsAI"), 'expected "Connect PulsAI" state');
   assert.ok(
     welcomeSource.includes("Import my training history"),
     'expected "Import my training history" state'
@@ -50,8 +50,12 @@ test("welcome page calls onboarding and sync endpoints", () => {
     "expected welcome page to POST /api/onboarding/first-sync"
   );
   assert.ok(
-    welcomeSource.includes("/api/providers/garmin/login?next="),
-    "expected welcome page to use Garmin login with next redirect"
+    welcomeSource.includes("/api/providers/pulsai/connection"),
+    "expected welcome page to save the private PulsAI connection"
+  );
+  assert.ok(
+    !welcomeSource.includes("/api/providers/garmin/login"),
+    "expected welcome page to avoid the retired direct Garmin login"
   );
   assert.ok(
     welcomeSource.includes("/auth/login?next=/welcome"),
