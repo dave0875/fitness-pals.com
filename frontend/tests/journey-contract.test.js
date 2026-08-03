@@ -54,3 +54,15 @@ test("journey layouts retain usable mobile controls", () => {
   assert.ok(styles.includes("min-height: 44px"));
   assert.ok(styles.includes(":focus-visible"));
 });
+
+
+test("dossier handoff turns Journey filters into a private coaching request", () => {
+  const dashboard = read("pages/dashboard.js");
+
+  assert.ok(dashboard.includes("router.query.window"));
+  assert.ok(dashboard.includes("router.query.sport"));
+  assert.ok(dashboard.includes("router.query.goal"));
+  assert.match(dashboard, /Create a coaching dossier/i);
+  assert.ok(dashboard.includes("encodeURIComponent"));
+  assert.ok(dashboard.includes('id="dossiers"'));
+});
