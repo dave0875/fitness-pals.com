@@ -73,3 +73,25 @@ test("welcome page removes direct Google login copy", () => {
     'expected direct "Login with Google" copy to be removed from welcome'
   );
 });
+
+test("welcome page presents recoverable PulsAI sync states", () => {
+  for (const state of [
+    "authorization_required",
+    "sync_failed",
+    "partial",
+    "stale",
+  ]) {
+    assert.ok(
+      welcomeSource.includes(state),
+      `expected welcome page to render the ${state} state`
+    );
+  }
+
+  assert.match(welcomeSource, /Update PulsAI connection/i);
+  assert.match(welcomeSource, /Try sync again/i);
+  assert.match(welcomeSource, /Refresh fitness data/i);
+  assert.ok(
+    !welcomeSource.includes("first_sync.error"),
+    "expected welcome page to avoid rendering raw provider errors"
+  );
+});
