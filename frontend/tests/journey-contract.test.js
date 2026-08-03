@@ -23,6 +23,10 @@ test("journey page preserves filters and renders reconciled time summaries", () 
   assert.ok(source.includes("router.replace"));
   assert.ok(source.includes('name="window"'));
   assert.ok(source.includes('name="sport"'));
+  assert.ok(source.includes('name="goal"'));
+  assert.ok(source.includes("available_goals"));
+  assert.ok(source.includes("intensity_distribution"));
+  assert.ok(source.includes("dossier_handoff.href"));
   assert.match(source, /Weekly timeline/i);
   assert.match(source, /Monthly summary/i);
   assert.match(source, /Data through/i);
@@ -35,6 +39,7 @@ test("activity detail is athlete-facing and provenance-safe", () => {
 
   assert.ok(source.includes("/api/journey/activities/"));
   assert.ok(source.includes("router.query.id"));
+  assert.ok(source.includes("router.query.goal"));
   assert.match(source, /Data provenance/i);
   assert.match(source, /Back to journey/i);
   assert.ok(!source.includes("raw_payload"));
