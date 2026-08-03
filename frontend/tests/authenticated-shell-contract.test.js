@@ -41,6 +41,16 @@ test("shell has a compact mobile navigation treatment", () => {
   assert.ok(shellStyles.includes("min-height: 44px"));
 });
 
+test("protected routes enter sign in with their full safe return path", () => {
+  assert.ok(shellSource.includes("router.asPath"));
+  assert.ok(shellSource.includes("safeReturnPath"));
+  assert.ok(shellSource.includes("encodeURIComponent"));
+  assert.ok(shellSource.includes("/auth/login?next="));
+  assert.ok(shellSource.includes("window.location.assign"));
+  assert.ok(shellSource.includes('response.status === 401'));
+  assert.ok(shellSource.includes('!asPath.startsWith("//")'));
+});
+
 test("shell links to implemented product pages and remaining dashboard sections", () => {
   assert.ok(shellSource.includes('href: "/journey"'));
   assert.ok(shellSource.includes('href: "/journey#activities"'));
