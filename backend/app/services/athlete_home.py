@@ -6,7 +6,13 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
-from app.models import Activity, SleepSession, SyncCheckpoint
+from app.models import (
+    Activity,
+    DossierArtifact,
+    DossierJob,
+    SleepSession,
+    SyncCheckpoint,
+)
 
 METERS_PER_MILE = 1609.344
 
@@ -227,6 +233,80 @@ def _coaching(
     }
 
 
+def _dossier(
+    artifacts: list[DossierArtifact],
+    jobs: list[DossierJob],
+) -> dict[str, Any]:
+    """Summarize the athlete's latest immutable dossier or active request."""
+    active_jobs = [job for job in jobs if job.status in {"queued", "generating"}]
+    active_jobs.sort(
+        key=lambda job: job.created_at or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+    if active_jobs:
+        job = active_jobs[0]
+        state_label = "Queued" if job.status == "queued" else "Generating"
+        return {
+            "state": job.status,
+            "title": f"{state_label}: your next coaching dossier",
+            "summary": "Generation continues in the background and will remain visible in your library.",
+            "data_through": None,
+            "freshness": None,
+            "action": {"label": "View generation status", "href": "/dossiers"},
+        }
+
+    artifacts.sort(key=lambda artifact: int(artifact.version), reverse=True)
+    if artifacts:
+        artifact = artifacts[0]
+        content = artifact.content_json if isinstance(artifact.content_json, dict) else {}
+        return {
+            "state": "completed",
+            "title": content.get("title") or f"Coaching dossier v{artifact.version}",
+            "summary": content.get("summary") or "Your latest coaching dossier is ready.",
+            "data_through": (
+                artifact.data_through.isoformat() if artifact.data_through else None
+            ),
+            "freshness": content.get("freshness") or "unknown",
+            "version": artifact.version,
+            "action": {
+                "label": "Open latest dossier",
+                "href": f"/dossiers/{artifact.id}",
+            },
+        }
+
+    recoverable_jobs = [
+        job for job in jobs if job.status in {"insufficient_data", "failed"}
+    ]
+    recoverable_jobs.sort(
+        key=lambda job: job.created_at or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+    if recoverable_jobs:
+        job = recoverable_jobs[0]
+        summary = (
+            "The selected window does not yet contain enough canonical activity data."
+            if job.status == "insufficient_data"
+            else "The last generation attempt did not complete; your existing history is unchanged."
+        )
+        return {
+            "state": job.status,
+            "title": "Your dossier needs attention",
+            "summary": summary,
+            "data_through": None,
+            "freshness": "unknown",
+            "action": {"label": "Review and retry", "href": "/dossiers"},
+        }
+
+    return {
+        "state": "not_generated",
+        "title": "Your first coaching dossier",
+        "summary": "Turn your recent training and recovery into a durable coaching narrative.",
+        "data_through": None,
+        "freshness": None,
+        "action": {"label": "Generate your first dossier", "href": "/dossiers"},
+    }
+
+
 def build_athlete_home(
     db,
     user_id: UUID,
@@ -258,6 +338,16 @@ def build_athlete_home(
         checkpoint
         for checkpoint in db.query(SyncCheckpoint).all()
         if getattr(checkpoint, "user_id", None) == user_id
+    ]
+    dossier_artifacts = [
+        artifact
+        for artifact in db.query(DossierArtifact).all()
+        if getattr(artifact, "user_id", None) == user_id
+    ]
+    dossier_jobs = [
+        job
+        for job in db.query(DossierJob).all()
+        if getattr(job, "user_id", None) == user_id
     ]
 
     latest_sleep = sleep_sessions[0] if sleep_sessions else None
@@ -310,13 +400,5 @@ def build_athlete_home(
         "trend": _trend(activities, current_time),
         "recent_activities": [_activity_payload(activity) for activity in activities[:5]],
         "coaching": coaching,
-        "dossier": {
-            "state": "not_generated",
-            "title": "Your first coaching dossier",
-            "summary": "Turn your recent training and recovery into a durable coaching narrative.",
-            "action": {
-                "label": "Ask coach to prepare it",
-                "href": "/dashboard?prompt=Create%20my%20first%20coaching%20dossier#coach",
-            },
-        },
+        "dossier": _dossier(dossier_artifacts, dossier_jobs),
     }
