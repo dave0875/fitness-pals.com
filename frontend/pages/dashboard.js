@@ -26,6 +26,16 @@ function formatDuration(seconds) {
   return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
+function journeyContextValue(value) {
+  return typeof value === "string" && /^[a-zA-Z0-9_-]{1,40}$/.test(value)
+    ? value.toLowerCase()
+    : null;
+}
+
+function journeyContextLabel(value) {
+  return value.replaceAll("_", " ").replaceAll("-", " ");
+}
+
 function Signal({ label, value, detail }) {
   return (
     <div className={styles.signalCard}>
@@ -87,6 +97,23 @@ export default function Dashboard() {
 
   const recovery = home?.recovery;
   const readiness = home?.readiness;
+  const journeyWindow = journeyContextValue(router.query.window);
+  const journeySport = journeyContextValue(router.query.sport);
+  const journeyGoal = journeyContextValue(router.query.goal);
+  const hasJourneyContext = Boolean(journeyWindow || journeySport || journeyGoal);
+  const journeyContext = [
+    journeyWindow && `window: ${journeyContextLabel(journeyWindow)}`,
+    journeySport && `sport: ${journeyContextLabel(journeySport)}`,
+    journeyGoal && `goal: ${journeyContextLabel(journeyGoal)}`,
+  ].filter(Boolean);
+  const dossierPrompt = hasJourneyContext
+    ? `Create a coaching dossier using my Journey selection (${journeyContext.join(
+        ", "
+      )}). State the data-through date, missing signals, evidence, inference, and uncertainty.`
+    : null;
+  const dossierHref = dossierPrompt
+    ? `/dashboard?prompt=${encodeURIComponent(dossierPrompt)}#coach`
+    : home?.dossier.action.href;
 
   return (
     <AuthenticatedShell active="home">
@@ -215,8 +242,15 @@ export default function Dashboard() {
               <h2>Coaching dossier</h2>
               <h3>{home.dossier.title}</h3>
               <p>{home.dossier.summary}</p>
-              <a className={styles.textLink} href={home.dossier.action.href}>
-                {home.dossier.action.label}
+              {hasJourneyContext && (
+                <StatusNotice tone="neutral">
+                  Journey context: {journeyContext.join(" · ")}
+                </StatusNotice>
+              )}
+              <a className={styles.textLink} href={dossierHref}>
+                {hasJourneyContext
+                  ? "Ask coach to prepare this Journey dossier"
+                  : home.dossier.action.label}
               </a>
             </section>
 
