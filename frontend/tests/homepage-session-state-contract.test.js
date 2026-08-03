@@ -15,10 +15,10 @@ test("homepage exposes a loading or skeleton state while session is resolving", 
 
 test("homepage renders state-aware authenticated CTAs", () => {
   assert.ok(
-    source.includes("Connect Garmin") &&
+    source.includes("Connect through PulsAI") &&
       source.includes("Import my training history") &&
       source.includes("Open dashboard"),
-    'expected homepage source to include "Connect Garmin", "Import my training history", and "Open dashboard"'
+    'expected homepage source to include "Connect through PulsAI", "Import my training history", and "Open dashboard"'
   );
   assert.match(
     source,
@@ -31,7 +31,7 @@ test("homepage renders state-aware authenticated CTAs", () => {
   );
   assert.match(
     source,
-    /authenticatedNoGarmin|readyToSync|synced|anonymous/i,
+    /authenticatedNoPulsai|readyToSync|synced|anonymous/i,
     "expected homepage source to model anonymous, connected, ready-to-sync, and synced states"
   );
   assert.ok(
