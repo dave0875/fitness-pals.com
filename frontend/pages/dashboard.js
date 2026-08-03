@@ -26,16 +26,6 @@ function formatDuration(seconds) {
   return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
-function journeyContextValue(value) {
-  return typeof value === "string" && /^[a-zA-Z0-9_-]{1,40}$/.test(value)
-    ? value.toLowerCase()
-    : null;
-}
-
-function journeyContextLabel(value) {
-  return value.replaceAll("_", " ").replaceAll("-", " ");
-}
-
 function Signal({ label, value, detail }) {
   return (
     <div className={styles.signalCard}>
@@ -97,24 +87,6 @@ export default function Dashboard() {
 
   const recovery = home?.recovery;
   const readiness = home?.readiness;
-  const journeyWindow = journeyContextValue(router.query.window);
-  const journeySport = journeyContextValue(router.query.sport);
-  const journeyGoal = journeyContextValue(router.query.goal);
-  const hasJourneyContext = Boolean(journeyWindow || journeySport || journeyGoal);
-  const journeyContext = [
-    journeyWindow && `window: ${journeyContextLabel(journeyWindow)}`,
-    journeySport && `sport: ${journeyContextLabel(journeySport)}`,
-    journeyGoal && `goal: ${journeyContextLabel(journeyGoal)}`,
-  ].filter(Boolean);
-  const dossierPrompt = hasJourneyContext
-    ? `Create a coaching dossier using my Journey selection (${journeyContext.join(
-        ", "
-      )}). State the data-through date, missing signals, evidence, inference, and uncertainty.`
-    : null;
-  const dossierHref = dossierPrompt
-    ? `/dashboard?prompt=${encodeURIComponent(dossierPrompt)}#coach`
-    : home?.dossier.action.href;
-
   return (
     <AuthenticatedShell active="home">
       <header className={styles.pageHeader}>
@@ -239,7 +211,7 @@ export default function Dashboard() {
 
             <section className={styles.card} id="dossiers">
               <p className={styles.questionLabel}>A durable coaching narrative</p>
-              <h2>Coaching dossier</h2>
+              <h2>Your private dossier library</h2>
               <h3>{home.dossier.title}</h3>
               <p>{home.dossier.summary}</p>
               {hasJourneyContext && (
@@ -247,10 +219,8 @@ export default function Dashboard() {
                   Journey context: {journeyContext.join(" · ")}
                 </StatusNotice>
               )}
-              <a className={styles.textLink} href={dossierHref}>
-                {hasJourneyContext
-                  ? "Ask coach to prepare this Journey dossier"
-                  : home.dossier.action.label}
+              <a className={styles.textLink} href="/dossiers">
+                Open private dossier library
               </a>
             </section>
 
