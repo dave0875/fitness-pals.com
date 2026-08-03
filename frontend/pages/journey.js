@@ -46,12 +46,19 @@ function queryValue(value, allowed, fallback) {
   return typeof value === "string" && allowed.includes(value) ? value : fallback;
 }
 
+function goalQueryValue(value) {
+  return typeof value === "string" && /^[a-zA-Z0-9_-]{1,40}$/.test(value)
+    ? value.toLowerCase()
+    : "all";
+}
+
 export default function Journey() {
   const router = useRouter();
   const [journey, setJourney] = useState(null);
   const [viewState, setViewState] = useState("loading");
   const [windowValue, setWindowValue] = useState("90d");
   const [sportValue, setSportValue] = useState("all");
+  const [goalValue, setGoalValue] = useState("all");
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -65,13 +72,16 @@ export default function Journey() {
       SPORTS.map(([value]) => value),
       "all"
     );
+    const selectedGoal = goalQueryValue(router.query.goal);
     setWindowValue(selectedWindow);
     setSportValue(selectedSport);
+    setGoalValue(selectedGoal);
     setViewState("loading");
 
     const params = new URLSearchParams({
       window: selectedWindow,
       sport: selectedSport,
+      goal: selectedGoal,
     });
     axios.get(`${JOURNEY_API}?${params.toString()}`)
       .then((response) => {
@@ -82,17 +92,17 @@ export default function Journey() {
         setJourney(null);
         setViewState(error.response?.status === 401 ? "unauthenticated" : "error");
       });
-  }, [router.isReady, router.query.window, router.query.sport]);
+  }, [router.isReady, router.query.window, router.query.sport, router.query.goal]);
 
   function applyFilters(event) {
     event.preventDefault();
     router.replace({
       pathname: "/journey",
-      query: { window: windowValue, sport: sportValue },
+      query: { window: windowValue, sport: sportValue, goal: goalValue },
     });
   }
 
-  const filterQuery = `window=${encodeURIComponent(windowValue)}&sport=${encodeURIComponent(sportValue)}`;
+  const filterQuery = `window=${encodeURIComponent(windowValue)}&sport=${encodeURIComponent(sportValue)}&goal=${encodeURIComponent(goalValue)}`;
 
   return (
     <AuthenticatedShell active="journey">
@@ -130,6 +140,21 @@ export default function Journey() {
           >
             {SPORTS.map(([value, label]) => (
               <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Goal period
+          <select
+            name="goal"
+            value={goalValue}
+            onChange={(event) => setGoalValue(event.target.value)}
+          >
+            <option value="all">All recorded goals</option>
+            {(journey?.available_goals || []).map((goalOption) => (
+              <option key={goalOption.key} value={goalOption.key}>
+                {goalOption.label} ({goalOption.activity_count})
+              </option>
             ))}
           </select>
         </label>
@@ -196,6 +221,27 @@ export default function Journey() {
             </StatusNotice>
           )}
 
+          {journey.totals.intensity_distribution !== null && (
+            <section className={styles.card} aria-label="Intensity distribution">
+              <div className={styles.sectionHeading}>
+                <div>
+                  <p className={styles.eyebrow}>Training balance</p>
+                  <h2>Intensity distribution</h2>
+                </div>
+              </div>
+              <div className={styles.intensityGrid}>
+                {Object.entries(journey.totals.intensity_distribution).map(
+                  ([intensity, count]) => (
+                    <div key={intensity}>
+                      <span>{intensity}</span>
+                      <strong>{count}</strong>
+                    </div>
+                  )
+                )}
+              </div>
+            </section>
+          )}
+
           <div className={styles.columns}>
             <section className={styles.card}>
               <h2>Weekly timeline</h2>
@@ -258,6 +304,26 @@ export default function Journey() {
               </ul>
             )}
           </section>
+
+          <section className={styles.handoff}>
+            <div>
+              <p className={styles.eyebrow}>Coaching context</p>
+              <h2>Carry this window into your dossier</h2>
+              <p>
+                This link preserves the selected time, sport, and recorded goal period.
+                The current dossier preview remains private to your signed-in account.
+              </p>
+            </div>
+            <a href={journey.dossier_handoff.href}>
+              {journey.dossier_handoff.label}
+            </a>
+          </section>
+
+          <StatusNotice tone="neutral">
+            {journey.goal_attribution.unattributed_count > 0
+              ? `${journey.goal_attribution.unattributed_count} activit${journey.goal_attribution.unattributed_count === 1 ? "y is" : "ies are"} older than your first recorded goal and remain unattributed.`
+              : "Every activity in this window has a recorded goal period."}
+          </StatusNotice>
 
           <section className={styles.card} id="activities">
             <div className={styles.sectionHeading}>
