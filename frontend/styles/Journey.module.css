@@ -68,7 +68,8 @@
 
 .statePanel,
 .card,
-.metric {
+.metric,
+.summaryGrid article {
   background: #fff;
   border: 1px solid #dfe4e8;
   border-radius: 1rem;
@@ -87,17 +88,20 @@
   margin-bottom: 1.25rem;
 }
 
-.metric {
+.metric,
+.summaryGrid article {
   display: grid;
   gap: 0.35rem;
 }
 
-.metric span {
+.metric span,
+.summaryGrid article span {
   color: #596474;
   font-size: 0.85rem;
 }
 
-.metric strong {
+.metric strong,
+.summaryGrid article strong {
   font-size: 1.35rem;
 }
 
