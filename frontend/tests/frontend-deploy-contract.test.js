@@ -93,3 +93,14 @@ test("CI validation selects self-hosted runners without exposing prod to PRs", (
     )
   );
 });
+
+test("lightweight governance workflows use the self-hosted dev runner", () => {
+  for (const path of [
+    ".github/workflows/pr-governance.yml",
+    ".github/workflows/dependabot-history.yml",
+  ]) {
+    const workflow = read(path);
+    assert.ok(workflow.includes("runs-on: [self-hosted, dev]"));
+    assert.ok(!workflow.includes("runs-on: ubuntu-latest"));
+  }
+});
