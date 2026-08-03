@@ -267,4 +267,4 @@ def test_journey_filters_by_recorded_goal_period_without_guessing_history():
     assert marathon_history["filters"]["goal"] == "marathon"
     assert "goal=marathon" in marathon_history["dossier_handoff"]["href"]
     assert "window=all" in marathon_history["dossier_handoff"]["href"]
-    assert marathon_history["dossier_handoff"]["href"].endswith("#dossiers")
+    assert marathon_history["dossier_handoff"]["href"].startswith("/dossiers?")
