@@ -27,3 +27,15 @@ test("production deploy recreates and verifies the exact frontend release", () =
   assert.ok(workflow.includes("github.sha"));
   assert.ok(workflow.includes("expected release"));
 });
+
+
+test("deployment waits for frontend health and routes public traffic to it", () => {
+  const workflow = read(".github/workflows/ci-cd.yml");
+  const tunnel = read("cloudflare/config.yml");
+
+  assert.ok(workflow.includes("frontend_health_deadline"));
+  assert.ok(workflow.includes("Frontend did not become healthy"));
+  assert.ok(tunnel.includes("path: ^/(api|auth)(/.*)?$"));
+  assert.ok(tunnel.includes("service: http://backend:8000"));
+  assert.ok(tunnel.includes("service: http://frontend:3000"));
+});
