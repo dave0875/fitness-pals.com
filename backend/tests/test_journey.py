@@ -19,6 +19,9 @@ class FakeQuery:
     def __init__(self, items):
         self.items = list(items)
 
+    def filter(self, *criteria):
+        return self
+
     def all(self):
         return list(self.items)
 
