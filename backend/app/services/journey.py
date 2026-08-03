@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -112,7 +112,7 @@ def _period_summaries(
     for session in sleep_sessions:
         hours = _sleep_hours(session)
         if hours is not None:
-            buckets[key_for(session.calendar_date)]["sleep_hours"].append(hours)
+            buckets[key_for(cast(date, session.calendar_date))]["sleep_hours"].append(hours)
 
     result = []
     for period_start in sorted(buckets, reverse=True):
@@ -164,9 +164,9 @@ def build_journey(
         session
         for session in db.query(SleepSession).filter(SleepSession.user_id == user_id).all()
         if getattr(session, "user_id", None) == user_id
-        and (start is None or _utc(session.calendar_date) >= start)
+        and (start is None or _utc(cast(date, session.calendar_date)) >= start)
     ]
-    sleep_sessions.sort(key=lambda item: _utc(item.calendar_date), reverse=True)
+    sleep_sessions.sort(key=lambda item: _utc(cast(date, item.calendar_date)), reverse=True)
 
     activity_payloads = [_activity_payload(activity) for activity in activities]
     known_intensities = [
@@ -182,7 +182,7 @@ def build_journey(
 
     data_candidates = [
         *(_utc(activity.start_time) for activity in activities[:1]),
-        *(_utc(session.calendar_date) for session in sleep_sessions[:1]),
+        *(_utc(cast(date, session.calendar_date)) for session in sleep_sessions[:1]),
     ]
     data_through = max(data_candidates) if data_candidates else None
     missing = []
