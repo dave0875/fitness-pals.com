@@ -13,7 +13,7 @@ test("authenticated navigation and athlete home expose the private dossier libra
 
   assert.ok(shell.includes('href: "/dossiers"'));
   assert.ok(!shell.includes('href: "/dashboard#dossiers"'));
-  assert.ok(dashboard.includes('href="/dossiers"'));
+  assert.ok(dashboard.includes("home.dossier.action.href"));
   assert.match(dashboard, /private dossier library/i);
 });
 

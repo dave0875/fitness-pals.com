@@ -44,3 +44,11 @@ test("athlete home presents trustworthy data states", () => {
 test("athlete home preserves the requested route for sign in", () => {
   assert.ok(dashboardSource.includes("/auth/login?next=%2Fdashboard"));
 });
+
+test("athlete home renders owner-scoped dossier lifecycle state", () => {
+  assert.ok(dashboardSource.includes("home.dossier.action.href"));
+  assert.ok(dashboardSource.includes("home.dossier.action.label"));
+  assert.ok(dashboardSource.includes("home.dossier.data_through"));
+  assert.ok(!dashboardSource.includes("hasJourneyContext"));
+  assert.ok(!dashboardSource.includes("journeyContext"));
+});
