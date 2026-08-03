@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useRouter } from "next/router";
 import styles from "../styles/AuthenticatedShell.module.css";
 
 const navigation = [
@@ -22,13 +23,28 @@ export function StatusNotice({ tone = "neutral", children }) {
   );
 }
 
+function safeReturnPath(asPath) {
+  return typeof asPath === "string" && asPath.startsWith("/") && !asPath.startsWith("//")
+    ? asPath
+    : "/dashboard";
+}
+
 export default function AuthenticatedShell({ active = "home", children }) {
+  const router = useRouter();
   const [profile, setProfile] = useState(null);
 
   useEffect(() => {
+    if (!router.isReady) return undefined;
     let mounted = true;
     fetch("/api/auth/session", { credentials: "same-origin" })
-      .then((response) => (response.ok ? response.json() : null))
+      .then((response) => {
+        if (response.status === 401 || response.status === 403) {
+          const next = encodeURIComponent(safeReturnPath(router.asPath));
+          window.location.assign(`/auth/login?next=${next}`);
+          return null;
+        }
+        return response.ok ? response.json() : null;
+      })
       .then((session) => {
         if (mounted) setProfile(session);
       })
@@ -38,7 +54,7 @@ export default function AuthenticatedShell({ active = "home", children }) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [router.asPath, router.isReady]);
 
   return (
     <div className={styles.shell}>
