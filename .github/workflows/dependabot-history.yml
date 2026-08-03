@@ -14,7 +14,7 @@ env:
 jobs:
   log:
     name: Log to Dependabot Issue
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, dev]
     steps:
       - name: Append PR event to rolling issue
         if: github.event.pull_request.user.login == 'dependabot[bot]'

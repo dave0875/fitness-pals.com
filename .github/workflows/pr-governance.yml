@@ -15,7 +15,7 @@ env:
 jobs:
   governance:
     name: PR Governance
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, dev]
     env:
       PR_GOVERNANCE_TOKEN: ${{ secrets.PR_GOVERNANCE_TOKEN }}
     steps:

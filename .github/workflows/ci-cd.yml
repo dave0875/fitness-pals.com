@@ -17,7 +17,9 @@ env:
 jobs:
   test:
     name: Lint & Test
-    runs-on: ubuntu-latest
+    runs-on:
+      - self-hosted
+      - ${{ github.event_name == 'pull_request' && 'dev' || 'prod' }}
     env:
       RUNTRAINER_JWT_SECRET: ci-secret
       RUNTRAINER_GOOGLE_CLIENT_ID: ci-google-id
