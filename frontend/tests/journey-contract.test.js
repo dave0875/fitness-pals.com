@@ -56,13 +56,12 @@ test("journey layouts retain usable mobile controls", () => {
 });
 
 
-test("dossier handoff turns Journey filters into a private coaching request", () => {
-  const dashboard = read("pages/dashboard.js");
+test("dossier handoff carries Journey filters into the private library", () => {
+  const journey = read("pages/journey.js");
 
-  assert.ok(dashboard.includes("router.query.window"));
-  assert.ok(dashboard.includes("router.query.sport"));
-  assert.ok(dashboard.includes("router.query.goal"));
-  assert.match(dashboard, /Create a coaching dossier/i);
-  assert.ok(dashboard.includes("encodeURIComponent"));
-  assert.ok(dashboard.includes('id="dossiers"'));
+  assert.ok(journey.includes("journey.dossier_handoff.href"));
+  assert.match(journey, /Carry this window into your dossier/i);
+  assert.ok(journey.includes('name="window"'));
+  assert.ok(journey.includes('name="sport"'));
+  assert.ok(journey.includes('name="goal"'));
 });
