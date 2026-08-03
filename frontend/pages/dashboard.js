@@ -215,13 +215,17 @@ export default function Dashboard() {
               <p>Your private dossier library keeps each generated version available.</p>
               <h3>{home.dossier.title}</h3>
               <p>{home.dossier.summary}</p>
-              {hasJourneyContext && (
-                <StatusNotice tone="neutral">
-                  Journey context: {journeyContext.join(" · ")}
+              {home.dossier.state !== "not_generated" && (
+                <StatusNotice tone={home.dossier.state === "completed" ? "success" : "neutral"}>
+                  {home.dossier.state.replaceAll("_", " ")}
+                  {home.dossier.version ? ` · Version ${home.dossier.version}` : ""}
+                  {home.dossier.data_through
+                    ? ` · Data through ${formatDate(home.dossier.data_through)}`
+                    : ""}
                 </StatusNotice>
               )}
-              <a className={styles.textLink} href="/dossiers">
-                Open private dossier library
+              <a className={styles.textLink} href={home.dossier.action.href}>
+                {home.dossier.action.label}
               </a>
             </section>
 
