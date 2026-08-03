@@ -5,6 +5,8 @@ import { useRouter } from "next/router";
 import AuthenticatedShell, { StatusNotice } from "../components/AuthenticatedShell";
 import styles from "../styles/Journey.module.css";
 
+const JOURNEY_API = "/api/journey";
+
 const WINDOWS = [
   ["30d", "30 days"],
   ["90d", "90 days"],
@@ -71,7 +73,7 @@ export default function Journey() {
       window: selectedWindow,
       sport: selectedSport,
     });
-    axios.get(`/api/journey?${params.toString()}`)
+    axios.get(`${JOURNEY_API}?${params.toString()}`)
       .then((response) => {
         setJourney(response.data);
         setViewState("ready");
