@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 import uuid
 
-from app.models import Activity, SleepSession, SyncCheckpoint
+from app.models import Activity, DossierArtifact, DossierJob, SleepSession, SyncCheckpoint
 from app.services.athlete_home import build_athlete_home
 
 
@@ -133,3 +133,67 @@ def test_athlete_home_stale_and_empty_states_are_actionable():
     assert empty["state"] == "empty"
     assert empty["readiness"]["state"] == "unknown"
     assert empty["dossier"]["state"] == "not_generated"
+
+
+def test_athlete_home_links_latest_owned_dossier_and_ignores_other_athletes():
+    """The home card must link only to the signed-in athlete's newest artifact."""
+    now = datetime(2026, 8, 2, 12, tzinfo=timezone.utc)
+    athlete_id = uuid.uuid4()
+    other_id = uuid.uuid4()
+    owned = DossierArtifact(
+        id=uuid.uuid4(),
+        user_id=athlete_id,
+        job_id=uuid.uuid4(),
+        version=2,
+        snapshot_hash="a" * 64,
+        content_json={
+            "title": "Marathon coaching dossier",
+            "summary": "Owned summary",
+            "freshness": "partial",
+        },
+        data_through=now - timedelta(hours=1),
+        created_at=now,
+        updated_at=now,
+    )
+    other = DossierArtifact(
+        id=uuid.uuid4(),
+        user_id=other_id,
+        job_id=uuid.uuid4(),
+        version=99,
+        snapshot_hash="b" * 64,
+        content_json={"title": "Other athlete's dossier"},
+        created_at=now,
+        updated_at=now,
+    )
+
+    result = build_athlete_home(
+        FakeSession([make_activity(athlete_id, now, 1, 8000), owned, other]),
+        athlete_id,
+        goal="marathon",
+        now=now,
+    )
+
+    assert result["dossier"]["state"] == "completed"
+    assert result["dossier"]["title"] == "Marathon coaching dossier"
+    assert result["dossier"]["action"]["href"] == f"/dossiers/{owned.id}"
+    assert "Other athlete" not in str(result["dossier"])
+
+
+def test_athlete_home_prioritizes_active_dossier_generation():
+    """An active immutable generation request should remain visible after navigation."""
+    now = datetime(2026, 8, 2, 12, tzinfo=timezone.utc)
+    athlete_id = uuid.uuid4()
+    job = DossierJob(
+        id=uuid.uuid4(),
+        user_id=athlete_id,
+        status="generating",
+        snapshot_hash="c" * 64,
+        request_json={"filters": {"window": "90d", "sport": "run", "goal": "marathon"}},
+        created_at=now,
+        updated_at=now,
+    )
+
+    result = build_athlete_home(FakeSession([job]), athlete_id, goal=None, now=now)
+
+    assert result["dossier"]["state"] == "generating"
+    assert result["dossier"]["action"]["href"] == "/dossiers"
