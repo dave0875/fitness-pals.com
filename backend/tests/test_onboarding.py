@@ -368,3 +368,31 @@ def test_first_sync_requires_pulsai_connection():
 
     assert exc_info.value.status_code == 409
     assert "PulsAI" in str(exc_info.value.detail)
+
+
+def test_first_sync_reuses_inflight_pulsai_job(monkeypatch):
+    """Repeated first-sync requests do not enqueue duplicate PulsAI work."""
+    user = _fake_user()
+    job = _sync_job(user.id, status="running", goal="half")
+    monkeypatch.setattr(
+        onboarding,
+        "get_user_provider_token",
+        lambda *_args, **_kwargs: _pulsai_token(user.id),
+    )
+    monkeypatch.setattr(onboarding, "_latest_sync_job", lambda *_args, **_kwargs: job)
+
+    def fail_enqueue(*_args, **_kwargs):
+        raise AssertionError("in-flight first sync must be reused")
+
+    monkeypatch.setattr(onboarding, "_enqueue_pulsai_sync_job", fail_enqueue)
+
+    result = onboarding.first_sync(
+        body=onboarding.FirstSyncRequest(goal="half"),
+        response=Response(),
+        user=user,
+        db=FakeSession([_pulsai_token(user.id), job]),
+    )
+
+    assert result["state"] == "running"
+    assert result["sync_job_id"] == str(job.id)
+    assert result["reused"] is True
