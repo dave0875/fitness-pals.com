@@ -22,6 +22,34 @@ GOAL_LABELS = {
     "consistency": "Consistency",
 }
 KNOWN_INTENSITIES = {"easy", "moderate", "hard"}
+SPORT_ALIASES = {
+    "run": {
+        "run",
+        "running",
+        "treadmill_running",
+        "trail_running",
+        "track_running",
+        "indoor_running",
+    },
+    "bike": {
+        "bike",
+        "biking",
+        "cycling",
+        "indoor_cycling",
+        "mountain_biking",
+        "road_biking",
+    },
+    "walk": {"walk", "walking", "hiking"},
+    "strength": {"strength", "strength_training", "weight_training"},
+}
+
+
+def _sport_matches(activity_sport: str | None, selected_sport: str) -> bool:
+    """Match product sport families to canonical provider-specific values."""
+    if selected_sport == "all":
+        return True
+    normalized = (activity_sport or "").strip().lower()
+    return normalized in SPORT_ALIASES.get(selected_sport, {selected_sport})
 
 
 def _utc(value: datetime | date) -> datetime:
@@ -200,7 +228,7 @@ def build_journey(
         if getattr(activity, "user_id", None) == user_id
         and getattr(activity, "status", None) != "conflict"
         and (start is None or _utc(activity.start_time) >= start)
-        and (selected_sport == "all" or (activity.sport or "").lower() == selected_sport)
+        and _sport_matches(activity.sport, selected_sport)
     ]
     candidate_activities.sort(key=lambda item: _utc(item.start_time), reverse=True)
     activity_goals = {
