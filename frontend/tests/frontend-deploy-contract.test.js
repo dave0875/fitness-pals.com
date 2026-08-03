@@ -49,3 +49,17 @@ test("infrastructure restarts do not recreate dependency containers", () => {
     )
   );
 });
+
+test("frontend replacement removes only stale project frontend containers", () => {
+  const workflow = read(".github/workflows/ci-cd.yml");
+
+  assert.ok(
+    workflow.includes(
+      'label=com.docker.compose.project=$COMPOSE_PROJECT_NAME'
+    )
+  );
+  assert.ok(
+    workflow.includes('label=com.docker.compose.service=frontend')
+  );
+  assert.ok(workflow.includes('docker rm -f "${frontend_cids[@]}"'));
+});
