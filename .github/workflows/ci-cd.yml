@@ -335,6 +335,20 @@ jobs:
       - name: Detect changed services
         id: changes
         run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            {
+              echo "postgres_changed=false"
+              echo "influxdb_changed=false"
+              echo "grafana_changed=false"
+              echo "cloudflared_changed=false"
+              echo "frontend_changed=true"
+              echo "backend_changed=false"
+              echo "worker_changed=false"
+              echo "training_agent_changed=false"
+            } >> "$GITHUB_OUTPUT"
+            echo "Manual deployment scope: frontend only."
+            exit 0
+          fi
           python3 scripts/detect_changed_services.py \
             --before "${{ github.event.before }}" \
             --head "${{ github.sha }}" \
@@ -500,6 +514,20 @@ jobs:
       - name: Detect changed services
         id: changes
         run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            {
+              echo "postgres_changed=false"
+              echo "influxdb_changed=false"
+              echo "grafana_changed=false"
+              echo "cloudflared_changed=false"
+              echo "frontend_changed=true"
+              echo "backend_changed=false"
+              echo "worker_changed=false"
+              echo "training_agent_changed=false"
+            } >> "$GITHUB_OUTPUT"
+            echo "Manual deployment scope: frontend only."
+            exit 0
+          fi
           python3 scripts/detect_changed_services.py \
             --before "${{ github.event.before }}" \
             --head "${{ github.sha }}" \
