@@ -23,6 +23,9 @@ def journey(
     request: Request,
     window: Literal["30d", "90d", "365d", "all"] = Query("90d"),
     sport: str = Query("all", min_length=1, max_length=40),
+    goal: str = Query(
+        "all", min_length=1, max_length=40, pattern=r"^[a-zA-Z0-9_-]+$"
+    ),
     user: CurrentUserLike = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -33,6 +36,7 @@ def journey(
         window=window,
         sport=sport,
         goal=request.cookies.get(GOAL_COOKIE),
+        goal_filter=goal,
     )
 
 
