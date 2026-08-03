@@ -348,10 +348,10 @@ def build_journey(
             ),
         },
         "dossier_handoff": {
-            "state": "request",
-            "label": "Prepare a coaching dossier for this journey",
+            "state": "library",
+            "label": "Open dossiers for this journey",
             "href": (
-                "/dashboard?"
+                "/dossiers?"
                 + urlencode(
                     {
                         "window": selected_window,
@@ -359,7 +359,6 @@ def build_journey(
                         "goal": selected_goal_filter,
                     }
                 )
-                + "#dossiers"
             ),
         },
         "totals": totals,

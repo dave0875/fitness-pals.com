@@ -311,7 +311,7 @@ export default function Journey() {
               <h2>Carry this window into your dossier</h2>
               <p>
                 This link preserves the selected time, sport, and recorded goal period.
-                The request stays inside your signed-in coaching flow.
+                Your selected filters open the private library and seed a new immutable version.
               </p>
             </div>
             <a href={journey.dossier_handoff.href}>

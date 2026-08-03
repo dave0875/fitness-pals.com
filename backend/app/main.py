@@ -19,6 +19,7 @@ from app.routes import auth_status, providers as provider_router
 from app.routes.onboarding import router as onboarding_router
 from app.routes.athlete_home import router as athlete_home_router
 from app.routes.journey import router as journey_router
+from app.routes.dossiers import router as dossiers_router
 from app.routes import providers_garmin, providers_pulsai
 from app.routes.ingest import router as ingest_router
 from app.config import get_settings
@@ -33,6 +34,8 @@ REQUIRED_TABLES = (
     "data_sources",
     "provider_apps",
     "user_provider_tokens",
+    "dossier_jobs",
+    "dossier_artifacts",
 )
 
 app.add_middleware(
@@ -61,6 +64,7 @@ app.include_router(auth_status.router)
 app.include_router(onboarding_router)
 app.include_router(athlete_home_router)
 app.include_router(journey_router)
+app.include_router(dossiers_router)
 app.include_router(ingest_router)
 
 
