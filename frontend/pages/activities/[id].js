@@ -42,9 +42,12 @@ export default function ActivityDetailPage() {
     if (typeof router.query.sport === "string") {
       query.set("sport", router.query.sport);
     }
+    if (typeof router.query.goal === "string") {
+      query.set("goal", router.query.goal);
+    }
     const suffix = query.toString() ? `?${query.toString()}` : "";
     return `/journey${suffix}#activities`;
-  }, [router.query.sport, router.query.window]);
+  }, [router.query.goal, router.query.sport, router.query.window]);
 
   useEffect(() => {
     if (!router.isReady || typeof router.query.id !== "string") return;

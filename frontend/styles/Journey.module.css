@@ -218,9 +218,69 @@
   margin-bottom: 1rem;
 }
 
+
+.intensityGrid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.intensityGrid div {
+  background: #f6f8fa;
+  border-radius: 0.75rem;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.85rem;
+  text-transform: capitalize;
+}
+
+.intensityGrid span {
+  color: #596474;
+  font-size: 0.85rem;
+}
+
+.intensityGrid strong {
+  font-size: 1.25rem;
+}
+
+.handoff {
+  align-items: center;
+  background: #e8f6f1;
+  border: 1px solid #a9d8c9;
+  border-radius: 1rem;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin: 1.25rem 0;
+  padding: 1.15rem;
+}
+
+.handoff h2,
+.handoff p {
+  margin: 0 0 0.4rem;
+}
+
+.handoff a {
+  background: #145844;
+  border-radius: 0.65rem;
+  color: #fff;
+  display: inline-flex;
+  flex-shrink: 0;
+  font-weight: 700;
+  min-height: 44px;
+  padding: 0.7rem 0.9rem;
+  text-decoration: none;
+}
+
+.handoff a:focus-visible {
+  outline: 3px solid #2b8a6e;
+  outline-offset: 2px;
+}
+
 @media (max-width: 720px) {
   .pageHeader,
-  .filters {
+  .filters,
+  .handoff {
     align-items: stretch;
     flex-direction: column;
   }
@@ -232,7 +292,8 @@
 
   .summaryGrid,
   .detailGrid,
-  .columns {
+  .columns,
+  .intensityGrid {
     grid-template-columns: 1fr;
   }
 

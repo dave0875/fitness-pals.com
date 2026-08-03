@@ -9,7 +9,7 @@ import uuid
 from fastapi import HTTPException
 import pytest
 
-from app.models import Activity, ActivitySource, SleepSession
+from app.models import Activity, ActivitySource, SleepSession, SyncJob
 from app.services.journey import build_activity_detail, build_journey
 
 
@@ -188,3 +188,83 @@ def test_journey_activity_detail_rejects_cross_athlete_access():
         build_activity_detail(FakeSession([activity]), athlete_id, activity.id)
 
     assert exc_info.value.status_code == 404
+
+
+def make_goal_job(user_id, selected_at, goal):
+    """Build an athlete-owned goal selection boundary."""
+    return SyncJob(
+        id=uuid.uuid4(),
+        user_id=user_id,
+        provider="pulsai",
+        status="completed",
+        trigger="manual",
+        test_run=False,
+        payload_json={"goal": goal},
+        created_at=selected_at,
+    )
+
+
+def test_journey_filters_by_recorded_goal_period_without_guessing_history():
+    """Goal filters use athlete-owned selection timestamps and expose unattributed history."""
+    now = datetime(2026, 8, 3, 12, tzinfo=timezone.utc)
+    athlete_id = uuid.uuid4()
+    other_id = uuid.uuid4()
+    marathon_goal = make_goal_job(athlete_id, now - timedelta(days=60), "marathon")
+    consistency_goal = make_goal_job(athlete_id, now - timedelta(days=10), "consistency")
+    other_goal = make_goal_job(other_id, now - timedelta(days=90), "recovery")
+    unattributed = make_activity(athlete_id, now, 80, 3000, "run", "easy")
+    marathon_run = make_activity(athlete_id, now, 30, 10000, "run", "moderate")
+    consistency_run = make_activity(athlete_id, now, 2, 5000, "run", "easy")
+    other_run = make_activity(other_id, now, 3, 99000, "run", "hard")
+    db = FakeSession(
+        [
+            marathon_goal,
+            consistency_goal,
+            other_goal,
+            unattributed,
+            marathon_run,
+            consistency_run,
+            other_run,
+        ]
+    )
+
+    all_history = build_journey(
+        db,
+        athlete_id,
+        window="all",
+        sport="all",
+        goal="consistency",
+        goal_filter="all",
+        now=now,
+    )
+    marathon_history = build_journey(
+        db,
+        athlete_id,
+        window="all",
+        sport="all",
+        goal="consistency",
+        goal_filter="marathon",
+        now=now,
+    )
+
+    assert [item["goal"] for item in all_history["activities"]] == [
+        "consistency",
+        "marathon",
+        None,
+    ]
+    assert all_history["goal_attribution"] == {
+        "attributed_count": 2,
+        "unattributed_count": 1,
+    }
+    assert [item["key"] for item in all_history["available_goals"]] == [
+        "consistency",
+        "marathon",
+    ]
+    assert [item["id"] for item in marathon_history["activities"]] == [
+        str(marathon_run.id)
+    ]
+    assert marathon_history["totals"]["distance_m"] == 10000
+    assert marathon_history["filters"]["goal"] == "marathon"
+    assert "goal=marathon" in marathon_history["dossier_handoff"]["href"]
+    assert "window=all" in marathon_history["dossier_handoff"]["href"]
+    assert marathon_history["dossier_handoff"]["href"].endswith("#dossiers")
