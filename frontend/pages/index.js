@@ -4,8 +4,6 @@ const HERO_DOSSIER_URL =
   "https://fitness-pals.com/reports/urban-feet-coach-dossier-third-edition-2026-04-05.html";
 const DEFAULT_AUTH_NEXT = "/welcome";
 const AUTH_WELCOME_HREF = `/auth/login?next=${encodeURIComponent(DEFAULT_AUTH_NEXT)}`;
-const GARMIN_WELCOME_HREF =
-  "/api/providers/garmin/login?next=%2Fwelcome%3Fgarmin%3Dconnected";
 
 function isSafeNextPath(candidate) {
   return Boolean(candidate && candidate.startsWith("/") && !candidate.startsWith("//"));
@@ -100,11 +98,11 @@ function renderHeroCtas(sessionState, authWelcomeHref) {
     return <CtaSkeleton />;
   }
 
-  if (sessionState === "authenticatedNoGarmin") {
+  if (sessionState === "authenticatedNoPulsai") {
     return (
       <>
-        <a href={GARMIN_WELCOME_HREF} style={ctaButtonStyle("primary")}>
-          Connect Garmin
+        <a href="/welcome" style={ctaButtonStyle("primary")}>
+          Connect through PulsAI
         </a>
         <a href="#trust" style={ctaButtonStyle("secondary")}>
           How your data is used
@@ -165,11 +163,11 @@ function renderNavCtas(sessionState, authWelcomeHref) {
     return <CtaSkeleton compact />;
   }
 
-  if (sessionState === "authenticatedNoGarmin") {
+  if (sessionState === "authenticatedNoPulsai") {
     return (
       <>
-        <a href={GARMIN_WELCOME_HREF} style={navButtonStyle("primary")}>
-          Connect Garmin
+        <a href="/welcome" style={navButtonStyle("primary")}>
+          Connect through PulsAI
         </a>
         <a href={HERO_DOSSIER_URL} style={navButtonStyle("secondary")}>
           View sample coach dossier
@@ -253,7 +251,7 @@ export default function Home() {
         }
 
         if (!onboardingResponse.ok) {
-          setSessionState("authenticatedNoGarmin");
+          setSessionState("authenticatedNoPulsai");
           return;
         }
 
@@ -262,8 +260,8 @@ export default function Home() {
           return;
         }
 
-        if (!onboardingStatus.garmin_connected) {
-          setSessionState("authenticatedNoGarmin");
+        if (!onboardingStatus.pulsai_connected) {
+          setSessionState("authenticatedNoPulsai");
           return;
         }
 
@@ -442,7 +440,7 @@ export default function Home() {
           >
             {[
               ["1. Sign in", "Use the Fitness Pals sign-in screen and continue with Gmail to create an app-backed session."],
-              ["2. Connect Garmin", "Authorize Garmin so your training history can flow in."],
+              ["2. Connect through PulsAI", "Link Garmin in PulsAI, then securely add your private bridge URL."],
               ["3. Sync your data", "Queue your first import and let the product build context."],
               ["4. Get coaching value", "See readiness, recent activity patterns, and next actions."],
             ].map(([title, body]) => (

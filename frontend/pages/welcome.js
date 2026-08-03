@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 const GOAL_OPTIONS = [
   ["marathon", "Train for a marathon"],
@@ -6,8 +6,6 @@ const GOAL_OPTIONS = [
   ["consistency", "Rebuild consistency"],
   ["recovery", "Understand recovery"],
 ];
-
-const GARMIN_WELCOME_NEXT = encodeURIComponent("/welcome?garmin=connected");
 
 function panelStyle() {
   return {
@@ -63,6 +61,9 @@ export default function Welcome() {
   const [selectedGoal, setSelectedGoal] = useState("marathon");
   const [statusPayload, setStatusPayload] = useState(null);
   const [syncMessage, setSyncMessage] = useState("");
+  const [pulsaiEndpoint, setPulsaiEndpoint] = useState("");
+  const [connectionBusy, setConnectionBusy] = useState(false);
+  const [connectionMessage, setConnectionMessage] = useState("");
 
   const latestActivities = statusPayload?.latest_activities ?? [];
   const readinessPreview = statusPayload?.readiness_preview ?? null;
@@ -102,7 +103,7 @@ export default function Welcome() {
           return;
         }
         if (!onboardingResponse.ok) {
-          setWelcomeState("connect_garmin");
+          setWelcomeState("connect_pulsai");
           return;
         }
 
@@ -115,8 +116,8 @@ export default function Welcome() {
           setSelectedGoal(payload.selected_goal);
         }
 
-        if (!payload.garmin_connected) {
-          setWelcomeState("connect_garmin");
+        if (!payload.pulsai_connected) {
+          setWelcomeState("connect_pulsai");
           return;
         }
 
@@ -173,9 +174,43 @@ export default function Welcome() {
     }
   }
 
+  async function connectPulsai(event) {
+    event.preventDefault();
+    const endpoint = pulsaiEndpoint.trim();
+    if (!endpoint) {
+      setConnectionMessage("Paste your private PulsAI MCP URL to continue.");
+      return;
+    }
+
+    setConnectionBusy(true);
+    setConnectionMessage("Saving your PulsAI connection.");
+    try {
+      const response = await fetch("/api/providers/pulsai/connection", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint }),
+      });
+      if (!response.ok) {
+        setConnectionMessage(
+          "That connection could not be verified. Confirm that it is an HTTPS pulsai.me URL and try again."
+        );
+        return;
+      }
+
+      setPulsaiEndpoint("");
+      setConnectionMessage("PulsAI connected. Your private URL has been stored securely.");
+      setWelcomeState("ready_to_sync");
+    } catch (_error) {
+      setConnectionMessage("PulsAI could not be reached. Please try again.");
+    } finally {
+      setConnectionBusy(false);
+    }
+  }
+
   async function queueFirstSync() {
     setWelcomeState("sync_queued");
-    setSyncMessage("Building your first coaching view from recent Garmin history.");
+    setSyncMessage("Building your first coaching view from recent Garmin history through PulsAI.");
     try {
       const response = await fetch("/api/onboarding/first-sync", {
         method: "POST",
@@ -194,11 +229,6 @@ export default function Welcome() {
       setSyncMessage("Sync could not be queued yet. Please try again.");
     }
   }
-
-  const garminLoginHref = useMemo(
-    () => `/api/providers/garmin/login?next=${GARMIN_WELCOME_NEXT}`,
-    []
-  );
 
   return (
     <main
@@ -227,7 +257,7 @@ export default function Welcome() {
           <div style={panelStyle()}>
             <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Loading your onboarding state</h2>
             <p style={{ marginTop: "0.9rem", color: "#526472" }}>
-              Checking your session, Garmin connection, and first-sync status.
+              Checking your session, PulsAI connection, and first-sync status.
             </p>
           </div>
         )}
@@ -270,42 +300,94 @@ export default function Welcome() {
           </div>
         )}
 
-        {welcomeState === "connect_garmin" && (
+        {welcomeState === "connect_pulsai" && (
           <div style={{ display: "grid", gap: "1rem" }}>
             <div style={panelStyle()}>
-              <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Connect Garmin</h2>
+              <h2 style={{ margin: 0, fontSize: "1.6rem" }}>
+                Connect your Garmin data through PulsAI
+              </h2>
               <p style={{ marginTop: "0.9rem", color: "#526472", lineHeight: 1.7 }}>
-                Use Garmin to import training, recovery, and race-build context automatically.
+                PulsAI bridges your Garmin account to Fitness Pals. Open PulsAI in a separate
+                tab, connect Garmin there, then return with the private MCP URL created for you.
               </p>
-              <div style={{ display: "flex", gap: "0.9rem", marginTop: "1rem", flexWrap: "wrap" }}>
-                <a
-                  href={garminLoginHref}
+              <p style={{ color: "#526472", lineHeight: 1.7 }}>
+                Garmin history from before the connection may not be available immediately.
+                Fitness Pals never puts your private URL in browser storage or a link.
+              </p>
+              <a
+                href="https://pulsai.me"
+                target="_blank"
+                rel="noreferrer noopener"
+                style={{
+                  display: "inline-block",
+                  textDecoration: "none",
+                  border: "1px solid #c7d5df",
+                  padding: "0.85rem 1.2rem",
+                  borderRadius: "999px",
+                  color: "#13202c",
+                  fontWeight: 700,
+                  background: "#fff",
+                }}
+              >
+                Open PulsAI
+              </a>
+              <form onSubmit={connectPulsai} style={{ marginTop: "1.2rem" }}>
+                <label
+                  htmlFor="pulsai-endpoint"
+                  style={{ display: "block", fontWeight: 800, marginBottom: "0.55rem" }}
+                >
+                  Private PulsAI MCP URL
+                </label>
+                <input
+                  id="pulsai-endpoint"
+                  name="pulsaiEndpoint"
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={pulsaiEndpoint}
+                  onChange={(event) => setPulsaiEndpoint(event.target.value)}
+                  disabled={connectionBusy}
+                  placeholder="https://…pulsai.me/…"
+                  aria-describedby="pulsai-endpoint-help"
                   style={{
-                    textDecoration: "none",
+                    boxSizing: "border-box",
+                    width: "100%",
+                    maxWidth: "680px",
+                    border: "1px solid #9fb3c1",
+                    borderRadius: "14px",
+                    padding: "0.9rem 1rem",
+                    font: "inherit",
+                  }}
+                />
+                <p
+                  id="pulsai-endpoint-help"
+                  style={{ color: "#526472", lineHeight: 1.6, margin: "0.6rem 0 0" }}
+                >
+                  The value is encrypted for your account and is never shown again.
+                </p>
+                <button
+                  type="submit"
+                  disabled={connectionBusy}
+                  style={{
+                    marginTop: "1rem",
+                    border: 0,
                     background: "#0d5a55",
                     color: "#fff",
                     padding: "0.95rem 1.3rem",
                     borderRadius: "999px",
                     fontWeight: 800,
+                    cursor: connectionBusy ? "wait" : "pointer",
+                    opacity: connectionBusy ? 0.75 : 1,
                   }}
                 >
-                  Connect Garmin
-                </a>
-                <a
-                  href="/#trust"
-                  style={{
-                    textDecoration: "none",
-                    border: "1px solid #c7d5df",
-                    padding: "0.95rem 1.3rem",
-                    borderRadius: "999px",
-                    color: "#13202c",
-                    fontWeight: 700,
-                    background: "#fff",
-                  }}
-                >
-                  Why Garmin?
-                </a>
-              </div>
+                  {connectionBusy ? "Connecting…" : "Connect PulsAI"}
+                </button>
+                {connectionMessage && (
+                  <p aria-live="polite" style={{ color: "#526472", lineHeight: 1.6 }}>
+                    {connectionMessage}
+                  </p>
+                )}
+              </form>
             </div>
             <GoalHandshake selectedGoal={selectedGoal} onSelect={persistGoal} />
           </div>
@@ -317,7 +399,7 @@ export default function Welcome() {
             <div style={panelStyle()}>
               <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Import my training history</h2>
               <p style={{ marginTop: "0.9rem", color: "#526472", lineHeight: 1.7 }}>
-                Your Garmin account is connected. Queue the first sync to turn that data into a
+                Your PulsAI bridge is connected. Queue the first sync to turn Garmin data into a
                 useful coaching view.
               </p>
               <div style={{ display: "flex", gap: "0.9rem", marginTop: "1rem", flexWrap: "wrap" }}>
@@ -361,7 +443,7 @@ export default function Welcome() {
             <div style={panelStyle()}>
               <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Sync in progress</h2>
               <p style={{ marginTop: "0.9rem", color: "#526472", lineHeight: 1.7 }}>
-                {syncMessage || "Your Garmin sync is queued. We are building context for your goal now."}
+                {syncMessage || "Your PulsAI sync is queued. We are building context for your goal now."}
               </p>
             </div>
           </div>
