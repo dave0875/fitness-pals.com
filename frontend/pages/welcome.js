@@ -56,6 +56,59 @@ function GoalHandshake({ selectedGoal, onSelect, disabled = false }) {
   );
 }
 
+function RecoveryPanel({
+  title,
+  description,
+  primaryLabel,
+  onPrimary,
+  secondaryHref,
+  secondaryLabel,
+}) {
+  return (
+    <div style={panelStyle()} aria-live="polite">
+      <h2 style={{ margin: 0, fontSize: "1.6rem" }}>{title}</h2>
+      <p style={{ marginTop: "0.9rem", color: "#526472", lineHeight: 1.7 }}>
+        {description}
+      </p>
+      <div style={{ display: "flex", gap: "0.9rem", marginTop: "1rem", flexWrap: "wrap" }}>
+        <button
+          type="button"
+          onClick={onPrimary}
+          style={{
+            border: 0,
+            background: "#0d5a55",
+            color: "#fff",
+            padding: "0.95rem 1.3rem",
+            borderRadius: "999px",
+            fontWeight: 800,
+            cursor: "pointer",
+          }}
+        >
+          {primaryLabel}
+        </button>
+        {secondaryHref && (
+          <a
+            href={secondaryHref}
+            target={secondaryHref.startsWith("http") ? "_blank" : undefined}
+            rel={secondaryHref.startsWith("http") ? "noreferrer noopener" : undefined}
+            style={{
+              textDecoration: "none",
+              border: "1px solid #c7d5df",
+              padding: "0.95rem 1.3rem",
+              borderRadius: "999px",
+              color: "#13202c",
+              fontWeight: 700,
+              background: "#fff",
+            }}
+          >
+            {secondaryLabel}
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Welcome() {
   const [welcomeState, setWelcomeState] = useState("bootstrapping");
   const [selectedGoal, setSelectedGoal] = useState("marathon");
@@ -121,13 +174,29 @@ export default function Welcome() {
           return;
         }
 
-        if (payload.first_sync?.state === "queued" || payload.first_sync?.state === "running") {
+        const firstSyncState = payload.first_sync?.state;
+        if (firstSyncState === "queued" || firstSyncState === "running") {
           setWelcomeState("sync_queued");
           setSyncMessage("Your training history is being imported now.");
           return;
         }
-
-        if (payload.first_sync?.state === "completed" && payload.latest_activities?.length) {
+        if (firstSyncState === "authorization_required") {
+          setWelcomeState("authorization_required");
+          return;
+        }
+        if (firstSyncState === "failed") {
+          setWelcomeState("sync_failed");
+          return;
+        }
+        if (firstSyncState === "partial") {
+          setWelcomeState("partial");
+          return;
+        }
+        if (firstSyncState === "stale") {
+          setWelcomeState("stale");
+          return;
+        }
+        if (firstSyncState === "completed" && payload.latest_activities?.length) {
           setWelcomeState("synced");
           return;
         }
@@ -447,6 +516,48 @@ export default function Welcome() {
               </p>
             </div>
           </div>
+        )}
+
+        {welcomeState === "authorization_required" && (
+          <RecoveryPanel
+            title="PulsAI authorization needs attention"
+            description="PulsAI could not authorize this sync. Reconnect Garmin in PulsAI, then replace the private MCP URL stored for your account."
+            primaryLabel="Update PulsAI connection"
+            onPrimary={() => setWelcomeState("connect_pulsai")}
+            secondaryHref="https://pulsai.me"
+            secondaryLabel="Open PulsAI"
+          />
+        )}
+
+        {welcomeState === "sync_failed" && (
+          <RecoveryPanel
+            title="Sync needs another try"
+            description="PulsAI did not finish the import. Your saved connection is still private, and retrying will reuse canonical records instead of duplicating them."
+            primaryLabel="Try sync again"
+            onPrimary={queueFirstSync}
+          />
+        )}
+
+        {welcomeState === "partial" && (
+          <RecoveryPanel
+            title="Import finished with limited history"
+            description="PulsAI connected, but no supported activities reached Fitness Pals yet. History from before your PulsAI connection may be unavailable."
+            primaryLabel="Try sync again"
+            onPrimary={queueFirstSync}
+            secondaryHref="/dashboard"
+            secondaryLabel="Open athlete home"
+          />
+        )}
+
+        {welcomeState === "stale" && (
+          <RecoveryPanel
+            title="Your fitness data needs a refresh"
+            description="The last successful PulsAI import is more than 72 hours old. Refresh before using older signals to change your training."
+            primaryLabel="Refresh fitness data"
+            onPrimary={queueFirstSync}
+            secondaryHref="/dashboard"
+            secondaryLabel="Review existing data"
+          />
         )}
 
         {welcomeState === "synced" && (
