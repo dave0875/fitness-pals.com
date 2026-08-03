@@ -348,8 +348,8 @@ def build_journey(
             ),
         },
         "dossier_handoff": {
-            "state": "preview",
-            "label": "Review coaching dossier for this journey",
+            "state": "request",
+            "label": "Prepare a coaching dossier for this journey",
             "href": (
                 "/dashboard?"
                 + urlencode(
