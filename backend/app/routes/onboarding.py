@@ -9,14 +9,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import Activity, SyncJob
-from app.routes import providers_garmin
 from app.services.activity_summary import build_canonical_summary
-from app.services.sync_jobs import enqueue_garmin_sync_job
+from app.services.providers import get_user_provider_token
+from app.services.sync_jobs import enqueue_sync_job
 from app.types import CurrentUserLike
-from app.config import get_settings
 
 
 router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
@@ -31,7 +31,7 @@ class GoalHandshakeRequest(BaseModel):
 
 
 class FirstSyncRequest(BaseModel):
-    """Payload used to queue the user's first Garmin sync."""
+    """Payload used to queue the user's first PulsAI sync."""
 
     goal: str
 
@@ -59,10 +59,10 @@ def _selected_goal(job: SyncJob | None, request: Request) -> str | None:
 
 
 def _latest_sync_job(db: Session, user: CurrentUserLike) -> SyncJob | None:
-    """Return the most recent Garmin sync job for the user."""
+    """Return the most recent PulsAI sync job for the user."""
     return (
         db.query(SyncJob)
-        .filter(SyncJob.user_id == user.id, SyncJob.provider == "garmin")
+        .filter(SyncJob.user_id == user.id, SyncJob.provider == "pulsai")
         .order_by(SyncJob.created_at.desc())
         .first()
     )
@@ -222,13 +222,20 @@ def status(
     db: Session = Depends(get_db),
 ):
     """Return the welcome-flow onboarding state for the current user."""
-    garmin = providers_garmin.garmin_token_status(user=user, db=db)
-    garmin_connected = garmin["status"] in {"active", "expired"}
+    pulsai_connected = (
+        get_user_provider_token(
+            db,
+            user.id,
+            "pulsai",
+            getattr(user, "tenant_id", None),
+        )
+        is not None
+    )
     latest_job = _latest_sync_job(db, user)
     selected_goal = _selected_goal(latest_job, request)
     latest_activities = _latest_activities(db, user)
 
-    if not garmin_connected:
+    if not pulsai_connected:
         first_sync_state = "not_started"
     elif latest_activities:
         first_sync_state = "completed"
@@ -243,7 +250,7 @@ def status(
 
     return {
         "authenticated": True,
-        "garmin_connected": garmin_connected,
+        "pulsai_connected": pulsai_connected,
         "selected_goal": selected_goal,
         "first_sync": {
             "state": first_sync_state,
@@ -264,14 +271,20 @@ def first_sync(
     user: CurrentUserLike = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Queue a first Garmin sync and persist the selected goal to the job payload."""
-    garmin = providers_garmin.garmin_token_status(user=user, db=db)
-    if garmin["status"] == "missing":
-        raise HTTPException(status_code=409, detail="Garmin must be connected first")
-
-    execution = enqueue_garmin_sync_job(
+    """Queue a first PulsAI sync and persist the selected goal to the job payload."""
+    pulsai_token = get_user_provider_token(
         db,
-        user=user,
+        user.id,
+        "pulsai",
+        getattr(user, "tenant_id", None),
+    )
+    if pulsai_token is None:
+        raise HTTPException(status_code=409, detail="PulsAI must be connected first")
+
+    job = enqueue_sync_job(
+        db,
+        user_id=user.id,
+        provider="pulsai",
         trigger="manual",
         test_run=False,
         payload={"goal": body.goal},
@@ -279,6 +292,6 @@ def first_sync(
     _set_goal_cookie(response, body.goal)
     return {
         "state": "queued",
-        "sync_job_id": str(execution.job.id),
+        "sync_job_id": str(job.id),
         "queued_at": datetime.now(timezone.utc).isoformat(),
     }
