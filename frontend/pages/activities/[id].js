@@ -55,7 +55,11 @@ export default function ActivityDetailPage() {
       .get(`/api/journey/activities/${router.query.id}`)
       .then(({ data }) => {
         if (!active) return;
-        setActivity(data);
+        setActivity({
+          ...data.activity,
+          provenance: data.provenance,
+          data_quality: data.data_quality,
+        });
         setState("ready");
       })
       .catch((error) => {
