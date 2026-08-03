@@ -311,7 +311,7 @@ export default function Journey() {
               <h2>Carry this window into your dossier</h2>
               <p>
                 This link preserves the selected time, sport, and recorded goal period.
-                The current dossier preview remains private to your signed-in account.
+                The request stays inside your signed-in coaching flow.
               </p>
             </div>
             <a href={journey.dossier_handoff.href}>
