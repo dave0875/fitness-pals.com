@@ -488,7 +488,7 @@ jobs:
       COMPOSE_FILE: compose.yml
       ENV_FILE: .env
       SECRET_ENV_PATH: /home/fitness-pals/fitness-pals.com-secrets/.env
-      OVERLAY_ENV_PATH: /home/dbarker/fitness-pals-deploy/.env.authentik-oidc
+      OVERLAY_ENV_PATH: /home/fitness-pals/fitness-pals.com-secrets/.env.authentik-oidc
       COMPOSE_PROJECT_NAME: fitness-palscom
       RUNTRAINER_RELEASE_SHA: ${{ github.sha }}
       RUN_AS_USER: fitness-pals

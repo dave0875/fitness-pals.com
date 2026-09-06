@@ -82,6 +82,18 @@ test("manual deploys target the frontend without restarting infrastructure", () 
   }
 });
 
+test("production deploy reads its overlay from the protected production secret store", () => {
+  const workflow = read(".github/workflows/ci-cd.yml");
+  const productionJob = workflow.split("  deploy-prod:\n", 2)[1];
+
+  assert.ok(
+    productionJob.includes(
+      "OVERLAY_ENV_PATH: /home/fitness-pals/fitness-pals.com-secrets/.env.authentik-oidc"
+    )
+  );
+  assert.ok(!productionJob.includes("/home/dbarker/fitness-pals-deploy"));
+});
+
 test("CI validation selects self-hosted runners without exposing prod to PRs", () => {
   const workflow = read(".github/workflows/ci-cd.yml");
 
