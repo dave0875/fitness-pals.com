@@ -406,7 +406,7 @@ jobs:
         run: echo "No backend, worker, or training-agent changes detected; skipping DEV deploy."
 
       - name: Reconcile Authentik upstream Google SSO
-        run: docker compose --env-file "$ENV_FILE" --profile bootstrap run --rm authentik-bootstrap
+        run: docker compose --env-file "$ENV_FILE" --profile bootstrap run --rm --no-deps authentik-bootstrap
 
       - name: Smoke check changed service readiness
         if: steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
@@ -646,7 +646,7 @@ jobs:
         run: echo "No managed service changes detected; skipping PROD deploy."
 
       - name: Reconcile Authentik upstream Google SSO
-        run: docker compose --env-file "$ENV_FILE" --profile bootstrap run --rm authentik-bootstrap
+        run: docker compose --env-file "$ENV_FILE" --profile bootstrap run --rm --no-deps authentik-bootstrap
 
       - name: Smoke check changed service readiness
         if: steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'

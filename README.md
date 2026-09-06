@@ -80,7 +80,7 @@ Every deployment runs the profile-scoped `authentik-bootstrap` one-shot service 
 Run it manually with the current untracked `.env` when needed:
 
 ```bash
-docker compose --env-file .env --profile bootstrap run --rm authentik-bootstrap
+docker compose --env-file .env --profile bootstrap run --rm --no-deps authentik-bootstrap
 ```
 
 The secret-free JSON output reports the source slug/UUID, Identification-stage name/UUID, credential-pair origin, and whether the source was created/updated and newly/already attached.
