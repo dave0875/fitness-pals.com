@@ -410,7 +410,8 @@ jobs:
         run: |
           urls=()
           if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ] || [ "${{ steps.changes.outputs.worker_changed }}" = "true" ]; then
-            urls+=("http://127.0.0.1:8000/ready")
+            BACKEND_HOST_PORT="$(python3 scripts/read_env_value.py "$ENV_FILE" RUNTRAINER_BACKEND_HOST_PORT --default 8000)"
+            urls+=("http://127.0.0.1:${BACKEND_HOST_PORT}/ready")
           fi
           if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ]; then
             urls+=("http://127.0.0.1:9000/ready")
