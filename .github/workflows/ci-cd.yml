@@ -309,7 +309,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: [self-hosted, dev]
     env:
-      COMPOSE_FILE: compose.yml
+      COMPOSE_FILE: compose.yml:compose.dev.yml
       ENV_FILE: .env
       SECRET_ENV_PATH: /home/dbarker/fitness-pals.com-secrets/.env
       OVERLAY_ENV_PATH: /home/dbarker/fitness-pals.com-secrets/.env.authentik-oidc

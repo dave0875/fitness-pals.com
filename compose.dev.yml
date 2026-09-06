@@ -1,0 +1,4 @@
+services:
+  backend:
+    ports: !override
+      - "${RUNTRAINER_BACKEND_HOST_PORT:-8000}:8000"
