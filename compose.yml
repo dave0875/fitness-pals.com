@@ -141,6 +141,33 @@ services:
       - authentik_data:/certs
       - authentik_data:/custom-templates
 
+  authentik-bootstrap:
+    image: ghcr.io/goauthentik/server:${AUTHENTIK_TAG:-2026.2.1}
+    profiles:
+      - bootstrap
+    entrypoint:
+      - python
+    command:
+      - /bootstrap/bootstrap_authentik.py
+      - --google-only
+    environment:
+      - AUTHENTIK_API_URL=http://authentik-server:9000/api/v3
+      - AUTHENTIK_BOOTSTRAP_TOKEN=${AUTHENTIK_BOOTSTRAP_TOKEN:?AUTHENTIK_BOOTSTRAP_TOKEN is required}
+      - AUTHENTIK_GOOGLE_CLIENT_ID=${AUTHENTIK_GOOGLE_CLIENT_ID:-}
+      - AUTHENTIK_GOOGLE_CLIENT_SECRET=${AUTHENTIK_GOOGLE_CLIENT_SECRET:-}
+      - RUNTRAINER_GOOGLE_CLIENT_ID=${RUNTRAINER_GOOGLE_CLIENT_ID:-}
+      - RUNTRAINER_GOOGLE_CLIENT_SECRET=${RUNTRAINER_GOOGLE_CLIENT_SECRET:-}
+      - AUTHENTIK_GOOGLE_SOURCE_NAME=${AUTHENTIK_GOOGLE_SOURCE_NAME:-Google}
+      - AUTHENTIK_GOOGLE_SOURCE_SLUG=${AUTHENTIK_GOOGLE_SOURCE_SLUG:-google}
+      - AUTHENTIK_GOOGLE_AUTHENTICATION_FLOW_SLUG=${AUTHENTIK_GOOGLE_AUTHENTICATION_FLOW_SLUG:-default-source-authentication}
+      - AUTHENTIK_GOOGLE_ENROLLMENT_FLOW_SLUG=${AUTHENTIK_GOOGLE_ENROLLMENT_FLOW_SLUG:-default-source-enrollment}
+      - AUTHENTIK_LOGIN_FLOW_SLUG=${AUTHENTIK_LOGIN_FLOW_SLUG:-default-authentication-flow}
+    depends_on:
+      authentik-server:
+        condition: service_healthy
+    volumes:
+      - ./scripts/bootstrap_authentik.py:/bootstrap/bootstrap_authentik.py:ro
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared
