@@ -718,8 +718,13 @@ jobs:
       - name: Verify public frontend release
         if: steps.changes.outputs.frontend_changed == 'true'
         run: |
+          RUNTRAINER_PUBLIC_FRONTEND_RELEASE_URL="$(python3 scripts/read_env_value.py "$ENV_FILE" RUNTRAINER_PUBLIC_FRONTEND_RELEASE_URL)"
+          if [ -z "$RUNTRAINER_PUBLIC_FRONTEND_RELEASE_URL" ]; then
+            echo "Public frontend release URL is not configured; skipping release verification."
+            exit 0
+          fi
           python3 scripts/smoke_urls.py \
-            --urls "https://fitness-pals.com/deploy-version" \
+            --urls "$RUNTRAINER_PUBLIC_FRONTEND_RELEASE_URL" \
             --timeout 180 \
             --request-timeout 15 \
             --expect-text "$RUNTRAINER_RELEASE_SHA"
