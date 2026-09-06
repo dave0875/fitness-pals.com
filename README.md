@@ -28,6 +28,7 @@ Key services:
 - `RUNTRAINER_JWT_SECRET`: random string used to sign app-issued JWTs (generate with `openssl rand -hex 32`).
 - `RUNTRAINER_WEB_OIDC_ISSUER` / `RUNTRAINER_WEB_OIDC_CLIENT_ID` / `RUNTRAINER_WEB_OIDC_CLIENT_SECRET` / `RUNTRAINER_WEB_OIDC_REDIRECT_URI`: Authentik OIDC client for the website. Point the issuer at the Authentik application slug for the web app (for example `https://auth.your-domain.com/application/o/fitness-pals-web/`) and set the callback to `https://your-domain.com/auth/callback`.
 - `RUNTRAINER_OIDC_ISSUER` / `RUNTRAINER_OIDC_CLIENT_ID` / `RUNTRAINER_OIDC_CLIENT_SECRET`: Authentik OIDC client for the GPT/training-agent integration. Keep this as a separate Authentik application even though it resolves to the same upstream Google identity.
+- `AUTHENTIK_GOOGLE_CLIENT_ID` / `AUTHENTIK_GOOGLE_CLIENT_SECRET`: preferred Google OAuth client used by Authentik as the upstream identity source. Store these only in the deployment secrets file. If both are absent, the bootstrap deliberately reuses the complete `RUNTRAINER_GOOGLE_CLIENT_ID` / `RUNTRAINER_GOOGLE_CLIENT_SECRET` pair; it never mixes credentials between pairs.
 - `RUNTRAINER_GOOGLE_CLIENT_ID` / `RUNTRAINER_GOOGLE_CLIENT_SECRET` / `RUNTRAINER_GOOGLE_REDIRECT_URI`: direct Google OAuth fallback values. Keep them only if you need an emergency bypass; the intended production path is Authentik-brokered login.
 - `RUNTRAINER_MICROSOFT_CLIENT_ID` / `RUNTRAINER_MICROSOFT_CLIENT_SECRET` / `RUNTRAINER_MICROSOFT_REDIRECT_URI`: App registration in Azure AD (Entra); create a Web redirect URI; copy the Application (client) ID and client secret.
 - `RUNTRAINER_APPLE_CLIENT_ID` / `RUNTRAINER_APPLE_CLIENT_SECRET` / `RUNTRAINER_APPLE_REDIRECT_URI`: Apple Sign in client; create a Services ID in Apple Developer, set the redirect URI, generate a client secret (JWT signed with your key) and supply here.
@@ -53,8 +54,85 @@ Key services:
 - The old GARMINCONNECT_* env vars only support a single shared Garmin account; prefer migrating to per-user provider connections and retire those envs when ready.
 
 ## Authentication providers
-- OAuth login now supports Google, Microsoft, and Apple. Configure the relevant client id/secret + redirect URI in `.env` (RUNTRAINER_* variables) and hit `/auth/{provider}/login` (or `/auth/login` for Google). Callbacks live at `/auth/{provider}/callback`.
+- The default `/auth/login` route uses the Authentik broker when web OIDC is configured. Direct provider routes remain available at `/auth/{provider}/login` as emergency fallbacks; their callbacks live at `/auth/{provider}/callback`.
 - Tokens issued by these providers are exchanged for app JWTs the same way as Google; user records are keyed by email. Ensure the IdP returns an email claim or the login is rejected.
+
+### Authentik upstream Google SSO
+
+The production identity path is Google identity → Authentik → Fitness Pals web OIDC client. The training-agent/GPT uses a separate Authentik OIDC client behind the same Google identity source. Direct Fitness Pals → Google OAuth is fallback-only.
+
+Create a Google Cloud Web OAuth client (or reuse one whose redirect restrictions include both required paths) and configure this exact authorized redirect URI for the Authentik source:
+
+```text
+https://auth.fitness-pals.com/source/oauth/callback/google/
+```
+
+If the direct fallback remains enabled, retain its separate authorized redirect URI too:
+
+```text
+https://fitness-pals.com/auth/google/callback
+```
+
+Place `AUTHENTIK_GOOGLE_CLIENT_ID` and `AUTHENTIK_GOOGLE_CLIENT_SECRET` in the untracked deployment secrets overlay. Dedicated values are preferred. When both are absent, `scripts/bootstrap_authentik.py` deliberately falls back to the complete `RUNTRAINER_GOOGLE_CLIENT_ID` / `RUNTRAINER_GOOGLE_CLIENT_SECRET` pair. Missing, partial, or placeholder pairs fail before any API mutation.
+
+Every deployment runs the profile-scoped `authentik-bootstrap` one-shot service after the Authentik API is healthy. It idempotently creates or patches source slug `google`, resolves `default-source-authentication` and `default-source-enrollment`, discovers the Identification stage actually bound to `default-authentication-flow`, and appends the Google source UUID only when missing. Its Identification-stage PATCH contains only `sources`, so existing sources, `user_fields`, and local username/password login are preserved. It does not alter either Authentik OIDC provider/application and does not enable automatic Google redirects.
+
+Run it manually with the current untracked `.env` when needed:
+
+```bash
+docker compose --env-file .env --profile bootstrap run --rm authentik-bootstrap
+```
+
+The secret-free JSON output reports the source slug/UUID, Identification-stage name/UUID, credential-pair origin, and whether the source was created/updated and newly/already attached.
+
+Authentik stores source, flow, stage, provider, application, and user state in the PostgreSQL database named by `AUTHENTIK_POSTGRESQL__NAME`; this stack intentionally points it at `RUNTRAINER_POSTGRES_DB`. Manual admin-UI configuration alone is not reproducible and must not be relied on.
+
+To inspect the current source and binding through the API without exposing credentials, read only the bootstrap token from the deployment environment, then run:
+
+```bash
+AUTHENTIK_BOOTSTRAP_TOKEN="$(python3 scripts/read_env_value.py .env AUTHENTIK_BOOTSTRAP_TOKEN)"
+source_pk="$(curl -fsS -H "Authorization: Bearer ${AUTHENTIK_BOOTSTRAP_TOKEN}" \
+  'http://127.0.0.1:9100/api/v3/sources/oauth/google/' | jq -r '.pk')"
+curl -fsS -H "Authorization: Bearer ${AUTHENTIK_BOOTSTRAP_TOKEN}" \
+  'http://127.0.0.1:9100/api/v3/sources/oauth/google/' |
+  jq '{name, slug, pk, provider_type, enabled, promoted, authentication_flow, enrollment_flow, user_matching_mode, callback_url}'
+curl -fsS -H "Authorization: Bearer ${AUTHENTIK_BOOTSTRAP_TOKEN}" \
+  'http://127.0.0.1:9100/api/v3/stages/identification/?page_size=100' |
+  jq --arg source_pk "$source_pk" \
+    '.results[] | select(.sources | index($source_pk)) | {name, pk, sources, user_fields, flow_set}'
+```
+
+The `callback_url` returned through localhost uses the request host; the verified route path is `/source/oauth/callback/google/`. Through the public Authentik host the authorized callback is the HTTPS URL shown above.
+
+Safe database evidence gathering is read-only. First list databases:
+
+```bash
+docker compose exec -T runtrainer-postgres sh -lc \
+  'psql -U "$POSTGRES_USER" -d postgres -Atc "select datname from pg_database where datistemplate = false order by datname"'
+```
+
+Only if both `authentik` and `runtrainer` are listed, compare Google-source presence without switching databases or modifying state:
+
+```bash
+for database in authentik runtrainer; do
+  docker compose exec -T runtrainer-postgres sh -lc \
+    'psql -U "$POSTGRES_USER" -d '"$database"' -Atc \
+    "select count(*) from authentik_sources_oauth_oauthsource oauth join authentik_core_source source on source.policybindingmodel_ptr_id = oauth.source_ptr_id where source.slug = '\''google'\''"'
+done
+```
+
+Post-deploy verification:
+
+```bash
+curl -fsS https://auth.fitness-pals.com/-/health/ready/
+curl -fsS https://auth.fitness-pals.com/application/o/fitness-pals-web/.well-known/openid-configuration | jq '{issuer, authorization_endpoint, token_endpoint, jwks_uri}'
+curl -fsSI https://fitness-pals.com/auth/login | sed -n '1p;/^location:/Ip'
+curl -fsS https://auth.fitness-pals.com/application/o/training-agent-gpt/.well-known/openid-configuration | jq '{issuer, authorization_endpoint, token_endpoint, jwks_uri}'
+```
+
+Then use a private browser window to complete the stateful checks: open `https://fitness-pals.com/auth/login`; confirm the Authentik page shows both the username/email form and Google; click Google and confirm the next host is `accounts.google.com`; complete login and confirm the browser returns through `auth.fitness-pals.com`, then `/auth/callback`, and an authenticated Fitness Pals session is created. Sign out and separately confirm the local Authentik username/password break-glass login still works. For the GPT client, start its OAuth connection and confirm it uses the training-agent discovery document and returns an Authentik-issued response.
+
+Rollback is to revert the repository change and stop invoking the `authentik-bootstrap` one-shot service. Do not switch or drop databases. Because the bootstrap only appends the source binding, an urgent UI rollback can disable the Google source or remove only its UUID from the Identification stage while leaving local login and both OIDC clients intact. Keep the direct Google route and callback configured until brokered login has been verified in production.
 
 ## Garmin OAuth integration (current)
 - Endpoints: `/api/providers/garmin/login`, `/api/providers/garmin/callback`, `/api/providers/garmin/refresh`, `/api/providers/garmin/fetch`.
