@@ -5,9 +5,9 @@ from __future__ import annotations
 import os
 import sys
 from functools import lru_cache
-from typing import Optional
+from typing import Any, Optional
 
-from pydantic import AnyUrl
+from pydantic import AnyUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -49,6 +49,23 @@ class Settings(BaseSettings):
     apple_client_id: Optional[str] = None
     apple_client_secret: Optional[str] = None
     apple_redirect_uri: Optional[AnyUrl] = None
+
+    @field_validator(
+        "google_redirect_uri",
+        "oidc_issuer",
+        "oidc_redirect_uri",
+        "web_oidc_issuer",
+        "web_oidc_redirect_uri",
+        "microsoft_redirect_uri",
+        "apple_redirect_uri",
+        mode="before",
+    )
+    @classmethod
+    def empty_optional_url_as_none(cls, value: Any) -> Any:
+        """Treat empty Compose-provided optional URLs as unconfigured."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     # --- Database ---
     database_url: str
