@@ -34,3 +34,22 @@ def test_build_outputs_marks_frontend_for_frontend_tree_changes() -> None:
 
     assert outputs["frontend_changed"] is True
     assert outputs["backend_changed"] is False
+
+
+def test_build_outputs_ignores_backend_test_only_changes() -> None:
+    outputs = detect_changed_services.build_outputs(
+        ["backend/tests/test_metrics.py"],
+        set(),
+    )
+
+    assert outputs["backend_changed"] is False
+    assert outputs["worker_changed"] is False
+
+
+def test_build_outputs_ignores_frontend_test_only_changes() -> None:
+    outputs = detect_changed_services.build_outputs(
+        ["frontend/tests/athlete-home-contract.test.js"],
+        set(),
+    )
+
+    assert outputs["frontend_changed"] is False

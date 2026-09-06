@@ -140,6 +140,13 @@ def write_outputs(path: str, outputs: dict[str, bool]) -> None:
             handle.write(f"{key}={'true' if value else 'false'}\n")
 
 
+def runtime_tree_changed(files: list[str], tree: str) -> bool:
+    """Return whether runtime files, rather than tests alone, changed in a tree."""
+    prefix = f"{tree}/"
+    test_prefix = f"{tree}/tests/"
+    return any(path.startswith(prefix) and not path.startswith(test_prefix) for path in files)
+
+
 def build_outputs(files: list[str], compose_services: set[str]) -> dict[str, bool]:
     """Translate changed files and compose services into workflow outputs."""
     normalized_services = {normalize_service_name(service) for service in compose_services}
@@ -148,11 +155,11 @@ def build_outputs(files: list[str], compose_services: set[str]) -> dict[str, boo
         "influxdb_changed": "influxdb" in normalized_services,
         "grafana_changed": "grafana" in normalized_services,
         "cloudflared_changed": "cloudflared" in normalized_services,
-        "frontend_changed": any(path.startswith("frontend/") for path in files)
+        "frontend_changed": runtime_tree_changed(files, "frontend")
         or "frontend" in normalized_services,
-        "backend_changed": any(path.startswith("backend/") for path in files)
+        "backend_changed": runtime_tree_changed(files, "backend")
         or "backend" in normalized_services,
-        "worker_changed": any(path.startswith("backend/") for path in files)
+        "worker_changed": runtime_tree_changed(files, "backend")
         or "worker" in normalized_services,
         "training_agent_changed": any(path.startswith("services/") for path in files)
         or "training-agent" in normalized_services,
