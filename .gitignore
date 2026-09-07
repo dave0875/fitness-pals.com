@@ -19,3 +19,13 @@ fetch.out
 # editor
 .vscode/
 .lintvenv/
+
+# Ignore local build environments and dependencies
+node_modules/
+.next/
+dist/
+out/
+.codex
+.codex/
+report-artifacts/
+docs/reports/
