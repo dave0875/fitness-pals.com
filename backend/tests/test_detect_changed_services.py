@@ -53,3 +53,30 @@ def test_build_outputs_ignores_frontend_test_only_changes() -> None:
     )
 
     assert outputs["frontend_changed"] is False
+
+
+def test_build_outputs_reconciles_every_service_for_deployment_control_changes() -> None:
+    outputs = detect_changed_services.build_outputs(
+        [".github/workflows/ci-cd.yml"],
+        set(),
+    )
+
+    assert outputs == {
+        "postgres_changed": True,
+        "influxdb_changed": True,
+        "grafana_changed": True,
+        "cloudflared_changed": True,
+        "frontend_changed": True,
+        "backend_changed": True,
+        "worker_changed": True,
+        "training_agent_changed": True,
+    }
+
+
+def test_build_outputs_reconciles_every_service_for_smoke_contract_changes() -> None:
+    outputs = detect_changed_services.build_outputs(
+        ["scripts/smoke_production.py"],
+        set(),
+    )
+
+    assert all(outputs.values())

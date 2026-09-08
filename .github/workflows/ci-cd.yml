@@ -530,16 +530,16 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             {
-              echo "postgres_changed=false"
-              echo "influxdb_changed=false"
-              echo "grafana_changed=false"
-              echo "cloudflared_changed=false"
+              echo "postgres_changed=true"
+              echo "influxdb_changed=true"
+              echo "grafana_changed=true"
+              echo "cloudflared_changed=true"
               echo "frontend_changed=true"
-              echo "backend_changed=false"
-              echo "worker_changed=false"
-              echo "training_agent_changed=false"
+              echo "backend_changed=true"
+              echo "worker_changed=true"
+              echo "training_agent_changed=true"
             } >> "$GITHUB_OUTPUT"
-            echo "Manual deployment scope: frontend only."
+            echo "Manual deployment scope: complete production runtime."
             exit 0
           fi
           python3 scripts/detect_changed_services.py \
@@ -573,172 +573,109 @@ jobs:
           fi
           docker compose --env-file "$ENV_FILE" pull "${services[@]}"
 
-      - name: Build changed app images
-        if: steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+      - name: Build production app images
         run: |
-          services=()
-          if [ "${{ steps.changes.outputs.frontend_changed }}" = "true" ]; then
-            services+=(frontend)
-          fi
-          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ]; then
-            services+=(backend)
-            services+=(worker)
-          fi
-          if [ "${{ steps.changes.outputs.worker_changed }}" = "true" ] && [ "${{ steps.changes.outputs.backend_changed }}" != "true" ]; then
-            services+=(worker)
-          fi
-          if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ]; then
-            services+=(training-agent)
-          fi
-          docker compose --env-file "$ENV_FILE" build "${services[@]}"
+          docker compose --env-file "$ENV_FILE" build \
+            frontend backend worker training-agent
 
-      - name: Restart changed services
-        if: steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true' || steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+      - name: Reconcile complete production runtime
         run: |
-          infra_services=()
-          app_services=()
-          if [ "${{ steps.changes.outputs.frontend_changed }}" = "true" ]; then
-            app_services+=(frontend)
-          fi
-          if [ "${{ steps.changes.outputs.postgres_changed }}" = "true" ]; then
-            infra_services+=(runtrainer-postgres)
-          fi
-          if [ "${{ steps.changes.outputs.influxdb_changed }}" = "true" ]; then
-            infra_services+=(influxdb)
-          fi
-          if [ "${{ steps.changes.outputs.grafana_changed }}" = "true" ]; then
-            infra_services+=(grafana)
-          fi
-          if [ "${{ steps.changes.outputs.cloudflared_changed }}" = "true" ]; then
-            infra_services+=(cloudflared)
-          fi
-          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ]; then
-            app_services+=(backend)
-            app_services+=(worker)
-          fi
-          if [ "${{ steps.changes.outputs.worker_changed }}" = "true" ] && [ "${{ steps.changes.outputs.backend_changed }}" != "true" ]; then
-            app_services+=(worker)
-          fi
-          if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ]; then
-            app_services+=(training-agent)
-          fi
-          if [ ${#infra_services[@]} -gt 0 ]; then
-            docker compose --env-file "$ENV_FILE" up -d --no-deps "${infra_services[@]}"
-          fi
-          if [ "${{ steps.changes.outputs.frontend_changed }}" = "true" ]; then
-            frontend_cids=()
-            while IFS= read -r frontend_cid; do
-              if [ -n "$frontend_cid" ]; then
-                frontend_cids+=("$frontend_cid")
-              fi
-            done < <(
-              docker ps -aq \
-                --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" \
-                --filter "label=com.docker.compose.service=frontend"
-            )
-            if [ ${#frontend_cids[@]} -gt 0 ]; then
-              echo "Removing existing project frontend containers before replacement."
-              docker rm -f "${frontend_cids[@]}"
+          frontend_cids=()
+          while IFS= read -r frontend_cid; do
+            if [ -n "$frontend_cid" ]; then
+              frontend_cids+=("$frontend_cid")
             fi
+          done < <(
+            docker ps -aq \
+              --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" \
+              --filter "label=com.docker.compose.service=frontend"
+          )
+          if [ ${#frontend_cids[@]} -gt 0 ]; then
+            echo "Removing existing project frontend containers before replacement."
+            docker rm -f "${frontend_cids[@]}"
           fi
-          if [ ${#app_services[@]} -gt 0 ]; then
-            recreate_args=()
-            if [ "${{ steps.changes.outputs.frontend_changed }}" = "true" ]; then
-              recreate_args+=(--force-recreate)
-            fi
-            docker compose --env-file "$ENV_FILE" up -d --no-deps "${recreate_args[@]}" "${app_services[@]}"
-          fi
-
-      - name: Skip deploy when no managed services changed
-        if: steps.changes.outputs.postgres_changed != 'true' && steps.changes.outputs.influxdb_changed != 'true' && steps.changes.outputs.grafana_changed != 'true' && steps.changes.outputs.cloudflared_changed != 'true' && steps.changes.outputs.frontend_changed != 'true' && steps.changes.outputs.backend_changed != 'true' && steps.changes.outputs.worker_changed != 'true' && steps.changes.outputs.training_agent_changed != 'true'
-        run: echo "No managed service changes detected; skipping PROD deploy."
+          docker compose --env-file "$ENV_FILE" up -d --remove-orphans \
+            runtrainer-postgres \
+            influxdb \
+            grafana \
+            authentik-redis \
+            authentik-server \
+            authentik-worker \
+            backend \
+            worker \
+            training-agent \
+            frontend \
+            cloudflared \
+            cloudflared-loopback
 
       - name: Reconcile Authentik upstream Google SSO
         run: docker compose --env-file "$ENV_FILE" --profile bootstrap run --rm --no-deps authentik-bootstrap
 
-      - name: Smoke check changed service readiness
-        if: steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
+      - name: Smoke check complete local production runtime
         run: |
-          urls=()
-          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ] || [ "${{ steps.changes.outputs.worker_changed }}" = "true" ] || [ "${{ steps.changes.outputs.postgres_changed }}" = "true" ]; then
-            urls+=("http://127.0.0.1:8000/ready")
-          fi
-          if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ] || [ "${{ steps.changes.outputs.influxdb_changed }}" = "true" ]; then
-            urls+=("http://127.0.0.1:9000/ready")
-          fi
-          if [ "${{ steps.changes.outputs.grafana_changed }}" = "true" ]; then
-            urls+=("http://127.0.0.1:3000/api/health")
-          fi
-          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ] || [ "${{ steps.changes.outputs.worker_changed }}" = "true" ]; then
-            worker_cid="$(docker compose --env-file "$ENV_FILE" ps -q worker)"
-            if [ -z "$worker_cid" ]; then
-              echo "Worker container is not running." >&2
-              exit 1
-            fi
-            worker_status="$(docker inspect -f '{{.State.Status}}' "$worker_cid")"
-            if [ "$worker_status" != "running" ]; then
-              echo "Worker container status is $worker_status, expected running." >&2
-              exit 1
-            fi
-            worker_cmd="$(docker inspect -f '{{json .Config.Cmd}}' "$worker_cid")"
-            echo "$worker_cmd" | grep -q 'app.workers.sync_jobs_worker' || {
-              echo "Worker container command does not target the sync job worker." >&2
-              exit 1
-            }
-          fi
-          if [ "${{ steps.changes.outputs.frontend_changed }}" = "true" ]; then
-            frontend_cid="$(docker compose --env-file "$ENV_FILE" ps -q frontend)"
-            if [ -z "$frontend_cid" ]; then
-              echo "Frontend container is not running." >&2
-              exit 1
-            fi
-            frontend_health_deadline=$((SECONDS + 120))
-            frontend_health="starting"
-            while [ "$SECONDS" -lt "$frontend_health_deadline" ]; do
-              frontend_health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$frontend_cid")"
-              if [ "$frontend_health" = "healthy" ]; then
-                break
-              fi
-              sleep 2
-            done
-            if [ "$frontend_health" != "healthy" ]; then
-              echo "Frontend did not become healthy; last status was $frontend_health." >&2
-              exit 1
-            fi
-            frontend_release="$(docker inspect -f '{{index .Config.Labels "com.fitness-pals.release-sha"}}' "$frontend_cid")"
-            if [ "$frontend_release" != "$RUNTRAINER_RELEASE_SHA" ]; then
-              echo "Frontend container is release $frontend_release, expected release $RUNTRAINER_RELEASE_SHA." >&2
-              exit 1
-            fi
-          fi
-          if [ ${#urls[@]} -gt 0 ]; then
-            python3 scripts/smoke_urls.py --urls "$(printf '%s\n' "${urls[@]}")" --timeout 90
-          fi
-
-      - name: Smoke check external Cloudflare ingress
-        if: steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'
-        run: |
-          CLOUDFLARE_SMOKE_URLS="$(python3 scripts/read_env_value.py "$ENV_FILE" CLOUDFLARE_SMOKE_URLS)"
-          CLOUDFLARE_SMOKE_TIMEOUT_SECONDS="$(python3 scripts/read_env_value.py "$ENV_FILE" CLOUDFLARE_SMOKE_TIMEOUT_SECONDS --default 90)"
-          if [ -z "${CLOUDFLARE_SMOKE_URLS}" ]; then
-            echo "CLOUDFLARE_SMOKE_URLS must be set in $ENV_FILE to verify external ingress." >&2
+          urls=(
+            "http://127.0.0.1:8000/ready"
+            "http://127.0.0.1:9000/ready"
+            "http://127.0.0.1:3000/api/health"
+          )
+          worker_cid="$(docker compose --env-file "$ENV_FILE" ps -q worker)"
+          if [ -z "$worker_cid" ]; then
+            echo "Worker container is not running." >&2
             exit 1
           fi
-          python3 scripts/smoke_urls.py \
-            --urls "$CLOUDFLARE_SMOKE_URLS" \
-            --timeout "$CLOUDFLARE_SMOKE_TIMEOUT_SECONDS"
-
-
-      - name: Verify public frontend release
-        if: steps.changes.outputs.frontend_changed == 'true'
-        run: |
-          RUNTRAINER_PUBLIC_FRONTEND_RELEASE_URL="$(python3 scripts/read_env_value.py "$ENV_FILE" RUNTRAINER_PUBLIC_FRONTEND_RELEASE_URL)"
-          if [ -z "$RUNTRAINER_PUBLIC_FRONTEND_RELEASE_URL" ]; then
-            echo "Public frontend release URL is not configured; skipping release verification."
-            exit 0
+          worker_status="$(docker inspect -f '{{.State.Status}}' "$worker_cid")"
+          if [ "$worker_status" != "running" ]; then
+            echo "Worker container status is $worker_status, expected running." >&2
+            exit 1
           fi
-          python3 scripts/smoke_urls.py \
-            --urls "$RUNTRAINER_PUBLIC_FRONTEND_RELEASE_URL" \
-            --timeout 180 \
-            --request-timeout 15 \
-            --expect-text "$RUNTRAINER_RELEASE_SHA"
+          worker_cmd="$(docker inspect -f '{{json .Config.Cmd}}' "$worker_cid")"
+          echo "$worker_cmd" | grep -q 'app.workers.sync_jobs_worker' || {
+            echo "Worker container command does not target the sync job worker." >&2
+            exit 1
+          }
+          frontend_cid="$(docker compose --env-file "$ENV_FILE" ps -q frontend)"
+          if [ -z "$frontend_cid" ]; then
+            echo "Frontend container is not running." >&2
+            exit 1
+          fi
+          frontend_health_deadline=$((SECONDS + 120))
+          frontend_health="starting"
+          while [ "$SECONDS" -lt "$frontend_health_deadline" ]; do
+            frontend_health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$frontend_cid")"
+            if [ "$frontend_health" = "healthy" ]; then
+              break
+            fi
+            sleep 2
+          done
+          if [ "$frontend_health" != "healthy" ]; then
+            echo "Frontend did not become healthy; last status was $frontend_health." >&2
+            exit 1
+          fi
+          frontend_release="$(docker inspect -f '{{index .Config.Labels "com.fitness-pals.release-sha"}}' "$frontend_cid")"
+          if [ "$frontend_release" != "$RUNTRAINER_RELEASE_SHA" ]; then
+            echo "Frontend container is release $frontend_release, expected release $RUNTRAINER_RELEASE_SHA." >&2
+            exit 1
+          fi
+          python3 scripts/smoke_urls.py --urls "$(printf '%s\n' "${urls[@]}")" --timeout 150
+
+      - name: Mint ephemeral athlete smoke token
+        id: smoke-token
+        run: |
+          smoke_token="$(docker compose --env-file "$ENV_FILE" exec -T backend python -c 'from app.db import SESSION_FACTORY; from app.models import User; from app.utils.security import create_access_token; db = SESSION_FACTORY(); user = db.query(User).order_by(User.created_at.asc()).first(); assert user is not None, "No production athlete exists for the authenticated smoke check"; print(create_access_token(user.id)); db.close()')"
+          smoke_token="${smoke_token//$'\r'/}"
+          if [ -z "$smoke_token" ]; then
+            echo "Failed to mint an ephemeral athlete smoke token." >&2
+            exit 1
+          fi
+          echo "::add-mask::$smoke_token"
+          echo "token=$smoke_token" >> "$GITHUB_OUTPUT"
+
+      - name: Verify public production journey
+        env:
+          RUNTRAINER_SMOKE_AUTH_TOKEN: ${{ steps.smoke-token.outputs.token }}
+        run: |
+          CLOUDFLARE_SMOKE_TIMEOUT_SECONDS="$(python3 scripts/read_env_value.py "$ENV_FILE" CLOUDFLARE_SMOKE_TIMEOUT_SECONDS --default 180)"
+          python3 scripts/smoke_production.py \
+            --expected-release "$RUNTRAINER_RELEASE_SHA" \
+            --timeout "$CLOUDFLARE_SMOKE_TIMEOUT_SECONDS" \
+            --request-timeout 15

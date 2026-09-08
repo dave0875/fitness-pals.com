@@ -25,6 +25,12 @@ SERVICE_ALIASES = {
     "runtrainer-postgres": "postgres",
 }
 
+DEPLOYMENT_CONTROL_PATHS = {
+    ".github/workflows/ci-cd.yml",
+    "scripts/detect_changed_services.py",
+    "scripts/smoke_production.py",
+}
+
 
 @dataclass(frozen=True)
 class ServiceRange:
@@ -149,6 +155,18 @@ def runtime_tree_changed(files: list[str], tree: str) -> bool:
 
 def build_outputs(files: list[str], compose_services: set[str]) -> dict[str, bool]:
     """Translate changed files and compose services into workflow outputs."""
+    if any(path in DEPLOYMENT_CONTROL_PATHS for path in files):
+        return {
+            "postgres_changed": True,
+            "influxdb_changed": True,
+            "grafana_changed": True,
+            "cloudflared_changed": True,
+            "frontend_changed": True,
+            "backend_changed": True,
+            "worker_changed": True,
+            "training_agent_changed": True,
+        }
+
     normalized_services = {normalize_service_name(service) for service in compose_services}
     return {
         "postgres_changed": "postgres" in normalized_services,
