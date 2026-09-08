@@ -47,6 +47,7 @@ def test_dependency_caches_follow_both_lockfile_sets():
 def test_deployable_images_use_buildkit_and_run_concurrently():
     assert "DOCKER_BUILDKIT: 1" in TEST_JOB
     assert "BUILDKIT_PROGRESS: plain" in TEST_JOB
+    assert "uses: docker/setup-buildx-action@v3" in TEST_JOB
     assert "start_image_build" in TEST_JOB
     assert "wait_for_image_build" in TEST_JOB
     assert "image_build_pids" in TEST_JOB
