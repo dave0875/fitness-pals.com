@@ -55,20 +55,41 @@ test("required CI builds every deployable application image", () => {
 
 test("production deploy recreates and verifies the exact frontend release", () => {
   const workflow = read(".github/workflows/ci-cd.yml");
+  const productionJob = workflow.split("  deploy-prod:\n", 2)[1];
 
   assert.ok(workflow.includes("--force-recreate"));
-  assert.ok(workflow.includes("RUNTRAINER_PUBLIC_FRONTEND_RELEASE_URL"));
-  assert.ok(
-    workflow.includes(
-      "Public frontend release URL is not configured; skipping release verification."
-    )
-  );
-  assert.ok(
-    !workflow.includes('--urls "https://fitness-pals.com/deploy-version"')
-  );
+  assert.ok(productionJob.includes("scripts/smoke_production.py"));
+  assert.ok(productionJob.includes('--expected-release "$RUNTRAINER_RELEASE_SHA"'));
+  assert.ok(!productionJob.includes("skipping release verification"));
   assert.ok(workflow.includes("RUNTRAINER_RELEASE_SHA"));
   assert.ok(workflow.includes("github.sha"));
   assert.ok(workflow.includes("expected release"));
+});
+
+test("production always reconciles and verifies the complete public journey", () => {
+  const workflow = read(".github/workflows/ci-cd.yml");
+  const productionJob = workflow.split("  deploy-prod:\n", 2)[1];
+
+  for (const service of [
+    "runtrainer-postgres",
+    "influxdb",
+    "grafana",
+    "authentik-redis",
+    "authentik-server",
+    "authentik-worker",
+    "backend",
+    "worker",
+    "training-agent",
+    "frontend",
+    "cloudflared",
+    "cloudflared-loopback",
+  ]) {
+    assert.ok(productionJob.includes(service));
+  }
+  assert.ok(productionJob.includes("Reconcile complete production runtime"));
+  assert.ok(productionJob.includes("Verify public production journey"));
+  assert.ok(productionJob.includes("RUNTRAINER_SMOKE_AUTH_TOKEN"));
+  assert.ok(!productionJob.includes("Smoke check external Cloudflare ingress"));
 });
 
 
@@ -83,14 +104,12 @@ test("deployment waits for frontend health and routes public traffic to it", () 
   assert.ok(tunnel.includes("service: http://frontend:3000"));
 });
 
-test("infrastructure restarts do not recreate dependency containers", () => {
+test("production reconciliation does not force-recreate stateful services", () => {
   const workflow = read(".github/workflows/ci-cd.yml");
+  const productionJob = workflow.split("  deploy-prod:\n", 2)[1];
 
-  assert.ok(
-    workflow.includes(
-      'docker compose --env-file "$ENV_FILE" up -d --no-deps "${infra_services[@]}"'
-    )
-  );
+  assert.ok(productionJob.includes("up -d --remove-orphans"));
+  assert.ok(!productionJob.includes("up -d --remove-orphans --force-recreate"));
 });
 
 test("frontend replacement removes only stale project frontend containers", () => {
@@ -109,19 +128,19 @@ test("frontend replacement removes only stale project frontend containers", () =
 
 test("manual deploys target the frontend without restarting infrastructure", () => {
   const workflow = read(".github/workflows/ci-cd.yml");
+  const devJob = workflow.split("  deploy-dev:\n", 2)[1].split("  deploy-prod:\n", 1)[0];
+  const productionJob = workflow.split("  deploy-prod:\n", 2)[1];
   const manualDispatchGuard =
     'if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then';
 
   assert.equal(workflow.split(manualDispatchGuard).length - 1, 2);
-  assert.equal(
-    workflow.split('echo "frontend_changed=true"').length - 1,
-    2
-  );
+  assert.ok(devJob.includes('echo "frontend_changed=true"'));
   for (const service of ["postgres", "influxdb", "grafana", "cloudflared"]) {
-    assert.equal(
-      workflow.split(`echo "${service}_changed=false"`).length - 1,
-      2
-    );
+    assert.ok(devJob.includes(`echo "${service}_changed=false"`));
+    assert.ok(productionJob.includes(`echo "${service}_changed=true"`));
+  }
+  for (const service of ["frontend", "backend", "worker", "training_agent"]) {
+    assert.ok(productionJob.includes(`echo "${service}_changed=true"`));
   }
 });
 
