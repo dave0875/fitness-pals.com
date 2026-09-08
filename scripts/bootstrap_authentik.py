@@ -45,18 +45,26 @@ class GoogleSourceConfig:
 
 
 @dataclass(frozen=True)
-class OIDCClientConfig:
-    """Existing GPT-facing Authentik OIDC bootstrap configuration."""
+class OIDCApplicationConfig:
+    """Desired Authentik OAuth2 provider and application configuration."""
 
     provider_name: str
     app_name: str
     app_slug: str
     client_id: str
     client_secret: str
+    redirect_uris: tuple[str, ...]
+    meta_launch_url: str
+    policy_engine_mode: str
+
+
+@dataclass(frozen=True)
+class OIDCClientConfig(OIDCApplicationConfig):
+    """GPT-facing Authentik OIDC client plus its break-glass local user."""
+
     user_email: str
     user_name: str
     user_password: str
-    redirect_uris: tuple[str, ...]
 
 
 def _credential_pair(
@@ -74,7 +82,7 @@ def _credential_pair(
         return None
     if _is_placeholder(client_id) or _is_placeholder(client_secret):
         raise SystemExit(
-            f"Google OAuth credential pair {client_id_name}/{client_secret_name} "
+            f"OAuth credential pair {client_id_name}/{client_secret_name} "
             "still contains a placeholder value"
         )
     return client_id, client_secret
@@ -147,10 +155,39 @@ def load_oidc_client_config() -> OIDCClientConfig:
         app_slug=get_env("AUTHENTIK_APP_SLUG", "training-agent-gpt"),
         client_id=get_env("RUNTRAINER_OIDC_CLIENT_ID", required=True),
         client_secret=get_env("RUNTRAINER_OIDC_CLIENT_SECRET", required=True),
+        redirect_uris=redirect_uris,
+        meta_launch_url="https://training-api-prod.fitness-pals.com/health",
+        policy_engine_mode="all",
         user_email=user_email,
         user_name=get_env("AUTHENTIK_USER_NAME", user_email),
         user_password=get_env("AUTHENTIK_USER_PASSWORD", required=True),
-        redirect_uris=redirect_uris,
+    )
+
+
+def load_grafana_oidc_config() -> OIDCApplicationConfig:
+    """Load the dedicated Grafana/Authentik OIDC client settings."""
+    credentials = _credential_pair(
+        "GRAFANA_OIDC_CLIENT_ID",
+        "GRAFANA_OIDC_CLIENT_SECRET",
+    )
+    if not credentials:
+        raise SystemExit(
+            "Missing Grafana OIDC credentials: set GRAFANA_OIDC_CLIENT_ID and "
+            "GRAFANA_OIDC_CLIENT_SECRET"
+        )
+    client_id, client_secret = credentials
+    root_url = get_env(
+        "GRAFANA_ROOT_URL", "https://grafana.fitness-pals.com"
+    ).rstrip("/")
+    return OIDCApplicationConfig(
+        provider_name=get_env("GRAFANA_OIDC_PROVIDER_NAME", "Grafana"),
+        app_name=get_env("GRAFANA_OIDC_APP_NAME", "Grafana"),
+        app_slug=get_env("GRAFANA_OIDC_APP_SLUG", "grafana"),
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uris=(f"{root_url}/login/generic_oauth",),
+        meta_launch_url=root_url,
+        policy_engine_mode="all",
     )
 
 
@@ -453,14 +490,14 @@ def ensure_scope_mappings(scope_names: list[str]) -> list[str]:
 
 
 def ensure_provider(
-    config: OIDCClientConfig,
+    config: OIDCApplicationConfig,
     authorization_flow: str,
     invalidation_flow: str,
     *,
     signing_key: str,
     property_mappings: list[str],
-) -> dict[str, Any]:
-    """Create or update the GPT OAuth2 provider without affecting web OIDC."""
+) -> tuple[dict[str, Any], str]:
+    """Create or update one dedicated OAuth2 provider."""
     redirect_uris = []
     for entry in config.redirect_uris:
         matching_mode = "strict"
@@ -497,36 +534,73 @@ def ensure_provider(
     )
     if existing:
         provider_id = resource_pk(existing)
-        return api_call(
+        provider = api_call(
             "PATCH",
             f"/providers/oauth2/{provider_id}/",
             payload=payload,
             expected=(200,),
         )
-    return api_call("POST", "/providers/oauth2/", payload=payload, expected=(201,))
+        return provider, "updated"
+    provider = api_call(
+        "POST", "/providers/oauth2/", payload=payload, expected=(201,)
+    )
+    return provider, "created"
 
 
-def ensure_application(config: OIDCClientConfig, provider_id: int) -> dict[str, Any]:
-    """Create or update the GPT application bound to its provider."""
+def ensure_application(
+    config: OIDCApplicationConfig, provider_id: int
+) -> tuple[dict[str, Any], str]:
+    """Create or update an application bound to its dedicated provider."""
     payload = {
         "name": config.app_name,
         "slug": config.app_slug,
         "provider": provider_id,
-        "meta_launch_url": "https://training-api-prod.fitness-pals.com/health",
+        "meta_launch_url": config.meta_launch_url,
         "open_in_new_tab": True,
+        "policy_engine_mode": config.policy_engine_mode,
     }
     existing = first_result(
         "/core/applications/",
         query={"slug": config.app_slug, "page_size": 1},
     )
     if existing:
-        return api_call(
+        application = api_call(
             "PATCH",
             f"/core/applications/{existing['slug']}/",
             payload=payload,
             expected=(200,),
         )
-    return api_call("POST", "/core/applications/", payload=payload, expected=(201,))
+        return application, "updated"
+    application = api_call(
+        "POST", "/core/applications/", payload=payload, expected=(201,)
+    )
+    return application, "created"
+
+
+def ensure_oidc_application(
+    config: OIDCApplicationConfig,
+    authorization_flow: str,
+    invalidation_flow: str,
+    *,
+    signing_key: str,
+    property_mappings: list[str],
+) -> dict[str, Any]:
+    """Reconcile a dedicated OIDC provider/application pair."""
+    provider, provider_status = ensure_provider(
+        config,
+        authorization_flow,
+        invalidation_flow,
+        signing_key=signing_key,
+        property_mappings=property_mappings,
+    )
+    provider_id = resource_pk(provider)
+    application, application_status = ensure_application(config, provider_id)
+    return {
+        "provider_id": provider_id,
+        "application_slug": application["slug"],
+        "provider_status": provider_status,
+        "application_status": application_status,
+    }
 
 
 def ensure_user(config: OIDCClientConfig) -> dict[str, Any]:
@@ -576,7 +650,7 @@ def bootstrap_oidc_client(config: OIDCClientConfig) -> dict[str, Any]:
     )
     signing_key = ensure_signing_key()
     property_mappings = ensure_scope_mappings(["openid", "email", "profile"])
-    provider = ensure_provider(
+    provider, _provider_status = ensure_provider(
         config,
         authorization_flow,
         invalidation_flow,
@@ -584,7 +658,7 @@ def bootstrap_oidc_client(config: OIDCClientConfig) -> dict[str, Any]:
         property_mappings=property_mappings,
     )
     provider_id = resource_pk(provider)
-    application = ensure_application(config, provider_id)
+    application, _application_status = ensure_application(config, provider_id)
     user = ensure_user(config)
     setup_urls = api_call(
         "GET",
@@ -597,6 +671,28 @@ def bootstrap_oidc_client(config: OIDCClientConfig) -> dict[str, Any]:
         "user_email": user["email"],
         "setup_urls": setup_urls,
     }
+
+
+def bootstrap_grafana_sso(config: OIDCApplicationConfig) -> dict[str, Any]:
+    """Reconcile the dedicated Grafana OIDC provider/application pair."""
+    authorization_flow = ensure_flow_uuid(
+        "authorization",
+        [
+            "default-provider-authorization-implicit-consent",
+            "default-provider-authorization-explicit-consent",
+        ],
+    )
+    invalidation_flow = ensure_flow_uuid(
+        "invalidation",
+        ["default-provider-invalidation-flow"],
+    )
+    return ensure_oidc_application(
+        config,
+        authorization_flow,
+        invalidation_flow,
+        signing_key=ensure_signing_key(),
+        property_mappings=ensure_scope_mappings(["openid", "email", "profile"]),
+    )
 
 
 def print_bootstrap_result(result: dict[str, Any]) -> None:
@@ -612,6 +708,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="reconcile only upstream Google federation and its login-stage binding",
     )
+    parser.add_argument(
+        "--grafana-sso",
+        action="store_true",
+        help="also reconcile the dedicated Grafana OIDC provider and application",
+    )
     return parser.parse_args()
 
 
@@ -620,11 +721,14 @@ def main() -> None:
     args = parse_args()
     google_config = load_google_source_config()
     oidc_config = None if args.google_only else load_oidc_client_config()
+    grafana_config = load_grafana_oidc_config() if args.grafana_sso else None
     get_env("AUTHENTIK_BOOTSTRAP_TOKEN", required=True)
     wait_for_api()
     result: dict[str, Any] = bootstrap_google_federation(google_config)
     if oidc_config:
         result["oidc_client"] = bootstrap_oidc_client(oidc_config)
+    if grafana_config:
+        result["grafana_sso"] = bootstrap_grafana_sso(grafana_config)
     print_bootstrap_result(result)
 
 

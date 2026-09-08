@@ -33,8 +33,6 @@ services:
       - INFLUXDB_HTTP_FLUX_ENABLED=true
     expose:
       - '8086' 
-    ports:
-      - '8086:8086'
     healthcheck:
       test:
         - CMD-SHELL
@@ -57,9 +55,24 @@ services:
       - GF_ANALYTICS_CHECK_FOR_UPDATES=false
       - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER}
       - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
-      - GF_AUTH_ANONYMOUS_ENABLED=true
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
       - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_AUTH_BASIC_ENABLED=false
+      - GF_AUTH_GENERIC_OAUTH_ENABLED=true
+      - GF_AUTH_GENERIC_OAUTH_NAME=Authentik
+      - GF_AUTH_GENERIC_OAUTH_CLIENT_ID=${GRAFANA_OIDC_CLIENT_ID:?GRAFANA_OIDC_CLIENT_ID is required}
+      - GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=${GRAFANA_OIDC_CLIENT_SECRET:?GRAFANA_OIDC_CLIENT_SECRET is required}
+      - GF_AUTH_GENERIC_OAUTH_SCOPES=openid profile email
+      - GF_AUTH_GENERIC_OAUTH_AUTH_URL=https://auth.fitness-pals.com/application/o/authorize/
+      - GF_AUTH_GENERIC_OAUTH_TOKEN_URL=https://auth.fitness-pals.com/application/o/token/
+      - GF_AUTH_GENERIC_OAUTH_API_URL=https://auth.fitness-pals.com/application/o/userinfo/
+      - GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH=contains(groups[*], 'Grafana Admins') && 'Admin' || 'Viewer'
+      - GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_STRICT=true
+      - GF_AUTH_OAUTH_AUTO_LOGIN=true
+      - GF_AUTH_SIGNOUT_REDIRECT_URL=https://auth.fitness-pals.com/application/o/grafana/end-session/
+      - GF_SERVER_ROOT_URL=https://grafana.fitness-pals.com
+      - GF_SECURITY_COOKIE_SECURE=true
       - GF_PREFERENCES_UNIT=imperial
       - GF_PREFERENCES_TIMEZONE=America/New_York
       - GF_PLUGINS_PREINSTALL=marcusolsson-hourly-heatmap-panel
@@ -72,8 +85,6 @@ services:
       - GF_DATE_FORMATS_INTERVAL_YEAR=YYYY
     volumes:
       - grafana_data:/var/lib/grafana
-    ports:
-      - '3000:3000'
     image: 'grafana/grafana:latest'
 
   # Added mandatory Redis cache for Authentik
@@ -103,8 +114,6 @@ services:
       - AUTHENTIK_POSTGRESQL__NAME=${RUNTRAINER_POSTGRES_DB:?RUNTRAINER_POSTGRES_DB is required}
       - AUTHENTIK_POSTGRESQL__USER=${RUNTRAINER_POSTGRES_USER:?RUNTRAINER_POSTGRES_USER is required}
       - AUTHENTIK_POSTGRESQL__PASSWORD=${RUNTRAINER_POSTGRES_PASSWORD:?RUNTRAINER_POSTGRES_PASSWORD is required}
-    ports:
-      - "9100:9000"
     depends_on:
       runtrainer-postgres:
         condition: service_healthy
@@ -118,7 +127,6 @@ services:
     image: ghcr.io/goauthentik/server:${AUTHENTIK_TAG:-2026.2.1}
     container_name: authentik-worker
     restart: unless-stopped
-    user: root
     command: worker
     environment:
       - AUTHENTIK_REDIS__HOST=authentik-redis
@@ -136,7 +144,6 @@ services:
       authentik-redis:
         condition: service_healthy
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - authentik_data:/media
       - authentik_data:/certs
       - authentik_data:/custom-templates
@@ -150,6 +157,7 @@ services:
     command:
       - /bootstrap/bootstrap_authentik.py
       - --google-only
+      - --grafana-sso
     environment:
       - AUTHENTIK_API_URL=http://authentik-server:9000/api/v3
       - AUTHENTIK_BOOTSTRAP_TOKEN=${AUTHENTIK_BOOTSTRAP_TOKEN:?AUTHENTIK_BOOTSTRAP_TOKEN is required}
@@ -162,6 +170,9 @@ services:
       - AUTHENTIK_GOOGLE_AUTHENTICATION_FLOW_SLUG=${AUTHENTIK_GOOGLE_AUTHENTICATION_FLOW_SLUG:-default-source-authentication}
       - AUTHENTIK_GOOGLE_ENROLLMENT_FLOW_SLUG=${AUTHENTIK_GOOGLE_ENROLLMENT_FLOW_SLUG:-default-source-enrollment}
       - AUTHENTIK_LOGIN_FLOW_SLUG=${AUTHENTIK_LOGIN_FLOW_SLUG:-default-authentication-flow}
+      - GRAFANA_OIDC_CLIENT_ID=${GRAFANA_OIDC_CLIENT_ID:?GRAFANA_OIDC_CLIENT_ID is required}
+      - GRAFANA_OIDC_CLIENT_SECRET=${GRAFANA_OIDC_CLIENT_SECRET:?GRAFANA_OIDC_CLIENT_SECRET is required}
+      - GRAFANA_ROOT_URL=https://grafana.fitness-pals.com
     depends_on:
       authentik-server:
         condition: service_healthy
@@ -225,8 +236,6 @@ services:
       - RUNTRAINER_OIDC_JWKS_URL=${RUNTRAINER_OIDC_JWKS_URL}
       - RUNTRAINER_OIDC_CLIENT_ID=${RUNTRAINER_OIDC_CLIENT_ID}
       - RUNTRAINER_OIDC_CLIENT_SECRET=${RUNTRAINER_OIDC_CLIENT_SECRET}
-    ports:
-      - "9000:9000"
     healthcheck:
       test:
         - CMD-SHELL
@@ -296,8 +305,6 @@ services:
       - RUNTRAINER_OPENAI_API_KEY=${RUNTRAINER_OPENAI_API_KEY}
       - GARMIN_MODE=${GARMIN_MODE}
       - GARMIN_FIT_FILE=${GARMIN_FIT_FILE:-0}
-    ports:
-      - "8000:8000"
     healthcheck:
       test:
         - CMD-SHELL
