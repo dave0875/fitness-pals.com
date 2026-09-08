@@ -720,6 +720,14 @@ jobs:
           docker compose --env-file "$ENV_FILE" build \
             frontend backend worker training-agent
 
+      - name: Reconcile legacy stateful container names
+        run: |
+          python3 scripts/reconcile_compose_container_names.py \
+            --project "$COMPOSE_PROJECT_NAME" \
+            --legacy-project garmin-grafana \
+            --legacy-project garmin_grafana \
+            influxdb grafana
+
       - name: Reconcile complete production runtime
         run: |
           frontend_cids=()
