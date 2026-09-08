@@ -126,22 +126,16 @@ test("frontend replacement removes only stale project frontend containers", () =
   assert.ok(workflow.includes('docker rm -f "${frontend_cids[@]}"'));
 });
 
-test("manual deploys target the frontend without restarting infrastructure", () => {
+test("explicit branch deploys reconcile dev without exposing production", () => {
   const workflow = read(".github/workflows/ci-cd.yml");
   const devJob = workflow.split("  deploy-dev:\n", 2)[1].split("  deploy-prod:\n", 1)[0];
   const productionJob = workflow.split("  deploy-prod:\n", 2)[1];
-  const manualDispatchGuard =
-    'if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then';
 
-  assert.equal(workflow.split(manualDispatchGuard).length - 1, 2);
-  assert.ok(devJob.includes('echo "frontend_changed=true"'));
-  for (const service of ["postgres", "influxdb", "grafana", "cloudflared"]) {
-    assert.ok(devJob.includes(`echo "${service}_changed=false"`));
-    assert.ok(productionJob.includes(`echo "${service}_changed=true"`));
-  }
-  for (const service of ["frontend", "backend", "worker", "training_agent"]) {
-    assert.ok(productionJob.includes(`echo "${service}_changed=true"`));
-  }
+  assert.ok(workflow.includes("deploy_dev:"));
+  assert.ok(devJob.includes("github.event_name == 'workflow_dispatch' && inputs.deploy_dev"));
+  assert.ok(devJob.includes("Reconcile complete dev runtime"));
+  assert.ok(productionJob.includes("if: github.ref == 'refs/heads/main'"));
+  assert.ok(!productionJob.includes("inputs.deploy_dev"));
 });
 
 test("production deploy reads its overlay from the protected production secret store", () => {
