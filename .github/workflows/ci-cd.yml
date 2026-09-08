@@ -425,7 +425,8 @@ jobs:
             urls+=("http://127.0.0.1:${BACKEND_HOST_PORT}/ready")
           fi
           if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ]; then
-            urls+=("http://127.0.0.1:9000/ready")
+            TRAINING_AGENT_HOST_PORT="$(python3 scripts/read_env_value.py "$ENV_FILE" TRAINING_AGENT_HOST_PORT --default 9000)"
+            urls+=("http://127.0.0.1:${TRAINING_AGENT_HOST_PORT}/ready")
           fi
           if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ] || [ "${{ steps.changes.outputs.worker_changed }}" = "true" ]; then
             worker_cid="$(docker compose --env-file "$ENV_FILE" ps -q worker)"
@@ -614,9 +615,9 @@ jobs:
       - name: Smoke check complete local production runtime
         run: |
           urls=(
-            "http://127.0.0.1:8000/ready"
-            "http://127.0.0.1:9000/ready"
-            "http://127.0.0.1:3000/api/health"
+            "http://backend:8000/ready"
+            "http://training-agent:9000/ready"
+            "http://grafana:3000/api/health"
           )
           worker_cid="$(docker compose --env-file "$ENV_FILE" ps -q worker)"
           if [ -z "$worker_cid" ]; then
@@ -656,7 +657,9 @@ jobs:
             echo "Frontend container is release $frontend_release, expected release $RUNTRAINER_RELEASE_SHA." >&2
             exit 1
           fi
-          python3 scripts/smoke_urls.py --urls "$(printf '%s\n' "${urls[@]}")" --timeout 150
+          docker compose --env-file "$ENV_FILE" exec -T backend \
+            python3 -c 'import sys; from urllib.request import urlopen; [urlopen(url, timeout=15).close() for url in sys.argv[1:]]' \
+            "${urls[@]}"
 
       - name: Mint ephemeral athlete smoke token
         id: smoke-token

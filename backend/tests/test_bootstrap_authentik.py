@@ -310,3 +310,62 @@ def test_identification_stage_accepts_flow_set_response_variation(monkeypatch):
     assert bootstrap.find_identification_stage("production-login-flow")["pk"] == (
         "identification-stage-uuid"
     )
+
+
+def test_grafana_oidc_application_is_reconciled_with_least_privilege(monkeypatch):
+    """Grafana SSO receives a dedicated confidential client and application."""
+    monkeypatch.setenv("GRAFANA_OIDC_CLIENT_ID", "grafana-client")
+    monkeypatch.setenv("GRAFANA_OIDC_CLIENT_SECRET", "grafana-secret")
+    config = bootstrap.load_grafana_oidc_config()
+    calls = []
+
+    def fake_api_call(method, path, **kwargs):
+        calls.append((method, path, kwargs))
+        if method == "GET" and path in {
+            "/providers/oauth2/",
+            "/core/applications/",
+        }:
+            return {"results": []}
+        if path == "/providers/oauth2/":
+            return {"pk": 42, "name": "Grafana"}
+        if path == "/core/applications/":
+            return {"slug": "grafana", "name": "Grafana"}
+        raise AssertionError((method, path, kwargs))
+
+    monkeypatch.setattr(bootstrap, "api_call", fake_api_call)
+    result = bootstrap.ensure_oidc_application(
+        config,
+        authorization_flow="authorization-flow",
+        invalidation_flow="invalidation-flow",
+        signing_key="signing-key",
+        property_mappings=["openid-mapping", "email-mapping", "profile-mapping"],
+    )
+
+    assert result == {
+        "provider_id": 42,
+        "application_slug": "grafana",
+        "provider_status": "created",
+        "application_status": "created",
+    }
+    provider_payload = calls[1][2]["payload"]
+    assert provider_payload["client_type"] == "confidential"
+    assert provider_payload["client_id"] == "grafana-client"
+    assert provider_payload["client_secret"] == "grafana-secret"
+    assert provider_payload["redirect_uris"] == [
+        {
+            "matching_mode": "strict",
+            "url": "https://grafana.fitness-pals.com/login/generic_oauth",
+        }
+    ]
+    application_payload = calls[3][2]["payload"]
+    assert application_payload["slug"] == "grafana"
+    assert application_payload["policy_engine_mode"] == "all"
+
+
+def test_grafana_oidc_credentials_are_required_as_a_pair(monkeypatch):
+    """A partial Grafana client configuration cannot reach Authentik."""
+    monkeypatch.setenv("GRAFANA_OIDC_CLIENT_ID", "grafana-client")
+    monkeypatch.delenv("GRAFANA_OIDC_CLIENT_SECRET", raising=False)
+
+    with pytest.raises(SystemExit, match="must be set together"):
+        bootstrap.load_grafana_oidc_config()

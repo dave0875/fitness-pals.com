@@ -39,7 +39,7 @@ def test_backend_host_port_is_configurable_with_legacy_default():
         "  deploy-prod:\n", maxsplit=1
     )[0]
 
-    assert '${RUNTRAINER_BACKEND_HOST_PORT:-8000}:8000' in compose_text
+    assert '127.0.0.1:${RUNTRAINER_BACKEND_HOST_PORT:-8000}:8000' in compose_text
     assert "COMPOSE_FILE: compose.yml:compose.dev.yml" in dev_job
 
 

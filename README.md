@@ -11,10 +11,18 @@ This repo drives my personal fitness stack. It keeps my code (backend, frontend,
 - Vendored garmin-grafana source, dashboards, and provisioning files have been removed. The stack now uses the upstream image `ghcr.io/arpanghosh8453/garmin-fetch-data:latest` directly. Grafana dashboards can be imported from Grafana Cloud (code `23245`) or the upstream repo if desired, but are no longer stored here.
 
 ## Running the stack
-Create a `.env` with the required variables (examples from the upstream docs still apply: InfluxDB credentials, Garmin Connect auth, Grafana admin, ngrok token, etc.). Then:
+Create a `.env` with the required variables (examples from the upstream docs still apply: InfluxDB credentials, Garmin Connect auth, Grafana admin, tunnel token, etc.). Production uses the private Compose network and publishes no application or datastore ports on the host:
 
 ```bash
 docker compose up -d
+```
+
+For local development, add the development override. Its debug ports bind only to
+the loopback interface and can be changed with the corresponding `*_HOST_PORT`
+variables:
+
+```bash
+docker compose -f compose.yml -f compose.dev.yml up -d
 ```
 
 Key services:
@@ -41,6 +49,7 @@ Key services:
 - `INFLUXDB_HOST` / `INFLUXDB_PORT` / `INFLUXDB_USERNAME` / `INFLUXDB_PASSWORD` / `INFLUXDB_DATABASE`: InfluxDB connection for training-agent and garmin-fetch-data.
 - `GARMINCONNECT_EMAIL` / `GARMINCONNECT_BASE64_PASSWORD`: legacy single Garmin account for garmin-fetch-data; avoid for multi-tenant and move to per-user provider connections instead.
 - `GF_SECURITY_ADMIN_USER` / `GF_SECURITY_ADMIN_PASSWORD`: Grafana admin login.
+- `GRAFANA_OIDC_CLIENT_ID` / `GRAFANA_OIDC_CLIENT_SECRET`: dedicated confidential Authentik client for Grafana SSO. Generate unique random values and keep them only in the deployment secrets file; the Authentik bootstrap owns the matching provider/application.
 - `CLOUDFLARE_TUNNEL_TOKEN`: Cloudflare tunnel token to expose services.
 - `CLOUDFLARE_SMOKE_URLS`: comma- or newline-delimited public URLs that should succeed through the Cloudflare tunnel after deploy, for example `https://api.fitness-pals.com/ready` and `https://grafana.fitness-pals.com/api/health`.
 - `CLOUDFLARE_SMOKE_TIMEOUT_SECONDS`: optional external ingress smoke timeout; defaults to `90`.
@@ -75,7 +84,7 @@ https://fitness-pals.com/auth/google/callback
 
 Place `AUTHENTIK_GOOGLE_CLIENT_ID` and `AUTHENTIK_GOOGLE_CLIENT_SECRET` in the untracked deployment secrets overlay. Dedicated values are preferred. When both are absent, `scripts/bootstrap_authentik.py` deliberately falls back to the complete `RUNTRAINER_GOOGLE_CLIENT_ID` / `RUNTRAINER_GOOGLE_CLIENT_SECRET` pair. Missing, partial, or placeholder pairs fail before any API mutation.
 
-Every deployment runs the profile-scoped `authentik-bootstrap` one-shot service after the Authentik API is healthy. It idempotently creates or patches source slug `google`, resolves `default-source-authentication` and `default-source-enrollment`, discovers the Identification stage actually bound to `default-authentication-flow`, and appends the Google source UUID only when missing. Its Identification-stage PATCH contains only `sources`, so existing sources, `user_fields`, and local username/password login are preserved. It does not alter either Authentik OIDC provider/application and does not enable automatic Google redirects.
+Every deployment runs the profile-scoped `authentik-bootstrap` one-shot service after the Authentik API is healthy. It idempotently creates or patches source slug `google`, resolves `default-source-authentication` and `default-source-enrollment`, discovers the Identification stage actually bound to `default-authentication-flow`, and appends the Google source UUID only when missing. Its Identification-stage PATCH contains only `sources`, so existing sources, `user_fields`, and local username/password login are preserved. It also reconciles a dedicated `grafana` OIDC provider/application with the strict callback `https://grafana.fitness-pals.com/login/generic_oauth`; it does not alter the website or training-agent OIDC clients and does not enable automatic Google redirects.
 
 Run it manually with the current untracked `.env` when needed:
 
@@ -83,7 +92,31 @@ Run it manually with the current untracked `.env` when needed:
 docker compose --env-file .env --profile bootstrap run --rm --no-deps authentik-bootstrap
 ```
 
-The secret-free JSON output reports the source slug/UUID, Identification-stage name/UUID, credential-pair origin, and whether the source was created/updated and newly/already attached.
+The secret-free JSON output reports the source slug/UUID, Identification-stage name/UUID, credential-pair origin, Grafana provider/application identifiers, and whether each resource was created, updated, or already attached.
+
+### Grafana administrator access
+
+Grafana disables anonymous and basic authentication and automatically enters
+Authentik Generic OAuth. Authenticated users default to the `Viewer` role; only
+members of the Authentik group `Grafana Admins` map to the Grafana `Admin` role.
+Create and maintain that group in Authentik, and keep its membership limited to
+operators. Production publishes no Grafana host port, so administration stays
+behind the Cloudflare tunnel and Authentik SSO.
+
+Before merging or deploying an SSO credential rotation, put a complete, unique
+`GRAFANA_OIDC_CLIENT_ID` / `GRAFANA_OIDC_CLIENT_SECRET` pair in each deployment
+secrets file. A missing, partial, or placeholder pair makes configuration or
+bootstrap fail before Authentik is changed. Verify a Viewer cannot open Grafana
+administration and a `Grafana Admins` member can. Retain the local Grafana admin
+credentials in the operator secret store for CLI-assisted recovery; password
+login is disabled during normal production operation. The loopback-only
+development overlay enables the basic login for local recovery and testing.
+
+Production service-to-service probes run over Docker DNS. For local-only access to
+InfluxDB, Grafana, the backend, training-agent, or Authentik, use
+`compose.dev.yml`; its host mappings are restricted to `127.0.0.1`. The Authentik
+worker runs as the image's unprivileged UID and has no Docker socket, so embedded
+outposts must be deployed and managed separately if they are introduced later.
 
 Authentik stores source, flow, stage, provider, application, and user state in the PostgreSQL database named by `AUTHENTIK_POSTGRESQL__NAME`; this stack intentionally points it at `RUNTRAINER_POSTGRES_DB`. Manual admin-UI configuration alone is not reproducible and must not be relied on.
 
@@ -132,7 +165,7 @@ curl -fsS https://auth.fitness-pals.com/application/o/training-agent-gpt/.well-k
 
 Then use a private browser window to complete the stateful checks: open `https://fitness-pals.com/auth/login`; confirm the Authentik page shows both the username/email form and Google; click Google and confirm the next host is `accounts.google.com`; complete login and confirm the browser returns through `auth.fitness-pals.com`, then `/auth/callback`, and an authenticated Fitness Pals session is created. Sign out and separately confirm the local Authentik username/password break-glass login still works. For the GPT client, start its OAuth connection and confirm it uses the training-agent discovery document and returns an Authentik-issued response.
 
-Rollback is to revert the repository change and stop invoking the `authentik-bootstrap` one-shot service. Do not switch or drop databases. Because the bootstrap only appends the source binding, an urgent UI rollback can disable the Google source or remove only its UUID from the Identification stage while leaving local login and both OIDC clients intact. Keep the direct Google route and callback configured until brokered login has been verified in production.
+Rollback is to revert the repository change and stop invoking the `authentik-bootstrap` one-shot service. Do not switch or drop databases. Because the Google bootstrap only appends the source binding, an urgent UI rollback can disable the Google source or remove only its UUID from the Identification stage while leaving local login and the other OIDC clients intact. The Grafana provider/application can be disabled independently while break-glass access is used. Keep the direct Google route and callback configured until brokered login has been verified in production; do not restore anonymous Grafana Admin or the raw Docker socket as a routine rollback.
 
 ## Garmin OAuth integration (current)
 - Endpoints: `/api/providers/garmin/login`, `/api/providers/garmin/callback`, `/api/providers/garmin/refresh`, `/api/providers/garmin/fetch`.

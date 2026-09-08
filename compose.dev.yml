@@ -1,4 +1,26 @@
 services:
+  influxdb:
+    ports:
+      - "127.0.0.1:${INFLUXDB_HOST_PORT:-8086}:8086"
+
+  grafana:
+    environment:
+      - GF_AUTH_BASIC_ENABLED=true
+      - GF_AUTH_DISABLE_LOGIN_FORM=false
+      - GF_AUTH_OAUTH_AUTO_LOGIN=false
+      - GF_SECURITY_COOKIE_SECURE=false
+      - GF_SERVER_ROOT_URL=http://localhost:${GRAFANA_HOST_PORT:-3000}
+    ports:
+      - "127.0.0.1:${GRAFANA_HOST_PORT:-3000}:3000"
+
+  authentik-server:
+    ports:
+      - "127.0.0.1:${AUTHENTIK_HOST_PORT:-9100}:9000"
+
+  training-agent:
+    ports:
+      - "127.0.0.1:${TRAINING_AGENT_HOST_PORT:-9000}:9000"
+
   backend:
-    ports: !override
-      - "${RUNTRAINER_BACKEND_HOST_PORT:-8000}:8000"
+    ports:
+      - "127.0.0.1:${RUNTRAINER_BACKEND_HOST_PORT:-8000}:8000"
