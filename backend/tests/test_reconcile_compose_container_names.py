@@ -6,6 +6,7 @@ import io
 from pathlib import Path
 import tarfile
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -359,7 +360,7 @@ def test_every_service_is_validated_before_any_container_is_removed(monkeypatch)
     ],
 )
 def test_unrecognized_container_fails_closed(
-    override: dict[str, str], message: str
+    override: dict[str, Any], message: str
 ):
     with pytest.raises(ContainerConflictError, match=message):
         classify_container(
