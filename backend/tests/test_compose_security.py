@@ -116,3 +116,77 @@ def test_development_training_agent_smoke_uses_configured_loopback_port():
 
     assert "TRAINING_AGENT_HOST_PORT --default 9000" in dev_job
     assert 'http://127.0.0.1:${TRAINING_AGENT_HOST_PORT}/ready' in dev_job
+
+
+def test_deploy_jobs_receive_and_preflight_environment_scoped_grafana_secrets():
+    """Runner env files cannot silently drift from required Grafana credentials."""
+    workflow_text = (REPOSITORY_ROOT / ".github/workflows/ci-cd.yml").read_text(
+        encoding="utf-8"
+    )
+    dev_job = workflow_text.split("  deploy-dev:\n", maxsplit=1)[1].split(
+        "  deploy-prod:\n", maxsplit=1
+    )[0]
+    prod_job = workflow_text.split("  deploy-prod:\n", maxsplit=1)[1]
+
+    assert "GRAFANA_OIDC_CLIENT_ID: ${{ secrets.DEV_GRAFANA_OIDC_CLIENT_ID }}" in dev_job
+    assert (
+        "GRAFANA_OIDC_CLIENT_SECRET: ${{ secrets.DEV_GRAFANA_OIDC_CLIENT_SECRET }}"
+        in dev_job
+    )
+    assert "GRAFANA_OIDC_CLIENT_ID: ${{ secrets.GRAFANA_OIDC_CLIENT_ID }}" in prod_job
+    assert (
+        "GRAFANA_OIDC_CLIENT_SECRET: ${{ secrets.GRAFANA_OIDC_CLIENT_SECRET }}"
+        in prod_job
+    )
+    for job in (dev_job, prod_job):
+        assert "Validate Grafana OIDC deployment secrets" in job
+        assert 'if [ -z "$GRAFANA_OIDC_CLIENT_ID" ]' in job
+        assert 'if [ -z "$GRAFANA_OIDC_CLIENT_SECRET" ]' in job
+
+
+def test_explicit_branch_dispatch_deploys_complete_dev_runtime_only():
+    """A branch can prove deployment on dev without ever targeting production."""
+    workflow_text = (REPOSITORY_ROOT / ".github/workflows/ci-cd.yml").read_text(
+        encoding="utf-8"
+    )
+    dev_job = workflow_text.split("  deploy-dev:\n", maxsplit=1)[1].split(
+        "  deploy-prod:\n", maxsplit=1
+    )[0]
+    prod_job = workflow_text.split("  deploy-prod:\n", maxsplit=1)[1]
+
+    assert "deploy_dev:" in workflow_text
+    assert "github.event_name == 'workflow_dispatch' && inputs.deploy_dev" in dev_job
+    assert "Reconcile complete dev runtime" in dev_job
+    for service in (
+        "runtrainer-postgres",
+        "influxdb",
+        "grafana",
+        "authentik-redis",
+        "authentik-server",
+        "authentik-worker",
+        "backend",
+        "worker",
+        "training-agent",
+        "frontend",
+        "cloudflared",
+        "cloudflared-loopback",
+    ):
+        assert service in dev_job
+    assert "if: github.ref == 'refs/heads/main'" in prod_job
+    assert "inputs.deploy_dev" not in prod_job
+
+
+def test_ci_renders_both_compose_deployment_variants():
+    """PR CI must validate Compose interpolation with non-production credentials."""
+    workflow_text = (REPOSITORY_ROOT / ".github/workflows/ci-cd.yml").read_text(
+        encoding="utf-8"
+    )
+    test_job = workflow_text.split("  test:\n", maxsplit=1)[1].split(
+        "  deploy-dev:\n", maxsplit=1
+    )[0]
+
+    assert "GRAFANA_OIDC_CLIENT_ID: ci-grafana-client" in test_job
+    assert "GRAFANA_OIDC_CLIENT_SECRET: ci-grafana-secret" in test_job
+    assert "Validate deployment Compose configurations" in test_job
+    assert "docker compose --env-file .env.production config -q" in test_job
+    assert "COMPOSE_FILE=compose.yml:compose.dev.yml" in test_job

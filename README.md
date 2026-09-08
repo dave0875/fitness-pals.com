@@ -49,7 +49,7 @@ Key services:
 - `INFLUXDB_HOST` / `INFLUXDB_PORT` / `INFLUXDB_USERNAME` / `INFLUXDB_PASSWORD` / `INFLUXDB_DATABASE`: InfluxDB connection for training-agent and garmin-fetch-data.
 - `GARMINCONNECT_EMAIL` / `GARMINCONNECT_BASE64_PASSWORD`: legacy single Garmin account for garmin-fetch-data; avoid for multi-tenant and move to per-user provider connections instead.
 - `GF_SECURITY_ADMIN_USER` / `GF_SECURITY_ADMIN_PASSWORD`: Grafana admin login.
-- `GRAFANA_OIDC_CLIENT_ID` / `GRAFANA_OIDC_CLIENT_SECRET`: dedicated confidential Authentik client for Grafana SSO. Generate unique random values and keep them only in the deployment secrets file; the Authentik bootstrap owns the matching provider/application.
+- `GRAFANA_OIDC_CLIENT_ID` / `GRAFANA_OIDC_CLIENT_SECRET`: dedicated confidential Authentik client for Grafana SSO. Automated dev deploys receive these from the repository secrets `DEV_GRAFANA_OIDC_CLIENT_ID` / `DEV_GRAFANA_OIDC_CLIENT_SECRET`; production receives them from same-named secrets in the `production` GitHub environment. Local operators can still provide the pair through an untracked env file. The Authentik bootstrap owns the matching provider/application.
 - `CLOUDFLARE_TUNNEL_TOKEN`: Cloudflare tunnel token to expose services.
 - `CLOUDFLARE_SMOKE_URLS`: comma- or newline-delimited public URLs that should succeed through the Cloudflare tunnel after deploy, for example `https://api.fitness-pals.com/ready` and `https://grafana.fitness-pals.com/api/health`.
 - `CLOUDFLARE_SMOKE_TIMEOUT_SECONDS`: optional external ingress smoke timeout; defaults to `90`.
@@ -103,14 +103,29 @@ Create and maintain that group in Authentik, and keep its membership limited to
 operators. Production publishes no Grafana host port, so administration stays
 behind the Cloudflare tunnel and Authentik SSO.
 
-Before merging or deploying an SSO credential rotation, put a complete, unique
-`GRAFANA_OIDC_CLIENT_ID` / `GRAFANA_OIDC_CLIENT_SECRET` pair in each deployment
-secrets file. A missing, partial, or placeholder pair makes configuration or
-bootstrap fail before Authentik is changed. Verify a Viewer cannot open Grafana
-administration and a `Grafana Admins` member can. Retain the local Grafana admin
-credentials in the operator secret store for CLI-assisted recovery; password
-login is disabled during normal production operation. The loopback-only
-development overlay enables the basic login for local recovery and testing.
+Before merging or deploying an SSO credential rotation, set a complete, unique
+pair for dev in the repository's `DEV_GRAFANA_OIDC_CLIENT_ID` and
+`DEV_GRAFANA_OIDC_CLIENT_SECRET` Actions secrets, and a different pair in the
+`production` environment's `GRAFANA_OIDC_CLIENT_ID` and
+`GRAFANA_OIDC_CLIENT_SECRET` secrets. The deploy jobs validate presence before
+Compose interpolation without logging values. A missing, partial, or placeholder
+local pair makes configuration or bootstrap fail before Authentik is changed.
+Verify a Viewer cannot open Grafana administration and a `Grafana Admins` member
+can. Retain the local Grafana admin credentials in the operator secret store for
+CLI-assisted recovery; password login is disabled during normal production
+operation. The loopback-only development overlay enables the basic login for
+local recovery and testing.
+
+Deployment-sensitive branches can be proven on dev before merge with an explicit
+manual dispatch:
+
+```bash
+gh workflow run ci-cd.yml --ref <branch> -f deploy_dev=true
+```
+
+That path runs the full CI gate, reconciles the complete dev Compose runtime, and
+runs local and external smoke checks. Production remains restricted to revisions
+on `main`.
 
 Production service-to-service probes run over Docker DNS. For local-only access to
 InfluxDB, Grafana, the backend, training-agent, or Authentik, use

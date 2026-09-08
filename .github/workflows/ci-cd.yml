@@ -5,6 +5,12 @@ on:
     branches: [ main, master ]
   pull_request:
   workflow_dispatch:
+    inputs:
+      deploy_dev:
+        description: Deploy this revision to the dev environment after tests pass
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -33,6 +39,8 @@ jobs:
       RUNTRAINER_APPLE_REDIRECT_URI: https://example.com/auth/apple/callback
       RUNTRAINER_DATABASE_URL: sqlite:///./ci.db
       RUNTRAINER_FERNET_KEY: 1TvhF4GaxnOIBIq74rU9VrAXaxoBZw-oTCT3vJWRTwc=
+      GRAFANA_OIDC_CLIENT_ID: ci-grafana-client
+      GRAFANA_OIDC_CLIENT_SECRET: ci-grafana-secret
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -82,6 +90,7 @@ jobs:
           frontend_lint_status="not_run"
           frontend_root="frontend"
           frontend_metadata_status="passed"
+          compose_config_status="not_run"
           for manifest in package.json package-lock.json; do
             if [ ! -f "$frontend_root/$manifest" ]; then
               echo "::error title=Missing frontend manifest::Expected $frontend_root/$manifest; the frontend is not buildable."
@@ -109,6 +118,11 @@ jobs:
               echo "::error title=${label}::${label} failed. See ${logfile} in the CI artifact."
             fi
           }
+
+          echo "=== Validate deployment Compose configurations ==="
+          run_cmd "Deployment Compose configurations" compose_config_status \
+            "ci-logs/compose-config.log" bash -c \
+            'docker compose --env-file .env.production config -q && COMPOSE_FILE=compose.yml:compose.dev.yml docker compose --env-file .env.production config -q'
 
           run_cmd "Backend lint" backend_lint_status "ci-logs/backend-lint.log" \
             bash -c "python -m compileall backend services/training_agent && ruff check --select=E9,F63,F7,F82 --target-version=py310 backend services/training_agent"
@@ -192,6 +206,7 @@ jobs:
           echo "backend_lint: ${backend_lint_status}"
           echo "backend_typecheck: ${backend_typecheck_status}"
           echo "docker_build: ${docker_build_status}"
+          echo "compose_config: ${compose_config_status}"
           echo "backend_tests: ${backend_test_status}"
           echo "frontend_build: ${frontend_build_status}"
           echo "frontend_tests: ${frontend_test_status}"
@@ -212,7 +227,8 @@ jobs:
               "frontend_build": "${frontend_build_status}",
               "frontend_tests": "${frontend_test_status}",
               "frontend_lint": "${frontend_lint_status}",
-              "docker_build": "${docker_build_status}"
+              "docker_build": "${docker_build_status}",
+              "compose_config": "${compose_config_status}"
             },
             "timestamp": "${timestamp}"
           }
@@ -228,6 +244,7 @@ jobs:
           echo "frontend_test_status=${frontend_test_status}" >> "$GITHUB_OUTPUT"
           echo "frontend_lint_status=${frontend_lint_status}" >> "$GITHUB_OUTPUT"
           echo "docker_build_status=${docker_build_status}" >> "$GITHUB_OUTPUT"
+          echo "compose_config_status=${compose_config_status}" >> "$GITHUB_OUTPUT"
 
       - name: Upload CI logs artifact
         if: always()
@@ -251,6 +268,7 @@ jobs:
           FRONTEND_TEST_STATUS: ${{ steps.run_checks.outputs.frontend_test_status }}
           FRONTEND_LINT_STATUS: ${{ steps.run_checks.outputs.frontend_lint_status }}
           DOCKER_BUILD_STATUS: ${{ steps.run_checks.outputs.docker_build_status }}
+          COMPOSE_CONFIG_STATUS: ${{ steps.run_checks.outputs.compose_config_status }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -276,7 +294,8 @@ jobs:
               'Frontend Build': process.env.FRONTEND_BUILD_STATUS,
               'Frontend Tests': process.env.FRONTEND_TEST_STATUS,
               'Frontend Lint': process.env.FRONTEND_LINT_STATUS,
-              'Docker Build': process.env.DOCKER_BUILD_STATUS
+              'Docker Build': process.env.DOCKER_BUILD_STATUS,
+              'Compose Config': process.env.COMPOSE_CONFIG_STATUS
             };
 
             const checksLines = Object.entries(checks)
@@ -314,7 +333,7 @@ jobs:
   deploy-dev:
     name: Deploy to Dev
     needs: test
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.deploy_dev)
     runs-on: [self-hosted, dev]
     env:
       COMPOSE_FILE: compose.yml:compose.dev.yml
@@ -323,9 +342,22 @@ jobs:
       OVERLAY_ENV_PATH: /home/dbarker/fitness-pals.com-secrets/.env.authentik-oidc
       COMPOSE_PROJECT_NAME: fitness-palscom
       RUNTRAINER_RELEASE_SHA: ${{ github.sha }}
+      GRAFANA_OIDC_CLIENT_ID: ${{ secrets.DEV_GRAFANA_OIDC_CLIENT_ID }}
+      GRAFANA_OIDC_CLIENT_SECRET: ${{ secrets.DEV_GRAFANA_OIDC_CLIENT_SECRET }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Validate Grafana OIDC deployment secrets
+        run: |
+          if [ -z "$GRAFANA_OIDC_CLIENT_ID" ]; then
+            echo "Missing required dev secret: DEV_GRAFANA_OIDC_CLIENT_ID" >&2
+            exit 1
+          fi
+          if [ -z "$GRAFANA_OIDC_CLIENT_SECRET" ]; then
+            echo "Missing required dev secret: DEV_GRAFANA_OIDC_CLIENT_SECRET" >&2
+            exit 1
+          fi
 
       - name: Assemble env from base and overlay
         run: |
@@ -347,16 +379,16 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             {
-              echo "postgres_changed=false"
-              echo "influxdb_changed=false"
-              echo "grafana_changed=false"
-              echo "cloudflared_changed=false"
+              echo "postgres_changed=true"
+              echo "influxdb_changed=true"
+              echo "grafana_changed=true"
+              echo "cloudflared_changed=true"
               echo "frontend_changed=true"
-              echo "backend_changed=false"
-              echo "worker_changed=false"
-              echo "training_agent_changed=false"
+              echo "backend_changed=true"
+              echo "worker_changed=true"
+              echo "training_agent_changed=true"
             } >> "$GITHUB_OUTPUT"
-            echo "Manual deployment scope: frontend only."
+            echo "Manual deployment scope: complete dev runtime."
             exit 0
           fi
           python3 scripts/detect_changed_services.py \
@@ -366,6 +398,29 @@ jobs:
 
       - name: Validate compose config
         run: docker compose --env-file "$ENV_FILE" config -q
+
+      - name: Ensure external volumes exist
+        run: |
+          docker volume inspect garmin-grafana_influxdb_data >/dev/null 2>&1 || docker volume create garmin-grafana_influxdb_data
+          docker volume inspect garmin-grafana_grafana_data >/dev/null 2>&1 || docker volume create garmin-grafana_grafana_data
+
+      - name: Pull changed base images
+        if: steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true' || steps.changes.outputs.cloudflared_changed == 'true'
+        run: |
+          services=()
+          if [ "${{ steps.changes.outputs.postgres_changed }}" = "true" ]; then
+            services+=(runtrainer-postgres)
+          fi
+          if [ "${{ steps.changes.outputs.influxdb_changed }}" = "true" ]; then
+            services+=(influxdb)
+          fi
+          if [ "${{ steps.changes.outputs.grafana_changed }}" = "true" ]; then
+            services+=(grafana)
+          fi
+          if [ "${{ steps.changes.outputs.cloudflared_changed }}" = "true" ]; then
+            services+=(cloudflared)
+          fi
+          docker compose --env-file "$ENV_FILE" pull "${services[@]}"
 
       - name: Build changed app services
         if: steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
@@ -412,6 +467,23 @@ jobs:
       - name: Skip deploy when no app services changed
         if: steps.changes.outputs.frontend_changed != 'true' && steps.changes.outputs.backend_changed != 'true' && steps.changes.outputs.worker_changed != 'true' && steps.changes.outputs.training_agent_changed != 'true'
         run: echo "No backend, worker, or training-agent changes detected; skipping DEV deploy."
+
+      - name: Reconcile complete dev runtime
+        if: steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true' || steps.changes.outputs.cloudflared_changed == 'true'
+        run: |
+          docker compose --env-file "$ENV_FILE" up -d --remove-orphans \
+            runtrainer-postgres \
+            influxdb \
+            grafana \
+            authentik-redis \
+            authentik-server \
+            authentik-worker \
+            backend \
+            worker \
+            training-agent \
+            frontend \
+            cloudflared \
+            cloudflared-loopback
 
       - name: Reconcile Authentik upstream Google SSO
         run: docker compose --env-file "$ENV_FILE" --profile bootstrap run --rm --no-deps authentik-bootstrap
@@ -505,11 +577,24 @@ jobs:
       COMPOSE_PROJECT_NAME: fitness-palscom
       RUNTRAINER_RELEASE_SHA: ${{ github.sha }}
       RUN_AS_USER: fitness-pals
+      GRAFANA_OIDC_CLIENT_ID: ${{ secrets.GRAFANA_OIDC_CLIENT_ID }}
+      GRAFANA_OIDC_CLIENT_SECRET: ${{ secrets.GRAFANA_OIDC_CLIENT_SECRET }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Validate Grafana OIDC deployment secrets
+        run: |
+          if [ -z "$GRAFANA_OIDC_CLIENT_ID" ]; then
+            echo "Missing required production secret: GRAFANA_OIDC_CLIENT_ID" >&2
+            exit 1
+          fi
+          if [ -z "$GRAFANA_OIDC_CLIENT_SECRET" ]; then
+            echo "Missing required production secret: GRAFANA_OIDC_CLIENT_SECRET" >&2
+            exit 1
+          fi
 
       - name: Assemble env from base and overlay
         run: |
