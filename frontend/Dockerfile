@@ -7,8 +7,8 @@ ENV NEXT_PUBLIC_RUNTRAINER_RELEASE_SHA=${RUNTRAINER_RELEASE_SHA}
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-COPY package.json ./
-RUN npm install --omit=dev
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 
 COPY . .
 RUN npm run build

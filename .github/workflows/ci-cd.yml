@@ -80,21 +80,15 @@ jobs:
           frontend_build_status="not_run"
           frontend_test_status="not_run"
           frontend_lint_status="not_run"
-          frontend_root=""
-
-          for path in frontend web app ui; do
-            if [ -f "$path/package.json" ]; then
-              frontend_root="$path"
-              break
+          frontend_root="frontend"
+          frontend_metadata_status="passed"
+          for manifest in package.json package-lock.json; do
+            if [ ! -f "$frontend_root/$manifest" ]; then
+              echo "::error title=Missing frontend manifest::Expected $frontend_root/$manifest; the frontend is not buildable."
+              frontend_metadata_status="failed"
+              overall_status="failed"
             fi
           done
-
-          if [ -z "$frontend_root" ]; then
-            echo "No frontend package.json found; marking frontend lint/test/build as not_run."
-            frontend_build_status="not_run"
-            frontend_test_status="not_run"
-            frontend_lint_status="not_run"
-          fi
           docker_build_status="not_run"
 
           run_cmd() {
@@ -131,18 +125,32 @@ jobs:
             echo "::error title=Backend typecheck::Backend typecheck/migrations failed. See ci-logs/backend-typecheck.log in the CI artifact."
           fi
 
-          echo "=== Docker build ==="
-          docker build --pull -t "$CI_IMAGE_TAG" -f services/training_agent/Dockerfile . >"ci-logs/docker-build.log" 2>&1
-          rc=$?
-          docker rmi "$CI_IMAGE_TAG" >/dev/null 2>&1 || true
-          cat "ci-logs/docker-build.log"
-          if [[ $rc -eq 0 ]]; then
-            docker_build_status="passed"
-          else
-            docker_build_status="failed"
-            overall_status="failed"
-            echo "::error title=Docker build::Docker build failed. See ci-logs/docker-build.log in the CI artifact."
-          fi
+          echo "=== Deployable image builds ==="
+          docker_build_status="passed"
+          build_image() {
+            local label="$1"
+            local tag="$2"
+            local logfile="$3"
+            shift 3
+
+            echo "=== ${label} ==="
+            docker build --pull -t "$tag" "$@" >"$logfile" 2>&1
+            local rc=$?
+            docker rmi "$tag" >/dev/null 2>&1 || true
+            cat "$logfile"
+            if [[ $rc -ne 0 ]]; then
+              docker_build_status="failed"
+              overall_status="failed"
+              echo "::error title=${label}::${label} failed. See ${logfile} in the CI artifact."
+            fi
+          }
+
+          build_image "Frontend image build" "fitness-pals-frontend:ci-${GITHUB_SHA}" \
+            "ci-logs/docker-build-frontend.log" -f frontend/Dockerfile frontend
+          build_image "Backend/worker image build" "fitness-pals-backend:ci-${GITHUB_SHA}" \
+            "ci-logs/docker-build-backend.log" -f backend/Dockerfile backend
+          build_image "Training-agent image build" "$CI_IMAGE_TAG" \
+            "ci-logs/docker-build-training-agent.log" -f services/training_agent/Dockerfile .
 
           echo "=== Backend tests ==="
           bash -c "pytest -vv --maxfail=1 --disable-warnings --cov=backend --cov=services/training_agent --cov-report=term-missing backend/tests services/training_agent/tests" >"ci-logs/backend-test.log" 2>&1
@@ -156,13 +164,9 @@ jobs:
             echo "::error title=Backend tests::Backend tests failed. See ci-logs/backend-test.log in the CI artifact."
           fi
 
-          if [ -n "$frontend_root" ]; then
+          if [ "$frontend_metadata_status" = "passed" ]; then
             echo "=== Frontend install (${frontend_root}) ==="
-            install_cmd="npm ci"
-            if [ ! -f "$frontend_root/package-lock.json" ] && [ ! -f "$frontend_root/npm-shrinkwrap.json" ]; then
-              install_cmd="npm install"
-            fi
-            (cd "$frontend_root" && $install_cmd) >"ci-logs/frontend-install.log" 2>&1
+            (cd "$frontend_root" && npm ci) >"ci-logs/frontend-install.log" 2>&1
             cat "ci-logs/frontend-install.log"
             rc=$?
             if [[ $rc -ne 0 ]]; then
@@ -176,6 +180,10 @@ jobs:
               run_cmd "Frontend tests" frontend_test_status "ci-logs/frontend-test.log" bash -c "cd \"$frontend_root\" && npm test --if-present -- --watch=false"
               run_cmd "Frontend build" frontend_build_status "ci-logs/frontend-build.log" bash -c "cd \"$frontend_root\" && npm run build --if-present"
             fi
+          else
+            frontend_lint_status="failed"
+            frontend_test_status="failed"
+            frontend_build_status="failed"
           fi
 
           timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"

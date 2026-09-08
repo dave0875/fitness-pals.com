@@ -18,6 +18,41 @@ test("frontend image carries the deployment commit", () => {
   assert.ok(releasePage.includes("NEXT_PUBLIC_RUNTRAINER_RELEASE_SHA"));
 });
 
+test("frontend dependency metadata is mandatory and reproducible", () => {
+  const workflow = read(".github/workflows/ci-cd.yml");
+  const dockerfile = read("frontend/Dockerfile");
+
+  assert.ok(workflow.includes('frontend_root="frontend"'));
+  assert.ok(workflow.includes("for manifest in package.json package-lock.json"));
+  assert.ok(workflow.includes("the frontend is not buildable"));
+  assert.ok(workflow.includes("overall_status=\"failed\""));
+  assert.ok(workflow.includes("(cd \"$frontend_root\" && npm ci)"));
+  assert.ok(!workflow.includes('for path in frontend web app ui'));
+  assert.ok(!workflow.includes('install_cmd="npm install"'));
+  assert.ok(dockerfile.includes("COPY package.json package-lock.json ./"));
+  assert.ok(dockerfile.includes("RUN npm ci --omit=dev"));
+});
+
+test("required CI builds every deployable application image", () => {
+  const workflow = read(".github/workflows/ci-cd.yml");
+
+  assert.ok(
+    workflow.includes(
+      '"ci-logs/docker-build-frontend.log" -f frontend/Dockerfile frontend'
+    )
+  );
+  assert.ok(
+    workflow.includes(
+      '"ci-logs/docker-build-backend.log" -f backend/Dockerfile backend'
+    )
+  );
+  assert.ok(
+    workflow.includes(
+      '"ci-logs/docker-build-training-agent.log" -f services/training_agent/Dockerfile .'
+    )
+  );
+});
+
 test("production deploy recreates and verifies the exact frontend release", () => {
   const workflow = read(".github/workflows/ci-cd.yml");
 
