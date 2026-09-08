@@ -41,6 +41,8 @@ jobs:
       RUNTRAINER_FERNET_KEY: 1TvhF4GaxnOIBIq74rU9VrAXaxoBZw-oTCT3vJWRTwc=
       GRAFANA_OIDC_CLIENT_ID: ci-grafana-client
       GRAFANA_OIDC_CLIENT_SECRET: ci-grafana-secret
+      DOCKER_BUILDKIT: 1
+      BUILDKIT_PROGRESS: plain
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -51,6 +53,21 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            services/training_agent/requirements.txt
+            services/training_agent/requirements-dev.txt
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Install dependencies (backend + training agent)
         run: |
@@ -119,6 +136,55 @@ jobs:
             fi
           }
 
+          declare -A image_build_pids
+          declare -A image_build_labels
+          declare -A image_build_logs
+
+          start_image_build() {
+            local key="$1"
+            local label="$2"
+            local tag="$3"
+            local logfile="$4"
+            shift 4
+
+            (
+              docker build --pull -t "$tag" "$@" >"$logfile" 2>&1
+              rc=$?
+              docker rmi "$tag" >/dev/null 2>&1 || true
+              exit "$rc"
+            ) &
+            image_build_pids["$key"]=$!
+            image_build_labels["$key"]="$label"
+            image_build_logs["$key"]="$logfile"
+          }
+
+          wait_for_image_build() {
+            local key="$1"
+            local status_var="$2"
+            local label="${image_build_labels[$key]}"
+            local logfile="${image_build_logs[$key]}"
+            local status="passed"
+
+            echo "=== ${label} ==="
+            if ! wait "${image_build_pids[$key]}"; then
+              status="failed"
+              overall_status="failed"
+              echo "::error title=${label}::${label} failed. See ${logfile} in the CI artifact."
+            fi
+            cat "$logfile"
+            printf -v "$status_var" '%s' "$status"
+          }
+
+          echo "=== Start deployable image builds in parallel ==="
+          start_image_build frontend "Frontend image build" \
+            "fitness-pals-frontend:ci-${GITHUB_SHA}" \
+            "ci-logs/docker-build-frontend.log" -f frontend/Dockerfile frontend
+          start_image_build backend "Backend/worker image build" \
+            "fitness-pals-backend:ci-${GITHUB_SHA}" \
+            "ci-logs/docker-build-backend.log" -f backend/Dockerfile backend
+          start_image_build training_agent "Training-agent image build" \
+            "$CI_IMAGE_TAG" "ci-logs/docker-build-training-agent.log" -f services/training_agent/Dockerfile .
+
           echo "=== Validate deployment Compose configurations ==="
           run_cmd "Deployment Compose configurations" compose_config_status \
             "ci-logs/compose-config.log" bash -c \
@@ -139,33 +205,6 @@ jobs:
             echo "::error title=Backend typecheck::Backend typecheck/migrations failed. See ci-logs/backend-typecheck.log in the CI artifact."
           fi
 
-          echo "=== Deployable image builds ==="
-          docker_build_status="passed"
-          build_image() {
-            local label="$1"
-            local tag="$2"
-            local logfile="$3"
-            shift 3
-
-            echo "=== ${label} ==="
-            docker build --pull -t "$tag" "$@" >"$logfile" 2>&1
-            local rc=$?
-            docker rmi "$tag" >/dev/null 2>&1 || true
-            cat "$logfile"
-            if [[ $rc -ne 0 ]]; then
-              docker_build_status="failed"
-              overall_status="failed"
-              echo "::error title=${label}::${label} failed. See ${logfile} in the CI artifact."
-            fi
-          }
-
-          build_image "Frontend image build" "fitness-pals-frontend:ci-${GITHUB_SHA}" \
-            "ci-logs/docker-build-frontend.log" -f frontend/Dockerfile frontend
-          build_image "Backend/worker image build" "fitness-pals-backend:ci-${GITHUB_SHA}" \
-            "ci-logs/docker-build-backend.log" -f backend/Dockerfile backend
-          build_image "Training-agent image build" "$CI_IMAGE_TAG" \
-            "ci-logs/docker-build-training-agent.log" -f services/training_agent/Dockerfile .
-
           echo "=== Backend tests ==="
           bash -c "pytest -vv --maxfail=1 --disable-warnings --cov=backend --cov=services/training_agent --cov-report=term-missing backend/tests services/training_agent/tests" >"ci-logs/backend-test.log" 2>&1
           rc=$?
@@ -181,8 +220,8 @@ jobs:
           if [ "$frontend_metadata_status" = "passed" ]; then
             echo "=== Frontend install (${frontend_root}) ==="
             (cd "$frontend_root" && npm ci) >"ci-logs/frontend-install.log" 2>&1
-            cat "ci-logs/frontend-install.log"
             rc=$?
+            cat "ci-logs/frontend-install.log"
             if [[ $rc -ne 0 ]]; then
               frontend_lint_status="failed"
               frontend_test_status="failed"
@@ -192,13 +231,30 @@ jobs:
             else
               run_cmd "Frontend lint" frontend_lint_status "ci-logs/frontend-lint.log" bash -c "cd \"$frontend_root\" && npm run lint --if-present"
               run_cmd "Frontend tests" frontend_test_status "ci-logs/frontend-test.log" bash -c "cd \"$frontend_root\" && npm test --if-present -- --watch=false"
-              run_cmd "Frontend build" frontend_build_status "ci-logs/frontend-build.log" bash -c "cd \"$frontend_root\" && npm run build --if-present"
             fi
           else
             frontend_lint_status="failed"
             frontend_test_status="failed"
-            frontend_build_status="failed"
           fi
+
+          echo "=== Collect deployable image build results ==="
+          docker_build_status="passed"
+          frontend_image_status="not_run"
+          backend_image_status="not_run"
+          training_agent_image_status="not_run"
+          wait_for_image_build frontend frontend_image_status
+          wait_for_image_build backend backend_image_status
+          wait_for_image_build training_agent training_agent_image_status
+          frontend_build_status="$frontend_image_status"
+          cp ci-logs/docker-build-frontend.log ci-logs/frontend-build.log
+          for image_status in \
+            "$frontend_image_status" \
+            "$backend_image_status" \
+            "$training_agent_image_status"; do
+            if [ "$image_status" != "passed" ]; then
+              docker_build_status="failed"
+            fi
+          done
 
           timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
