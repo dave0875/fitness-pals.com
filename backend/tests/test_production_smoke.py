@@ -74,6 +74,18 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
             raise http_error(url, 401, {"detail": "Credentials missing"})
         if url.endswith("/api/health-check"):
             return FakeResponse(200, {"status": "ok"})
+        if url.endswith("/-/health/ready/"):
+            return FakeResponse(200, "ok")
+        if url.endswith("/.well-known/openid-configuration"):
+            return FakeResponse(
+                200,
+                {
+                    "issuer": (
+                        "https://auth.fitness-pals.com/application/o/"
+                        "fitness-pals-web/"
+                    )
+                },
+            )
         if url.endswith("/ready"):
             return FakeResponse(200, {"status": "ok"})
         if url.endswith("/deploy-version"):
@@ -89,12 +101,37 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         expected_release=release,
         auth_token=token,
         timeout_seconds=1,
+        route_timeout_seconds=1,
         retry_interval_seconds=0,
         opener=opener,
     )
 
-    assert len(seen) == 8
+    assert len(seen) == 10
     assert sum(authorization is not None for _, authorization in seen) == 1
+
+
+def test_production_smoke_reports_authentik_tunnel_drift_before_login() -> None:
+    seen: list[str] = []
+
+    def opener(request, timeout):
+        del timeout
+        seen.append(request.full_url)
+        raise http_error(request.full_url, 502)
+
+    with pytest.raises(
+        SystemExit,
+        match="Authentik readiness.*prod-fitness-pals.*received 502",
+    ):
+        smoke_production.verify_production(
+            expected_release="abc123",
+            auth_token="short-lived-token",
+            timeout_seconds=60,
+            route_timeout_seconds=0,
+            retry_interval_seconds=0,
+            opener=opener,
+        )
+
+    assert seen == ["https://auth.fitness-pals.com/-/health/ready/"]
 
 
 def test_production_smoke_rejects_login_page_that_does_not_redirect() -> None:

@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 DEFAULT_USER_AGENT = "curl/8.7.1 fitness-pals-smoke/1.0"
+PRODUCTION_TUNNEL_NAME = "prod-fitness-pals"
+WEB_OIDC_PROVIDER_SLUG = "fitness-pals-web"
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -41,6 +43,7 @@ class Probe:
     expected_json: dict[str, object] | None = None
     require_json_object: bool = False
     redirect_host: str | None = None
+    route_contract: bool = False
 
 
 def _open(request: urllib.request.Request, timeout: int):
@@ -151,7 +154,35 @@ def production_probes(
     api = api_base_url.rstrip("/")
     grafana = grafana_base_url.rstrip("/")
     training = training_base_url.rstrip("/")
+    auth = auth_base_url.rstrip("/")
+    expected_issuer = f"{auth}/application/o/{WEB_OIDC_PROVIDER_SLUG}/"
     return [
+        Probe(
+            name=(
+                "Authentik readiness "
+                f"(expected tunnel {PRODUCTION_TUNNEL_NAME})"
+            ),
+            url=f"{auth}/-/health/ready/",
+            expected_statuses=(200,),
+            route_contract=True,
+        ),
+        Probe(
+            name=(
+                "Authentik OIDC discovery "
+                f"(expected tunnel {PRODUCTION_TUNNEL_NAME})"
+            ),
+            url=f"{expected_issuer}.well-known/openid-configuration",
+            expected_statuses=(200,),
+            expected_json={"issuer": expected_issuer},
+            route_contract=True,
+        ),
+        Probe(
+            name=f"backend readiness (expected tunnel {PRODUCTION_TUNNEL_NAME})",
+            url=f"{api}/ready",
+            expected_statuses=(200,),
+            expected_json={"status": "ok"},
+            route_contract=True,
+        ),
         login_probe(web, auth_base_url),
         Probe(
             name="unauthenticated session",
@@ -162,12 +193,6 @@ def production_probes(
         Probe(
             name="API health",
             url=f"{web}/api/health-check",
-            expected_statuses=(200,),
-            expected_json={"status": "ok"},
-        ),
-        Probe(
-            name="backend readiness",
-            url=f"{api}/ready",
             expected_statuses=(200,),
             expected_json={"status": "ok"},
         ),
@@ -204,6 +229,7 @@ def verify_production(
     expected_release: str,
     auth_token: str,
     timeout_seconds: int,
+    route_timeout_seconds: int | None = None,
     retry_interval_seconds: float = 2,
     request_timeout_seconds: int = 15,
     opener: OpenUrl = _open,
@@ -212,6 +238,8 @@ def verify_production(
     """Verify every mandatory production probe."""
     if not auth_token:
         raise SystemExit("RUNTRAINER_SMOKE_AUTH_TOKEN is required")
+    if route_timeout_seconds is None:
+        route_timeout_seconds = timeout_seconds
     for probe in production_probes(
         expected_release=expected_release,
         auth_token=auth_token,
@@ -219,7 +247,9 @@ def verify_production(
     ):
         verify_probe(
             probe,
-            timeout_seconds=timeout_seconds,
+            timeout_seconds=(
+                route_timeout_seconds if probe.route_contract else timeout_seconds
+            ),
             retry_interval_seconds=retry_interval_seconds,
             request_timeout_seconds=request_timeout_seconds,
             opener=opener,
@@ -231,6 +261,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--expected-release", required=True)
     parser.add_argument("--timeout", type=int, default=180)
+    parser.add_argument("--route-timeout", type=int, default=30)
     parser.add_argument("--request-timeout", type=int, default=15)
     parser.add_argument("--web-base-url", default="https://fitness-pals.com")
     parser.add_argument("--api-base-url", default="https://api.fitness-pals.com")
@@ -248,6 +279,7 @@ def main() -> int:
         expected_release=args.expected_release,
         auth_token=os.environ.get("RUNTRAINER_SMOKE_AUTH_TOKEN", ""),
         timeout_seconds=args.timeout,
+        route_timeout_seconds=args.route_timeout,
         request_timeout_seconds=args.request_timeout,
         web_base_url=args.web_base_url,
         api_base_url=args.api_base_url,

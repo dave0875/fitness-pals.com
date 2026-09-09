@@ -186,6 +186,8 @@ services:
     profiles:
       - docker-tunnel
     depends_on:
+      authentik-server:
+        condition: service_healthy
       backend:
         condition: service_healthy
       frontend:
@@ -353,4 +355,6 @@ volumes:
     name: garmin-grafana_grafana_data
   authentik_data:
   postgres_data:
+    external: true
+    name: ${RUNTRAINER_POSTGRES_VOLUME_NAME:-fitness-palscom_postgres_data}
   redis_data:
