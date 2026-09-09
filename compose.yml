@@ -353,4 +353,6 @@ volumes:
     name: garmin-grafana_grafana_data
   authentik_data:
   postgres_data:
+    external: true
+    name: ${RUNTRAINER_POSTGRES_VOLUME_NAME:-fitness-palscom_postgres_data}
   redis_data:
