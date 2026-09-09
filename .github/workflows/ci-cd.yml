@@ -12,7 +12,7 @@ on:
         default: false
         type: boolean
       preflight_prod_containers:
-        description: Read-only validation of legacy stateful containers on the prod runner
+        description: Non-mutating validation of prod containers and backup destination
         required: false
         default: false
         type: boolean
@@ -391,12 +391,13 @@ jobs:
         if: always() && steps.run_checks.outputs.overall_status != 'passed'
         run: exit 1
 
-      - name: Preflight production legacy container identity
+      - name: Preflight production container and backup destination
         if: github.event_name == 'workflow_dispatch' && inputs.preflight_prod_containers
         run: |
           python3 scripts/reconcile_compose_container_names.py \
             --dry-run \
             --project fitness-palscom \
+            --backup-dir /home/ghrunner/fitness-pals-backups/pre-compose-migration \
             --legacy-project fitness-pals-deploy \
             --legacy-project garmin-grafana \
             --legacy-project garmin_grafana \
@@ -649,7 +650,7 @@ jobs:
       COMPOSE_PROJECT_NAME: fitness-palscom
       RUNTRAINER_RELEASE_SHA: ${{ github.sha }}
       RUN_AS_USER: fitness-pals
-      STATEFUL_BACKUP_DIR: /home/fitness-pals/fitness-pals.com-backups/pre-compose-migration
+      STATEFUL_BACKUP_DIR: /home/ghrunner/fitness-pals-backups/pre-compose-migration
       GRAFANA_OIDC_CLIENT_ID: ${{ secrets.GRAFANA_OIDC_CLIENT_ID }}
       GRAFANA_OIDC_CLIENT_SECRET: ${{ secrets.GRAFANA_OIDC_CLIENT_SECRET }}
     steps:

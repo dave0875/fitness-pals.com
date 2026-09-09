@@ -13,7 +13,9 @@ from pathlib import Path
 import subprocess
 import sys
 import tarfile
+import tempfile
 from typing import Literal, Mapping, Sequence
+import uuid
 
 
 class ContainerConflictError(RuntimeError):
@@ -222,6 +224,62 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _preflight_backup_destination(
+    plan: ReconciliationPlan, backup_dir: Path
+) -> None:
+    """Prove the runner and backup sidecar can write the durable host path."""
+    if not plan.image:
+        raise ContainerConflictError(
+            "cannot preflight the backup destination without the InfluxDB image identity"
+        )
+
+    backup_root = backup_dir.expanduser().resolve()
+    backup_root.mkdir(parents=True, exist_ok=True)
+
+    host_probe: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=backup_root,
+            prefix=".host-write-probe-",
+            delete=False,
+        ) as probe:
+            host_probe = Path(probe.name)
+            probe.write(b"backup destination preflight\n")
+            probe.flush()
+            os.fsync(probe.fileno())
+    finally:
+        if host_probe is not None:
+            host_probe.unlink(missing_ok=True)
+
+    docker_probe_name = f".docker-write-probe-{uuid.uuid4().hex}"
+    docker_probe = backup_root / docker_probe_name
+    try:
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--user",
+                f"{os.getuid()}:{os.getgid()}",
+                "--mount",
+                f"type=bind,src={backup_root},dst=/backup",
+                "--entrypoint",
+                "sh",
+                plan.image,
+                "-c",
+                'set -eu; probe="/backup/$1"; : > "$probe"; rm -f "$probe"',
+                "reconcile-preflight",
+                docker_probe_name,
+            ],
+            check=True,
+        )
+    finally:
+        docker_probe.unlink(missing_ok=True)
+
+    print(f"Verified backup destination write access at {backup_root}.")
+
+
 def _create_influxdb_backup(plan: ReconciliationPlan, backup_dir: Path) -> None:
     if plan.container_id is None:
         raise ContainerConflictError("cannot back up an absent InfluxDB container")
@@ -315,10 +373,15 @@ def reconcile_services(
         raise ContainerConflictError(
             "legacy InfluxDB must be running to create a portable backup"
         )
-    if influx_replacements and backup_dir is None and not dry_run:
+    if influx_replacements and backup_dir is None:
         raise ContainerConflictError(
-            "an InfluxDB backup directory is required before container replacement"
+            "an InfluxDB backup directory is required before container reconciliation"
         )
+
+    for plan in influx_replacements:
+        assert backup_dir is not None
+        _preflight_backup_destination(plan, backup_dir)
+
     if dry_run:
         for plan in plans:
             _report_plan(plan, dry_run=True)
@@ -388,7 +451,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Validate and report actions without backup, stop, or removal",
+        help=(
+            "Validate container identity and backup destination, then report actions "
+            "without backup, stop, or removal"
+        ),
     )
     parser.add_argument("services", nargs="+", choices=sorted(SERVICE_SPECS))
     return parser.parse_args()
