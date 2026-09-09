@@ -31,6 +31,7 @@ def _container(
     volume: str | None = None,
     destination: str | None = None,
     running: bool = True,
+    postgres_user: str = "postgres",
 ) -> dict[str, object]:
     spec = SERVICE_SPECS[service]
     labels: dict[str, str] = {}
@@ -44,7 +45,13 @@ def _container(
     return {
         "Id": f"legacy-{service}",
         "Name": f"/{spec.container_name}",
-        "Config": {"Image": image or spec.image_repositories[0], "Labels": labels},
+        "Config": {
+            "Image": image or spec.image_repositories[0],
+            "Labels": labels,
+            "Env": [f"POSTGRES_USER={postgres_user}"]
+            if service == "runtrainer-postgres"
+            else [],
+        },
         "State": {"Running": running},
         "Mounts": [
             {
@@ -56,7 +63,7 @@ def _container(
     }
 
 
-@pytest.mark.parametrize("service", ["influxdb", "grafana"])
+@pytest.mark.parametrize("service", ["runtrainer-postgres", "influxdb", "grafana"])
 def test_recognized_legacy_compose_container_is_replaced(service: str):
     assert (
         classify_container(
@@ -69,12 +76,28 @@ def test_recognized_legacy_compose_container_is_replaced(service: str):
     )
 
 
-@pytest.mark.parametrize("service", ["influxdb", "grafana"])
+@pytest.mark.parametrize("service", ["runtrainer-postgres", "influxdb", "grafana"])
 def test_production_deploy_project_is_a_recognized_legacy_owner(service: str):
     assert (
         classify_container(
             _container(service, project="fitness-pals-deploy"),
             SERVICE_SPECS[service],
+            current_project="fitness-palscom",
+            legacy_projects={"fitness-pals-deploy"},
+        )
+        == "replace"
+    )
+
+
+def test_legacy_postgres_service_alias_is_recognized():
+    assert (
+        classify_container(
+            _container(
+                "runtrainer-postgres",
+                project="fitness-pals-deploy",
+                service_label="postgres",
+            ),
+            SERVICE_SPECS["runtrainer-postgres"],
             current_project="fitness-palscom",
             legacy_projects={"fitness-pals-deploy"},
         )
@@ -188,6 +211,144 @@ def test_stopped_influxdb_fails_before_backup_or_removal(monkeypatch, tmp_path):
         )
 
     assert commands == []
+
+
+def test_postgres_replacement_requires_running_database_and_backup_destination(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        reconciliation, "_container_ids", lambda _name: ["legacy-postgres"]
+    )
+    monkeypatch.setattr(
+        reconciliation,
+        "_inspect",
+        lambda _container_id: _container(
+            "runtrainer-postgres", project="fitness-pals-deploy", running=False
+        ),
+    )
+
+    with pytest.raises(ContainerConflictError, match="PostgreSQL must be running"):
+        reconciliation.reconcile_services(
+            ["runtrainer-postgres"],
+            current_project="fitness-palscom",
+            legacy_projects={"fitness-pals-deploy"},
+            backup_dir=tmp_path,
+        )
+
+
+def test_postgres_backup_is_verified_before_stop_and_removal(monkeypatch, tmp_path):
+    container_id = "legacy-postgres-container-id"
+    events: list[str] = []
+    monkeypatch.setattr(reconciliation, "_container_ids", lambda _name: [container_id])
+    monkeypatch.setattr(
+        reconciliation,
+        "_inspect",
+        lambda _container_id: _container(
+            "runtrainer-postgres", project="fitness-pals-deploy"
+        ),
+    )
+    monkeypatch.setattr(
+        reconciliation,
+        "_preflight_backup_destination",
+        lambda _plan, _backup_dir: events.append("preflight"),
+    )
+    monkeypatch.setattr(
+        reconciliation,
+        "_create_postgres_backup",
+        lambda _plan, _backup_dir: events.append("backup"),
+    )
+    monkeypatch.setattr(
+        reconciliation.subprocess,
+        "run",
+        lambda command, **_kwargs: events.append(" ".join(command))
+        or SimpleNamespace(),
+    )
+
+    reconciliation.reconcile_services(
+        ["runtrainer-postgres"],
+        current_project="fitness-palscom",
+        legacy_projects={"fitness-pals-deploy"},
+        backup_dir=tmp_path,
+    )
+
+    assert events == [
+        "preflight",
+        "backup",
+        f"docker stop --time 60 {container_id}",
+        f"docker rm {container_id}",
+    ]
+
+
+def test_postgres_backup_uses_pg_dumpall_and_writes_checksum(monkeypatch, tmp_path):
+    container_id = "legacy-postgres-container-id"
+    commands: list[list[str]] = []
+    plan = ReconciliationPlan(
+        service="runtrainer-postgres",
+        spec=SERVICE_SPECS["runtrainer-postgres"],
+        container_id=container_id,
+        action="replace",
+        was_running=True,
+        image="postgres:15",
+        database_user="app_owner",
+    )
+
+    def run(command: list[str], **kwargs):
+        commands.append(command)
+        kwargs["stdout"].write(
+            b"-- PostgreSQL database cluster dump\n"
+            b"CREATE DATABASE runtrainer;\n"
+            b"-- PostgreSQL database cluster dump complete\n"
+        )
+        return SimpleNamespace()
+
+    monkeypatch.setattr(reconciliation.subprocess, "run", run)
+
+    reconciliation._create_postgres_backup(plan, tmp_path)
+
+    assert commands == [
+        [
+            "docker",
+            "exec",
+            "--user",
+            "postgres",
+            container_id,
+            "pg_dumpall",
+            "--clean",
+            "--if-exists",
+            "--username",
+            "app_owner",
+        ]
+    ]
+    sql_backup = next(tmp_path.glob("postgres-pre-compose-*.sql"))
+    assert sql_backup.stat().st_mode & 0o777 == 0o600
+    checksum = sql_backup.with_suffix(".sql.sha256").read_text(encoding="utf-8")
+    assert sql_backup.name in checksum
+    assert not list(tmp_path.glob("*.partial"))
+
+
+def test_incomplete_postgres_backup_fails_closed_and_removes_partial(
+    monkeypatch, tmp_path
+):
+    plan = ReconciliationPlan(
+        service="runtrainer-postgres",
+        spec=SERVICE_SPECS["runtrainer-postgres"],
+        container_id="legacy-postgres-container-id",
+        action="replace",
+        was_running=True,
+        image="postgres:15",
+        database_user="postgres",
+    )
+
+    def run(_command: list[str], **kwargs):
+        kwargs["stdout"].write(b"-- PostgreSQL database cluster dump\n")
+        return SimpleNamespace()
+
+    monkeypatch.setattr(reconciliation.subprocess, "run", run)
+
+    with pytest.raises(ContainerConflictError, match="completion marker"):
+        reconciliation._create_postgres_backup(plan, tmp_path)
+
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_portable_influxdb_backup_completes_before_stop_and_removal(
@@ -373,6 +534,42 @@ def test_dry_run_preflights_backup_without_changing_containers(
     assert "Would remove verified legacy /influxdb" in capsys.readouterr().out
 
 
+def test_postgres_dry_run_preflights_without_dump_stop_or_removal(
+    monkeypatch, tmp_path, capsys
+):
+    container_id = "legacy-postgres-container-id"
+    events: list[str] = []
+    monkeypatch.setattr(reconciliation, "_container_ids", lambda _name: [container_id])
+    monkeypatch.setattr(
+        reconciliation,
+        "_inspect",
+        lambda _container_id: _container(
+            "runtrainer-postgres", project="fitness-pals-deploy"
+        ),
+    )
+    monkeypatch.setattr(
+        reconciliation,
+        "_preflight_backup_destination",
+        lambda _plan, _backup_dir: events.append("preflight"),
+    )
+    monkeypatch.setattr(
+        reconciliation,
+        "_create_postgres_backup",
+        lambda _plan, _backup_dir: events.append("backup"),
+    )
+
+    reconciliation.reconcile_services(
+        ["runtrainer-postgres"],
+        current_project="fitness-palscom",
+        legacy_projects={"fitness-pals-deploy"},
+        backup_dir=tmp_path,
+        dry_run=True,
+    )
+
+    assert events == ["preflight"]
+    assert "Would remove verified legacy /runtrainer-postgres" in capsys.readouterr().out
+
+
 def test_inaccessible_backup_destination_fails_before_container_mutation(
     monkeypatch, tmp_path
 ):
@@ -478,6 +675,7 @@ def test_production_workflow_runs_guard_before_compose_reconciliation():
     assert '--backup-dir "$STATEFUL_BACKUP_DIR"' in guard_step
     assert "--legacy-project garmin-grafana" in guard_step
     assert "--legacy-project fitness-pals-deploy" in guard_step
+    assert "runtrainer-postgres" in guard_step
     assert "influxdb" in guard_step
     assert "grafana" in guard_step
 
@@ -499,3 +697,25 @@ def test_branch_dispatch_preflights_production_container_and_backup_destination(
         "/home/ghrunner/fitness-pals-backups/pre-compose-migration"
     ) in test_job
     assert "--legacy-project fitness-pals-deploy" in test_job
+    assert "runtrainer-postgres" in test_job
+
+
+def test_postgres_compose_volume_reuses_production_data_and_fails_if_missing():
+    compose = (REPOSITORY_ROOT / "compose.yml").read_text(encoding="utf-8")
+    volume_section = compose.rsplit("\nvolumes:\n", maxsplit=1)[1]
+    workflow = (REPOSITORY_ROOT / ".github/workflows/ci-cd.yml").read_text(
+        encoding="utf-8"
+    )
+    prod_job = workflow.split("  deploy-prod:\n", maxsplit=1)[1]
+
+    assert "postgres_data:\n    external: true" in volume_section
+    assert (
+        "name: ${RUNTRAINER_POSTGRES_VOLUME_NAME:-fitness-palscom_postgres_data}"
+        in volume_section
+    )
+    assert (
+        "RUNTRAINER_POSTGRES_VOLUME_NAME: fitness-pals-deploy_postgres_data"
+        in prod_job
+    )
+    assert 'docker volume inspect "$RUNTRAINER_POSTGRES_VOLUME_NAME"' in prod_job
+    assert 'docker volume create "$RUNTRAINER_POSTGRES_VOLUME_NAME"' not in prod_job

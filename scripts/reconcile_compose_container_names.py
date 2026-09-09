@@ -25,6 +25,7 @@ class ContainerConflictError(RuntimeError):
 @dataclass(frozen=True)
 class ServiceSpec:
     container_name: str
+    legacy_service_names: tuple[str, ...]
     image_repositories: tuple[str, ...]
     volume_name: str
     volume_destination: str
@@ -38,17 +39,27 @@ class ReconciliationPlan:
     action: Literal["absent", "keep", "replace"]
     was_running: bool = False
     image: str | None = None
+    database_user: str | None = None
 
 
 SERVICE_SPECS = {
+    "runtrainer-postgres": ServiceSpec(
+        container_name="runtrainer-postgres",
+        legacy_service_names=("runtrainer-postgres", "postgres"),
+        image_repositories=("postgres", "docker.io/library/postgres"),
+        volume_name="fitness-pals-deploy_postgres_data",
+        volume_destination="/var/lib/postgresql/data",
+    ),
     "influxdb": ServiceSpec(
         container_name="influxdb",
+        legacy_service_names=("influxdb",),
         image_repositories=("influxdb", "docker.io/library/influxdb"),
         volume_name="garmin-grafana_influxdb_data",
         volume_destination="/var/lib/influxdb",
     ),
     "grafana": ServiceSpec(
         container_name="grafana",
+        legacy_service_names=("grafana",),
         image_repositories=("grafana/grafana", "docker.io/grafana/grafana"),
         volume_name="garmin-grafana_grafana_data",
         volume_destination="/var/lib/grafana",
@@ -98,7 +109,7 @@ def classify_container(
 
     if project is not None and project not in legacy_projects:
         raise ContainerConflictError(f"container belongs to unexpected Compose project {project!r}")
-    if service is not None and service != spec.container_name:
+    if service is not None and service not in spec.legacy_service_names:
         raise ContainerConflictError(f"container has unexpected Compose service {service!r}")
 
     image = str(config.get("Image", ""))
@@ -178,6 +189,23 @@ def _plan_service(
     was_running = isinstance(state, Mapping) and state.get("Running") is True
     config = inspected.get("Config") or {}
     image = str(config.get("Image", "")) if isinstance(config, Mapping) else ""
+    database_user: str | None = None
+    if service == "runtrainer-postgres":
+        raw_environment = config.get("Env") if isinstance(config, Mapping) else None
+        if not isinstance(raw_environment, Sequence) or isinstance(
+            raw_environment, (str, bytes)
+        ):
+            raise ContainerConflictError(
+                "PostgreSQL container has invalid environment metadata"
+            )
+        for entry in raw_environment:
+            if isinstance(entry, str) and entry.startswith("POSTGRES_USER="):
+                database_user = entry.partition("=")[2]
+                break
+        if not database_user:
+            raise ContainerConflictError(
+                "PostgreSQL container does not declare POSTGRES_USER"
+            )
     return ReconciliationPlan(
         service=service,
         spec=spec,
@@ -185,6 +213,7 @@ def _plan_service(
         action=action,
         was_running=was_running,
         image=image,
+        database_user=database_user,
     )
 
 
@@ -230,7 +259,7 @@ def _preflight_backup_destination(
     """Prove the runner and backup sidecar can write the durable host path."""
     if not plan.image:
         raise ContainerConflictError(
-            "cannot preflight the backup destination without the InfluxDB image identity"
+            "cannot preflight the backup destination without the database image identity"
         )
 
     backup_root = backup_dir.expanduser().resolve()
@@ -278,6 +307,83 @@ def _preflight_backup_destination(
         docker_probe.unlink(missing_ok=True)
 
     print(f"Verified backup destination write access at {backup_root}.")
+
+
+def _validate_postgres_backup(backup_path: Path) -> None:
+    if not backup_path.is_file() or backup_path.stat().st_size == 0:
+        raise ContainerConflictError(
+            f"PostgreSQL cluster backup is missing or empty: {backup_path}"
+        )
+    with backup_path.open("rb") as backup_file:
+        header = backup_file.read(4096)
+        backup_file.seek(max(0, backup_path.stat().st_size - 8192))
+        footer = backup_file.read()
+    if b"-- PostgreSQL database cluster dump" not in header:
+        raise ContainerConflictError("PostgreSQL backup has no cluster-dump header")
+    if b"-- PostgreSQL database cluster dump complete" not in footer:
+        raise ContainerConflictError("PostgreSQL backup has no completion marker")
+
+
+def _create_postgres_backup(plan: ReconciliationPlan, backup_dir: Path) -> None:
+    if plan.container_id is None:
+        raise ContainerConflictError("cannot back up an absent PostgreSQL container")
+    if not plan.database_user:
+        raise ContainerConflictError(
+            "cannot back up PostgreSQL without its database user identity"
+        )
+
+    backup_root = backup_dir.expanduser().resolve()
+    backup_root.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup_name = f"postgres-pre-compose-{stamp}-{plan.container_id[:12]}.sql"
+    backup_path = backup_root / backup_name
+    partial_path = backup_path.with_suffix(".sql.partial")
+    if backup_path.exists() or partial_path.exists():
+        raise ContainerConflictError(f"backup destination already exists: {backup_path}")
+
+    try:
+        descriptor = os.open(
+            partial_path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+        with os.fdopen(descriptor, "wb") as backup_file:
+            subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    "--user",
+                    "postgres",
+                    plan.container_id,
+                    "pg_dumpall",
+                    "--clean",
+                    "--if-exists",
+                    "--username",
+                    plan.database_user,
+                ],
+                check=True,
+                stdout=backup_file,
+            )
+            backup_file.flush()
+            os.fsync(backup_file.fileno())
+        _validate_postgres_backup(partial_path)
+        partial_path.replace(backup_path)
+    except Exception:
+        partial_path.unlink(missing_ok=True)
+        raise
+
+    checksum_path = backup_path.with_suffix(".sql.sha256")
+    descriptor = os.open(
+        checksum_path,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+        0o600,
+    )
+    with os.fdopen(descriptor, "w", encoding="utf-8") as checksum_file:
+        checksum_file.write(f"{_file_sha256(backup_path)}  {backup_path.name}\n")
+        checksum_file.flush()
+        os.fsync(checksum_file.fileno())
+
+    print(f"Verified PostgreSQL cluster backup at {backup_path}.")
 
 
 def _create_influxdb_backup(plan: ReconciliationPlan, backup_dir: Path) -> None:
@@ -355,7 +461,7 @@ def reconcile_services(
     backup_dir: Path | None = None,
     dry_run: bool = False,
 ) -> None:
-    """Validate every target, back up InfluxDB, then replace legacy containers."""
+    """Validate targets, back up databases, then replace legacy containers."""
     plans = [
         _plan_service(
             service,
@@ -368,17 +474,25 @@ def reconcile_services(
     influx_replacements = [
         plan for plan in replacements if plan.service == "influxdb"
     ]
+    postgres_replacements = [
+        plan for plan in replacements if plan.service == "runtrainer-postgres"
+    ]
+    database_replacements = postgres_replacements + influx_replacements
 
     if any(not plan.was_running for plan in influx_replacements):
         raise ContainerConflictError(
             "legacy InfluxDB must be running to create a portable backup"
         )
-    if influx_replacements and backup_dir is None:
+    if any(not plan.was_running for plan in postgres_replacements):
         raise ContainerConflictError(
-            "an InfluxDB backup directory is required before container reconciliation"
+            "legacy PostgreSQL must be running to create a cluster backup"
+        )
+    if database_replacements and backup_dir is None:
+        raise ContainerConflictError(
+            "a database backup directory is required before container reconciliation"
         )
 
-    for plan in influx_replacements:
+    for plan in database_replacements:
         assert backup_dir is not None
         _preflight_backup_destination(plan, backup_dir)
 
@@ -387,6 +501,9 @@ def reconcile_services(
             _report_plan(plan, dry_run=True)
         return
 
+    for plan in postgres_replacements:
+        assert backup_dir is not None
+        _create_postgres_backup(plan, backup_dir)
     for plan in influx_replacements:
         assert backup_dir is not None
         _create_influxdb_backup(plan, backup_dir)
@@ -446,7 +563,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--backup-dir",
         type=Path,
-        help="Host directory for the required portable InfluxDB backup",
+        help="Host directory for required database backups",
     )
     parser.add_argument(
         "--dry-run",

@@ -401,7 +401,7 @@ jobs:
             --legacy-project fitness-pals-deploy \
             --legacy-project garmin-grafana \
             --legacy-project garmin_grafana \
-            influxdb grafana
+            runtrainer-postgres influxdb grafana
 
   deploy-dev:
     name: Deploy to Dev
@@ -414,6 +414,7 @@ jobs:
       SECRET_ENV_PATH: /home/dbarker/fitness-pals.com-secrets/.env
       OVERLAY_ENV_PATH: /home/dbarker/fitness-pals.com-secrets/.env.authentik-oidc
       COMPOSE_PROJECT_NAME: fitness-palscom
+      RUNTRAINER_POSTGRES_VOLUME_NAME: fitness-palscom_postgres_data
       RUNTRAINER_RELEASE_SHA: ${{ github.sha }}
       GRAFANA_OIDC_CLIENT_ID: ${{ secrets.DEV_GRAFANA_OIDC_CLIENT_ID }}
       GRAFANA_OIDC_CLIENT_SECRET: ${{ secrets.DEV_GRAFANA_OIDC_CLIENT_SECRET }}
@@ -474,6 +475,7 @@ jobs:
 
       - name: Ensure external volumes exist
         run: |
+          docker volume inspect "$RUNTRAINER_POSTGRES_VOLUME_NAME" >/dev/null 2>&1 || docker volume create "$RUNTRAINER_POSTGRES_VOLUME_NAME"
           docker volume inspect garmin-grafana_influxdb_data >/dev/null 2>&1 || docker volume create garmin-grafana_influxdb_data
           docker volume inspect garmin-grafana_grafana_data >/dev/null 2>&1 || docker volume create garmin-grafana_grafana_data
 
@@ -648,6 +650,7 @@ jobs:
       SECRET_ENV_PATH: /home/fitness-pals/fitness-pals.com-secrets/.env
       OVERLAY_ENV_PATH: /home/fitness-pals/fitness-pals.com-secrets/.env.authentik-oidc
       COMPOSE_PROJECT_NAME: fitness-palscom
+      RUNTRAINER_POSTGRES_VOLUME_NAME: fitness-pals-deploy_postgres_data
       RUNTRAINER_RELEASE_SHA: ${{ github.sha }}
       RUN_AS_USER: fitness-pals
       STATEFUL_BACKUP_DIR: /home/ghrunner/fitness-pals-backups/pre-compose-migration
@@ -709,6 +712,7 @@ jobs:
 
       - name: Ensure external volumes exist
         run: |
+          docker volume inspect "$RUNTRAINER_POSTGRES_VOLUME_NAME" >/dev/null
           docker volume inspect garmin-grafana_influxdb_data >/dev/null 2>&1 || docker volume create garmin-grafana_influxdb_data
           docker volume inspect garmin-grafana_grafana_data >/dev/null 2>&1 || docker volume create garmin-grafana_grafana_data
 
@@ -746,7 +750,7 @@ jobs:
             --legacy-project fitness-pals-deploy \
             --legacy-project garmin-grafana \
             --legacy-project garmin_grafana \
-            influxdb grafana
+            runtrainer-postgres influxdb grafana
 
       - name: Reconcile complete production runtime
         run: |
