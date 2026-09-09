@@ -5,9 +5,14 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import hashlib
 import json
+import os
+from pathlib import Path
 import subprocess
 import sys
+import tarfile
 from typing import Literal, Mapping, Sequence
 
 
@@ -21,6 +26,16 @@ class ServiceSpec:
     image_repositories: tuple[str, ...]
     volume_name: str
     volume_destination: str
+
+
+@dataclass(frozen=True)
+class ReconciliationPlan:
+    service: str
+    spec: ServiceSpec
+    container_id: str | None
+    action: Literal["absent", "keep", "replace"]
+    was_running: bool = False
+    image: str | None = None
 
 
 SERVICE_SPECS = {
@@ -137,38 +152,223 @@ def _inspect(container_id: str) -> Mapping[str, object]:
     return container
 
 
-def reconcile_service(
+def _plan_service(
     service: str, *, current_project: str, legacy_projects: set[str]
-) -> None:
+) -> ReconciliationPlan:
     spec = SERVICE_SPECS[service]
     container_ids = _container_ids(spec.container_name)
     if not container_ids:
-        print(f"No existing /{spec.container_name} container; nothing to migrate.")
-        return
+        return ReconciliationPlan(service, spec, None, "absent")
     if len(container_ids) != 1:
         raise ContainerConflictError(
             f"expected at most one /{spec.container_name} container, found {len(container_ids)}"
         )
 
     container_id = container_ids[0]
+    inspected = _inspect(container_id)
     action = classify_container(
-        _inspect(container_id),
+        inspected,
         spec,
         current_project=current_project,
         legacy_projects=legacy_projects,
     )
-    if action == "keep":
+    state = inspected.get("State") or {}
+    was_running = isinstance(state, Mapping) and state.get("Running") is True
+    config = inspected.get("Config") or {}
+    image = str(config.get("Image", "")) if isinstance(config, Mapping) else ""
+    return ReconciliationPlan(
+        service=service,
+        spec=spec,
+        container_id=container_id,
+        action=action,
+        was_running=was_running,
+        image=image,
+    )
+
+
+def _validate_portable_backup(backup_path: Path) -> list[Path]:
+    if not backup_path.is_dir():
+        raise ContainerConflictError(
+            f"InfluxDB portable backup was not copied to {backup_path}"
+        )
+    files = sorted(path for path in backup_path.iterdir() if path.is_file())
+    manifests = [path for path in files if path.suffix == ".manifest"]
+    metadata = [path for path in files if path.suffix == ".meta"]
+    shards = [path for path in files if path.name.endswith(".tar.gz")]
+    if not manifests or not metadata or not shards:
+        raise ContainerConflictError(
+            "InfluxDB portable backup is incomplete; expected manifest, metadata, "
+            "and shard archive files"
+        )
+    for path in files:
+        if path.stat().st_size == 0:
+            raise ContainerConflictError(f"InfluxDB backup file is empty: {path.name}")
+    for shard in shards:
+        try:
+            with tarfile.open(shard, mode="r:gz") as archive:
+                archive.getmembers()
+        except (tarfile.TarError, OSError) as exc:
+            raise ContainerConflictError(
+                f"InfluxDB shard backup is unreadable: {shard.name}: {exc}"
+            ) from exc
+    return files
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _create_influxdb_backup(plan: ReconciliationPlan, backup_dir: Path) -> None:
+    if plan.container_id is None:
+        raise ContainerConflictError("cannot back up an absent InfluxDB container")
+    if not plan.image:
+        raise ContainerConflictError("cannot back up InfluxDB without its image identity")
+    backup_root = backup_dir.expanduser().resolve()
+    backup_root.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup_name = f"influxdb-pre-compose-{stamp}-{plan.container_id[:12]}"
+    host_path = backup_root / backup_name
+    if host_path.exists():
+        raise ContainerConflictError(f"backup destination already exists: {host_path}")
+
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--user",
+            f"{os.getuid()}:{os.getgid()}",
+            "--network",
+            f"container:{plan.container_id}",
+            "--mount",
+            f"type=bind,src={backup_root},dst=/backup",
+            "--entrypoint",
+            "influxd",
+            plan.image,
+            "backup",
+            "-portable",
+            f"/backup/{backup_name}",
+        ],
+        check=True,
+    )
+    files = _validate_portable_backup(host_path)
+
+    checksum_path = host_path / "SHA256SUMS"
+    with checksum_path.open("w", encoding="utf-8") as checksum_file:
+        for path in files:
+            digest = _file_sha256(path)
+            checksum_file.write(f"{digest}  {path.name}\n")
+        checksum_file.flush()
+        os.fsync(checksum_file.fileno())
+
+    print(f"Verified portable InfluxDB backup at {host_path}.")
+
+
+def _report_plan(plan: ReconciliationPlan, *, dry_run: bool) -> None:
+    if plan.action == "absent":
+        print(f"No existing /{plan.spec.container_name} container; nothing to migrate.")
+        return
+    if plan.container_id is None:
+        raise ContainerConflictError("reconciliation plan is missing a container id")
+    if plan.action == "keep":
         print(
-            f"Keeping current-project /{spec.container_name} container {container_id[:12]} "
+            f"Keeping current-project /{plan.spec.container_name} container "
+            f"{plan.container_id[:12]} "
             "for Docker Compose reconciliation."
         )
         return
 
+    prefix = "Would remove" if dry_run else "Removing"
     print(
-        f"Removing verified legacy /{spec.container_name} container {container_id[:12]}; "
-        f"named volume {spec.volume_name} is preserved."
+        f"{prefix} verified legacy /{plan.spec.container_name} container "
+        f"{plan.container_id[:12]}; named volume {plan.spec.volume_name} is preserved."
     )
-    subprocess.run(["docker", "rm", "-f", container_id], check=True)
+
+
+def reconcile_services(
+    services: Sequence[str],
+    *,
+    current_project: str,
+    legacy_projects: set[str],
+    backup_dir: Path | None = None,
+    dry_run: bool = False,
+) -> None:
+    """Validate every target, back up InfluxDB, then replace legacy containers."""
+    plans = [
+        _plan_service(
+            service,
+            current_project=current_project,
+            legacy_projects=legacy_projects,
+        )
+        for service in services
+    ]
+    replacements = [plan for plan in plans if plan.action == "replace"]
+    influx_replacements = [
+        plan for plan in replacements if plan.service == "influxdb"
+    ]
+
+    if any(not plan.was_running for plan in influx_replacements):
+        raise ContainerConflictError(
+            "legacy InfluxDB must be running to create a portable backup"
+        )
+    if influx_replacements and backup_dir is None and not dry_run:
+        raise ContainerConflictError(
+            "an InfluxDB backup directory is required before container replacement"
+        )
+    if dry_run:
+        for plan in plans:
+            _report_plan(plan, dry_run=True)
+        return
+
+    for plan in influx_replacements:
+        assert backup_dir is not None
+        _create_influxdb_backup(plan, backup_dir)
+
+    stopped: list[ReconciliationPlan] = []
+    removed_ids: set[str] = set()
+    try:
+        for plan in replacements:
+            if plan.container_id is not None and plan.was_running:
+                subprocess.run(
+                    ["docker", "stop", "--time", "60", plan.container_id], check=True
+                )
+                stopped.append(plan)
+        for plan in replacements:
+            if plan.container_id is None:
+                continue
+            _report_plan(plan, dry_run=False)
+            subprocess.run(["docker", "rm", plan.container_id], check=True)
+            removed_ids.add(plan.container_id)
+    except subprocess.CalledProcessError:
+        for plan in reversed(stopped):
+            if plan.container_id is not None and plan.container_id not in removed_ids:
+                subprocess.run(["docker", "start", plan.container_id], check=False)
+        raise
+
+    for plan in plans:
+        if plan.action != "replace":
+            _report_plan(plan, dry_run=False)
+
+
+def reconcile_service(
+    service: str,
+    *,
+    current_project: str,
+    legacy_projects: set[str],
+    backup_dir: Path | None = None,
+    dry_run: bool = False,
+) -> None:
+    reconcile_services(
+        [service],
+        current_project=current_project,
+        legacy_projects=legacy_projects,
+        backup_dir=backup_dir,
+        dry_run=dry_run,
+    )
 
 
 def _parse_args() -> argparse.Namespace:
@@ -180,6 +380,16 @@ def _parse_args() -> argparse.Namespace:
         default=[],
         help="Recognized legacy Compose project (repeatable)",
     )
+    parser.add_argument(
+        "--backup-dir",
+        type=Path,
+        help="Host directory for the required portable InfluxDB backup",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate and report actions without backup, stop, or removal",
+    )
     parser.add_argument("services", nargs="+", choices=sorted(SERVICE_SPECS))
     return parser.parse_args()
 
@@ -187,13 +397,19 @@ def _parse_args() -> argparse.Namespace:
 def main() -> int:
     args = _parse_args()
     try:
-        for service in args.services:
-            reconcile_service(
-                service,
-                current_project=args.project,
-                legacy_projects=set(args.legacy_project),
-            )
-    except (ContainerConflictError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+        reconcile_services(
+            args.services,
+            current_project=args.project,
+            legacy_projects=set(args.legacy_project),
+            backup_dir=args.backup_dir,
+            dry_run=args.dry_run,
+        )
+    except (
+        ContainerConflictError,
+        subprocess.CalledProcessError,
+        json.JSONDecodeError,
+        OSError,
+    ) as exc:
         print(f"Refusing unsafe container-name reconciliation: {exc}", file=sys.stderr)
         return 1
     return 0

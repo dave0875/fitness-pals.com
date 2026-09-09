@@ -11,6 +11,11 @@ on:
         required: false
         default: false
         type: boolean
+      preflight_prod_containers:
+        description: Read-only validation of legacy stateful containers on the prod runner
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -386,6 +391,17 @@ jobs:
         if: always() && steps.run_checks.outputs.overall_status != 'passed'
         run: exit 1
 
+      - name: Preflight production legacy container identity
+        if: github.event_name == 'workflow_dispatch' && inputs.preflight_prod_containers
+        run: |
+          python3 scripts/reconcile_compose_container_names.py \
+            --dry-run \
+            --project fitness-palscom \
+            --legacy-project fitness-pals-deploy \
+            --legacy-project garmin-grafana \
+            --legacy-project garmin_grafana \
+            influxdb grafana
+
   deploy-dev:
     name: Deploy to Dev
     needs: test
@@ -633,6 +649,7 @@ jobs:
       COMPOSE_PROJECT_NAME: fitness-palscom
       RUNTRAINER_RELEASE_SHA: ${{ github.sha }}
       RUN_AS_USER: fitness-pals
+      STATEFUL_BACKUP_DIR: /home/fitness-pals/fitness-pals.com-backups/pre-compose-migration
       GRAFANA_OIDC_CLIENT_ID: ${{ secrets.GRAFANA_OIDC_CLIENT_ID }}
       GRAFANA_OIDC_CLIENT_SECRET: ${{ secrets.GRAFANA_OIDC_CLIENT_SECRET }}
     steps:
@@ -724,6 +741,8 @@ jobs:
         run: |
           python3 scripts/reconcile_compose_container_names.py \
             --project "$COMPOSE_PROJECT_NAME" \
+            --backup-dir "$STATEFUL_BACKUP_DIR" \
+            --legacy-project fitness-pals-deploy \
             --legacy-project garmin-grafana \
             --legacy-project garmin_grafana \
             influxdb grafana
