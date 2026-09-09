@@ -60,6 +60,7 @@ test("production deploy recreates and verifies the exact frontend release", () =
   assert.ok(workflow.includes("--force-recreate"));
   assert.ok(productionJob.includes("scripts/smoke_production.py"));
   assert.ok(productionJob.includes('--expected-release "$RUNTRAINER_RELEASE_SHA"'));
+  assert.ok(productionJob.includes('--route-timeout "$CLOUDFLARE_ROUTE_SMOKE_TIMEOUT_SECONDS"'));
   assert.ok(!productionJob.includes("skipping release verification"));
   assert.ok(workflow.includes("RUNTRAINER_RELEASE_SHA"));
   assert.ok(workflow.includes("github.sha"));

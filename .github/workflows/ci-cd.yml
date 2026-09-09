@@ -788,6 +788,7 @@ jobs:
       - name: Smoke check complete local production runtime
         run: |
           urls=(
+            "http://authentik-server:9000/-/health/ready/"
             "http://backend:8000/ready"
             "http://training-agent:9000/ready"
             "http://grafana:3000/api/health"
@@ -851,7 +852,9 @@ jobs:
           RUNTRAINER_SMOKE_AUTH_TOKEN: ${{ steps.smoke-token.outputs.token }}
         run: |
           CLOUDFLARE_SMOKE_TIMEOUT_SECONDS="$(python3 scripts/read_env_value.py "$ENV_FILE" CLOUDFLARE_SMOKE_TIMEOUT_SECONDS --default 180)"
+          CLOUDFLARE_ROUTE_SMOKE_TIMEOUT_SECONDS="$(python3 scripts/read_env_value.py "$ENV_FILE" CLOUDFLARE_ROUTE_SMOKE_TIMEOUT_SECONDS --default 30)"
           python3 scripts/smoke_production.py \
             --expected-release "$RUNTRAINER_RELEASE_SHA" \
             --timeout "$CLOUDFLARE_SMOKE_TIMEOUT_SECONDS" \
+            --route-timeout "$CLOUDFLARE_ROUTE_SMOKE_TIMEOUT_SECONDS" \
             --request-timeout 15
