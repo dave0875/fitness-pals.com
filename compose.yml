@@ -186,6 +186,8 @@ services:
     profiles:
       - docker-tunnel
     depends_on:
+      authentik-server:
+        condition: service_healthy
       backend:
         condition: service_healthy
       frontend:
