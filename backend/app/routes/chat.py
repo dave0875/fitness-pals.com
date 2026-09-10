@@ -1,4 +1,4 @@
-"""Chat endpoint that streams Influx stats into the LLM response."""
+"""Chat endpoint grounded in canonical Postgres fitness context."""
 
 from __future__ import annotations
 
