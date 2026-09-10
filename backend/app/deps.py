@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
-from app.models import User
+from app.models import User, UserRole
 from app.utils.security import APP_SESSION_COOKIE
 
 settings = get_settings()
@@ -43,4 +43,14 @@ def get_current_user(
     user = db.query(User).filter(User.id == uid).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    return user
+
+
+def require_administrator(user: User = Depends(get_current_user)) -> User:
+    """Require the authenticated user to hold the administrator role."""
+    if user.role != UserRole.ADMINISTRATOR.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator access required",
+        )
     return user
