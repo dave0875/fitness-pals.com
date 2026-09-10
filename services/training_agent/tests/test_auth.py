@@ -1,6 +1,7 @@
 # ruff: noqa: E501
 """Tests covering Google OAuth verification and metrics endpoints."""
 import urllib.parse
+import uuid
 
 import pytest
 from fastapi import HTTPException
@@ -8,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from services.training_agent import main
 from services.training_agent import auth as auth_mod
+from services.training_agent import training_data
 
 
 class StaticResponse:  # pylint: disable=too-few-public-methods
@@ -235,31 +237,31 @@ def test_health_and_metrics_emit_prometheus():
 
 
 def test_ready_endpoint_returns_ok(monkeypatch):
-    """Readiness should return 200 when Influx is ready."""
+    """Readiness should return 200 when canonical Postgres is ready."""
     monkeypatch.setattr(
         main,
         "check_training_agent_ready",
-        lambda: (True, {"influxdb": "ok"}),
+        lambda: (True, {"postgres": "ok"}),
     )
     client = TestClient(main.app)
     response = client.get("/ready")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "checks": {"influxdb": "ok"}}
+    assert response.json() == {"status": "ok", "checks": {"postgres": "ok"}}
 
 
 def test_ready_endpoint_returns_503(monkeypatch):
-    """Readiness should return 503 when Influx is unavailable."""
+    """Readiness should return 503 when canonical Postgres is unavailable."""
     monkeypatch.setattr(
         main,
         "check_training_agent_ready",
-        lambda: (False, {"influxdb": "unreachable"}),
+        lambda: (False, {"postgres": "unreachable"}),
     )
     client = TestClient(main.app)
     response = client.get("/ready")
     assert response.status_code == 503
     assert response.json() == {
         "status": "degraded",
-        "checks": {"influxdb": "unreachable"},
+        "checks": {"postgres": "unreachable"},
     }
 
 
@@ -528,75 +530,55 @@ def test_oauth_google_token_discovers_oidc_token_url_from_issuer(monkeypatch):
 
 
 # --- Helpers for endpoint integration-style tests ---
-class FakeResult:  # pylint: disable=too-few-public-methods
-    """Thin wrapper that mimics the Influx query result interface."""
-
-    def __init__(self, rows):
-        self._rows = rows
-
-    def get_points(self):
-        """Return an iterator over the stored rows."""
-        return iter(self._rows)
-
-
-class FakeClient:  # pylint: disable=too-few-public-methods
-    """Simple Influx client stub returning pre-defined results."""
+class FakeCanonicalStore:  # pylint: disable=too-few-public-methods
+    """Canonical-store stub that records the mandatory athlete scope."""
 
     def __init__(self, responses):
-        # responses is a list of lists; each query pops the next
         self.responses = list(responses)
         self.queries = []
 
-    def query(self, _query):
-        """Return the next canned response."""
-        self.queries.append(_query)
-        if self.responses:
-            return FakeResult(self.responses.pop(0))
-        return FakeResult([])
+    def _next(self, kind, user_id, **kwargs):
+        self.queries.append((kind, user_id, kwargs))
+        return self.responses.pop(0) if self.responses else []
+
+    def activities(self, user_id, **kwargs):
+        """Return the next canonical activity response."""
+        return self._next("activities", user_id, **kwargs)
+
+    def sleep_sessions(self, user_id, **kwargs):
+        """Return the next canonical sleep response."""
+        return self._next("sleep_sessions", user_id, **kwargs)
 
 
-def setup_app_overrides(monkeypatch, responses):
-    """Prepare TestClient with auth bypass and fake Influx responses."""
-    monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "client-id")
-    main.app.dependency_overrides[main.require_google_auth] = lambda: {}
-    fake_client = FakeClient(responses)
-    monkeypatch.setattr(main, "get_influx_client", lambda: fake_client)
-    # Simplify expensive helpers
-    monkeypatch.setattr(main, "get_average_cadence", lambda *_, **__: 170)
-    monkeypatch.setattr(main, "get_elevation_gain", lambda *_, **__: 25)
-    monkeypatch.setattr(
-        main,
-        "get_elevation_stats",
-        lambda *_, **__: {"ascent": 25, "descent": 10, "min": 5, "max": 30},
+def setup_app_overrides(_monkeypatch, responses):
+    """Prepare TestClient with one resolved athlete and canonical data."""
+    athlete = training_data.Athlete(
+        id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+        email="runner@example.com",
     )
-    monkeypatch.setattr(
-        main,
-        "get_temperature_stats",
-        lambda *_, **__: {"avg": 68, "min": 60, "max": 75},
-    )
-    monkeypatch.setattr(main, "get_max_cadence", lambda *_, **__: 190)
-    return TestClient(main.app), fake_client
+    fake_store = FakeCanonicalStore(responses)
+    main.app.dependency_overrides[training_data.get_current_athlete] = lambda: athlete
+    main.app.dependency_overrides[training_data.get_training_store] = lambda: fake_store
+    return TestClient(main.app), fake_store
 
 
 def test_weekly_and_sleep_summary(monkeypatch):
     """Weekly/sleep endpoints should aggregate distance and sleep metrics."""
-    # weekly: two queries; sleep: one query
     responses = [
-        [{"distance": 10, "calories": 500}],
-        [{"rhr": 42}],
+        [{"id": "activity-1", "distance_m": 10, "metadata_json": {"calories": 500}}],
+        [{"summary_json": {"rhr": 42}}],
         [
             {
-                "sleep": 28000,
-                "stress": 12,
-                "hrv": 55,
-                "spo2_avg": 98,
-                "spo2_low": 92,
-                "spo2_high": 99,
-                "resting_hr": 40,
-                "deep": 8000,
-                "light": 12000,
-                "rem": 6000,
-                "awake": 2000,
+                "summary_json": {
+                    "sleep": 28000,
+                    "stress": 12,
+                    "hrv": 55,
+                    "resting_hr": 40,
+                    "deep": 8000,
+                    "light": 12000,
+                    "rem": 6000,
+                    "awake": 2000,
+                }
             }
         ],
     ]
@@ -613,8 +595,8 @@ def test_weekly_and_sleep_summary(monkeypatch):
 def test_vo2_and_hrv_trends(monkeypatch):
     """VO2 and HRV trend endpoints respond with recent stats."""
     responses = [
-        [{"latest": 52, "average": 50}],
-        [{"latest": 80, "average": 75}],
+        [{"id": "activity-1", "metadata_json": {"vo2maxValue": 52}}],
+        [{"summary_json": {"avgOvernightHrv": 80, "weeklyAvg": 75}}],
     ]
     client, fake = setup_app_overrides(monkeypatch, responses)
     vo2 = client.get("/vo2-trend")
@@ -629,32 +611,34 @@ def test_last_run(monkeypatch):
     responses = [
         [
             {
-                "Activity_ID": 123,
-                "time": "2024-01-01T00:00:00Z",
-                "distance": 10000,
-                "elapsedDuration": 3600,
-                "movingDuration": 3500,
-                "averageHR": 150,
-                "calories": 800,
-                "activityType": "running",
-                "strideLength": 1.1,
+                "id": "00000000-0000-0000-0000-000000000123",
+                "start_time": "2026-01-01T00:00:00Z",
+                "duration_seconds": 3600,
+                "distance_m": 10000,
+                "sport": "running",
+                "metadata_json": {
+                    "movingDuration": 3500,
+                    "averageHR": 150,
+                    "calories": 800,
+                    "strideLength": 1.1,
+                    "averageRunCadence": 170,
+                },
             }
-        ],
-        [{"cadence": 170}],
+        ]
     ]
     client, _ = setup_app_overrides(monkeypatch, responses)
     resp = client.get("/last-run")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["activity_id"] == 123
+    assert body["activity_id"] == "00000000-0000-0000-0000-000000000123"
     assert body["average_cadence"] == 170
 
 
 def test_recovery_and_load(monkeypatch):
     """Recovery score and training load endpoints work end-to-end."""
     responses = [
-        [{"body_battery": 12, "sleep_stress": 3}],
-        [{"low": 10, "high": 20, "anaerobic": 5}],
+        [{"summary_json": {"body_battery": 12, "sleep_stress": 3}}],
+        [{"metadata_json": {"trainingLoad": {"low": 10, "high": 20, "anaerobic": 5}}}],
     ]
     client, _ = setup_app_overrides(monkeypatch, responses)
     rec = client.get("/recovery-score")
@@ -668,19 +652,22 @@ def test_running_dynamics_and_recovery_time(monkeypatch):
     responses = [
         [
             {
-                "activityId": 77,
-                "averageRunCadence": 175,
-                "strideLength": 1.0,
-                "verticalOscillation": 8.5,
-                "groundContactTime": 250,
+                "id": "activity-77",
+                "sport": "running",
+                "metadata_json": {
+                    "averageRunCadence": 175,
+                    "strideLength": 1.0,
+                    "verticalOscillation": 8.5,
+                    "groundContactTime": 250,
+                },
             }
         ],
-        [{"hours": 36}],
+        [{"id": "activity-77", "metadata_json": {"recoveryTimeHours": 36}}],
     ]
     client, _ = setup_app_overrides(monkeypatch, responses)
     dyn = client.get("/running-dynamics")
     rtime = client.get("/recovery-time")
-    assert dyn.json()["activity_id"] == 77
+    assert dyn.json()["activity_id"] == "activity-77"
     assert rtime.json()["recovery_time_hours"] == 36
 
 
@@ -689,17 +676,18 @@ def test_sleep_stress_battery(monkeypatch):
     responses = [
         [
             {
-                "sleep": 26000,
-                "deep": 9000,
-                "light": 11000,
-                "rem": 4000,
-                "awake": 2000,
-                "score": 85,
-                "rhr": 42,
+                "summary_json": {
+                    "sleep": 26000,
+                    "deep": 9000,
+                    "light": 11000,
+                    "rem": 4000,
+                    "awake": 2000,
+                    "score": 85,
+                    "rhr": 42,
+                }
             }
         ],
-        [{"stress": 12}],
-        [{"charged": 80, "drained": 30}],
+        [{"summary_json": {"stress": 12}}],
     ]
     client, _ = setup_app_overrides(monkeypatch, responses)
     metrics = client.get("/sleep-metrics")
@@ -714,20 +702,8 @@ def test_sleep_stress_battery(monkeypatch):
 def test_lactate_race(monkeypatch):
     """Lactate threshold and race endpoints handle API output."""
     responses = [
-        [{"heart_rate": 170, "pace": 300}],
-        [{"time5K": 1200, "time10K": 2400, "half": 5400, "marathon": 12000}],
-        [
-            {
-                "summary": "Race A",
-                "startTimeLocal": "2025-01-01T09:00:00",
-                "location": "NYC",
-            },
-            {
-                "summary": "Race B",
-                "startTimeLocal": "2025-02-01T09:00:00",
-                "location": "BOS",
-            },
-        ],
+        [{"metadata_json": {"lactateThreshold": {"heartRate": 170, "pace": 300}}}],
+        [{"metadata_json": {"racePredictions": {"time5K": 1200, "time10K": 2400, "half": 5400, "marathon": 12000}}}],
     ]
     client, _ = setup_app_overrides(monkeypatch, responses)
     lactate = client.get("/lactate-threshold")
@@ -735,7 +711,7 @@ def test_lactate_race(monkeypatch):
     schedule = client.get("/race-schedule")
     assert lactate.json()["heart_rate"] == 170
     assert races.json()["time5K"] == 1200
-    assert len(schedule.json()["entries"]) == 2
+    assert schedule.json()["entries"] == []
 
 
 def test_training_log(monkeypatch):
@@ -743,28 +719,11 @@ def test_training_log(monkeypatch):
     responses = [
         [
             {
-                "Activity_ID": 1,
-                "time": "2025-01-01T00:00:00Z",
-                "distance": 5000,
-                "averageSpeed": 3.5,
-                "averageHR": 145,
-                "calories": 400,
-                "activityType": "running",
-                "totalElevationGain": 50,
-                "strideLength": 1.2,
-                "verticalOscillation": 8.0,
-                "groundContactTime": 240,
-                "groundContactBalance": 51.0,
-                "stanceTimePercent": 52.0,
-            },
-            {
-                "Activity_ID": 1,
-                "time": "2024-12-31T00:00:00Z",
-                "distance": 3000,
-                "averageSpeed": 3.0,
-                "averageHR": 140,
-                "calories": 300,
-                "activityType": "running",
+                "id": "activity-1",
+                "start_time": "2026-01-01T00:00:00Z",
+                "distance_m": 5000,
+                "sport": "running",
+                "metadata_json": {"averageSpeed": 3.5},
             },
         ]
     ]
@@ -775,7 +734,7 @@ def test_training_log(monkeypatch):
     assert body["window_days"] == 42
     assert len(body["entries"]) == 1
     entry = body["entries"][0]
-    assert entry["activity_id"] == 1
+    assert entry["activity_id"] == "activity-1"
     assert entry["run_label"] == "Outdoor run"
     assert entry["avg_pace_sec_per_km"] > 0
 

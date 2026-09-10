@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy.orm import Session
 
-from app.deps import get_current_user
+from app.deps import get_current_user, require_administrator
 from app.db import get_db
 from app.models import ProviderApp, UserProviderToken
 from app.types import CurrentUserLike
@@ -62,9 +62,11 @@ router = APIRouter(prefix="/api/providers", tags=["providers"])
 
 
 @router.get("/apps")
-def list_apps(_: Annotated[Any, Depends(get_current_user)], db: Session = Depends(get_db)):
-    """List provider apps visible to the authenticated operator."""
-    # NOTE: restrict this to admins once the RBAC story is in place.
+def list_apps(
+    _: Annotated[Any, Depends(require_administrator)],
+    db: Session = Depends(get_db),
+):
+    """List shared provider apps for an administrator."""
     apps = list_provider_apps(db)
     return [
         {
@@ -86,7 +88,7 @@ def list_apps(_: Annotated[Any, Depends(get_current_user)], db: Session = Depend
 @router.post("/apps")
 def create_or_update_app(
     body: ProviderAppRequest,
-    _: Annotated[Any, Depends(get_current_user)],
+    _: Annotated[Any, Depends(require_administrator)],
     db: Session = Depends(get_db),
 ):
     """Create or update the credentials for a provider app."""
@@ -181,9 +183,11 @@ def list_user_connections(
 
 @router.get("/{provider}/app")
 def get_app(
-    provider: str, _: Annotated[Any, Depends(get_current_user)], db: Session = Depends(get_db)
+    provider: str,
+    _: Annotated[Any, Depends(require_administrator)],
+    db: Session = Depends(get_db),
 ):
-    """Fetch the configured provider application metadata."""
+    """Fetch shared provider application metadata for an administrator."""
     app = get_provider_app(db, provider.lower())
     if not app:
         raise HTTPException(

@@ -8,14 +8,14 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 
 
-def test_dossier_and_archive_import_branches_have_one_merged_head():
-    """Existing archive databases and new dossier databases must converge."""
+def test_migration_branches_have_one_head_after_user_roles():
+    """Existing branch histories and the user-role migration must converge."""
     backend_root = Path(__file__).resolve().parents[1]
     config = Config(str(backend_root / "alembic.ini"))
     config.set_main_option("script_location", str(backend_root / "migrations"))
     scripts = ScriptDirectory.from_config(config)
 
-    assert scripts.get_heads() == ["0010_merge_dossier_heads"]
+    assert scripts.get_heads() == ["0011_add_user_roles"]
     merge_revision = scripts.get_revision("0010_merge_dossier_heads")
     assert merge_revision is not None
     assert set(merge_revision._normalized_down_revisions) == {
