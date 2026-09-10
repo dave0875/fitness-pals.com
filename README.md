@@ -38,6 +38,7 @@ Key services:
 - `RUNTRAINER_OIDC_ISSUER` / `RUNTRAINER_OIDC_CLIENT_ID` / `RUNTRAINER_OIDC_CLIENT_SECRET`: Authentik OIDC client for the GPT/training-agent integration. Keep this as a separate Authentik application even though it resolves to the same upstream Google identity.
 - `AUTHENTIK_GOOGLE_CLIENT_ID` / `AUTHENTIK_GOOGLE_CLIENT_SECRET`: preferred Google OAuth client used by Authentik as the upstream identity source. Store these only in the deployment secrets file. If both are absent, the bootstrap deliberately reuses the complete `RUNTRAINER_GOOGLE_CLIENT_ID` / `RUNTRAINER_GOOGLE_CLIENT_SECRET` pair; it never mixes credentials between pairs.
 - `RUNTRAINER_GOOGLE_CLIENT_ID` / `RUNTRAINER_GOOGLE_CLIENT_SECRET` / `RUNTRAINER_GOOGLE_REDIRECT_URI`: direct Google OAuth fallback values. Keep them only if you need an emergency bypass; the intended production path is Authentik-brokered login.
+
 - `RUNTRAINER_MICROSOFT_CLIENT_ID` / `RUNTRAINER_MICROSOFT_CLIENT_SECRET` / `RUNTRAINER_MICROSOFT_REDIRECT_URI`: App registration in Azure AD (Entra); create a Web redirect URI; copy the Application (client) ID and client secret.
 - `RUNTRAINER_APPLE_CLIENT_ID` / `RUNTRAINER_APPLE_CLIENT_SECRET` / `RUNTRAINER_APPLE_REDIRECT_URI`: Apple Sign in client; create a Services ID in Apple Developer, set the redirect URI, generate a client secret (JWT signed with your key) and supply here.
 - `RUNTRAINER_DATABASE_URL`: SQLAlchemy connection string to Postgres (e.g., `postgresql://user:pass@host:5432/runtrainer`).
@@ -55,6 +56,23 @@ Key services:
 - `CLOUDFLARE_SMOKE_TIMEOUT_SECONDS`: optional external ingress smoke timeout; defaults to `90`.
 - `TRAINING_API_KEY`: key used by the training-agent harness.
 - `BOT_GITHUB_TOKEN`: token for any bot operations (keep out of commits).
+
+### Garmin archive sources
+
+Google Drive archives are registered server-side per athlete email; the browser never supplies a
+folder ID. Share each source folder read-only with the configured service account, then set:
+
+```dotenv
+RUNTRAINER_GOOGLE_DRIVE_ARCHIVE_SOURCES_JSON={"athlete@example.com":"drive-folder-id"}
+RUNTRAINER_GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE=/run/secrets/google-drive-service-account.json
+```
+
+`RUNTRAINER_GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON` may be used instead when the secret store injects
+JSON directly. The worker recursively discovers FIT files, Garmin summarized-activity JSON, and
+zip exports; its per-athlete object/version checkpoints make unchanged files idempotent. Uploaded
+zip archives use the same checkpointed worker path. Filesystem staging shares the
+`archive_import_data` volume; production can set `RUNTRAINER_ARCHIVE_IMPORT_STORAGE_BACKEND=gcs`
+plus the GCS bucket and credential settings to return a direct signed upload URL.
 
 ## Multi-tenant fitness sources (in progress)
 - Provider apps (Garmin/Strava/etc.) are registered per environment instead of committing credentials to `.env`. Use `/api/providers/apps` to store client ids/secrets (encrypted at rest).

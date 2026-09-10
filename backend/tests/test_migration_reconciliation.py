@@ -15,7 +15,7 @@ def test_migration_branches_have_one_head_after_user_roles():
     config.set_main_option("script_location", str(backend_root / "migrations"))
     scripts = ScriptDirectory.from_config(config)
 
-    assert scripts.get_heads() == ["0011_add_user_roles"]
+    assert scripts.get_heads() == ["0012_add_drive_archive_checkpoints"]
     merge_revision = scripts.get_revision("0010_merge_dossier_heads")
     assert merge_revision is not None
     assert set(merge_revision._normalized_down_revisions) == {
@@ -24,3 +24,4 @@ def test_migration_branches_have_one_head_after_user_roles():
     }
     assert scripts.get_revision("0008_add_published_dossiers") is not None
     assert scripts.get_revision("0009_add_archive_import_jobs") is not None
+    assert scripts.get_revision("0012_add_drive_archive_checkpoints") is not None

@@ -9,6 +9,7 @@ import time
 from app.db import SESSION_FACTORY
 from app.services.sync_jobs import process_pending_sync_jobs
 from app.services.dossiers import process_pending_dossier_jobs
+from app.services.archive_import_jobs import process_pending_archive_import_jobs
 
 
 logger = logging.getLogger("sync.worker")
@@ -18,11 +19,13 @@ def run_once() -> dict[str, int]:
     """Process the currently queued sync jobs one time."""
     session = SESSION_FACTORY()
     try:
+        archive_summary = process_pending_archive_import_jobs(session)
         sync_summary = process_pending_sync_jobs(session)
         dossier_summary = process_pending_dossier_jobs(session)
         return {
             **{f"sync_{key}": value for key, value in sync_summary.items()},
             **{f"dossier_{key}": value for key, value in dossier_summary.items()},
+            **{f"archive_{key}": value for key, value in archive_summary.items()},
         }
     finally:
         session.close()

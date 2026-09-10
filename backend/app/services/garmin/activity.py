@@ -80,6 +80,11 @@ def _trim_activity_metadata(
         ("ownerId", "provider_user_id"),
         ("userProfileId", "provider_user_id"),
         ("username", "provider_username"),
+        ("sourceObjectId", "source_object_id"),
+        ("sourceObjectName", "source_object_name"),
+        ("sourceObjectVersion", "source_object_version"),
+        ("sourceContentHash", "source_content_hash"),
+        ("sourceModifiedTime", "source_modified_time"),
     ):
         value = item.get(source_key)
         if value not in (None, "") and target_key not in metadata:
@@ -308,6 +313,7 @@ def persist_activity_summaries(
     activities: list[dict],
     *,
     test_run: bool = False,
+    provider: str = "garmin",
 ) -> None:
     """Persist basic activity rows in Postgres with ingest linkage."""
     if not activities:
@@ -345,7 +351,7 @@ def persist_activity_summaries(
                 except Exception:
                     duration_s = None
                 break
-        fingerprint = provider_activity_id
+        fingerprint = str(item.get("canonicalFingerprint") or provider_activity_id)
         activity = _find_existing_activity(db, user.id, fingerprint)
         if activity is None:
             activity = Activity(
@@ -374,7 +380,7 @@ def persist_activity_summaries(
         source = _find_existing_activity_source(
             db,
             activity.id,
-            provider="garmin",
+            provider=provider,
             provider_activity_id=provider_activity_id,
         )
         if source is not None:
@@ -383,9 +389,9 @@ def persist_activity_summaries(
             ActivitySource(
                 id=uuid4(),
                 activity_id=activity.id,
-                provider="garmin",
+                provider=provider,
                 provider_activity_id=provider_activity_id,
-                raw_hash=fingerprint,
+                raw_hash=meta.get("source_content_hash") or fingerprint,
                 decision="new",
                 chosen_fields=meta,
                 raw_payload=meta,

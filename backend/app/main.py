@@ -21,6 +21,7 @@ from app.routes.journey import router as journey_router
 from app.routes.dossiers import router as dossiers_router
 from app.routes import providers_garmin, providers_pulsai
 from app.routes.ingest import router as ingest_router
+from app.routes.archive_imports import router as archive_imports_router
 from app.config import get_settings
 from app.db import engine
 
@@ -35,6 +36,8 @@ REQUIRED_TABLES = (
     "user_provider_tokens",
     "dossier_jobs",
     "dossier_artifacts",
+    "archive_import_jobs",
+    "archive_import_objects",
 )
 
 app.add_middleware(
@@ -64,6 +67,7 @@ app.include_router(athlete_home_router)
 app.include_router(journey_router)
 app.include_router(dossiers_router)
 app.include_router(ingest_router)
+app.include_router(archive_imports_router)
 
 
 @app.get("/health")
