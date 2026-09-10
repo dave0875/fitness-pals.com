@@ -51,3 +51,15 @@ def test_backend_installs_session_middleware_for_authlib():
     middleware_classes = [entry.cls for entry in main.app.user_middleware]
 
     assert SessionMiddleware in middleware_classes
+
+
+def test_athlete_influx_routes_are_not_registered():
+    """Infrastructure credentials must not be exposed through athlete APIs."""
+    paths = main.app.openapi()["paths"]
+
+    assert "/api/datasource/influx/connect" not in paths
+    assert "/api/datasource/influx/verify" not in paths
+
+    client = TestClient(main.app)
+    assert client.post("/api/datasource/influx/connect", json={}).status_code == 404
+    assert client.get("/api/datasource/influx/verify").status_code == 404

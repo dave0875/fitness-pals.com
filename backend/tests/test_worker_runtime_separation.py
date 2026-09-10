@@ -124,8 +124,6 @@ def test_api_enqueue_path_returns_queued_job_without_inline_ingest(monkeypatch):
         "fetch_garmin_recent",
         lambda *_args, **_kwargs: pytest.fail("garmin_fetch still executes inline ingest"),
     )
-    monkeypatch.setattr(providers_garmin, "get_influx_client_for_user", lambda *_args, **_kwargs: _fake_influx_client())
-
     fake_job_id = uuid.uuid4()
     fake_execution = SimpleNamespace(
         job=SimpleNamespace(id=fake_job_id, status="queued"),

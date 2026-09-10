@@ -42,7 +42,7 @@ Key services:
 - `RUNTRAINER_APPLE_CLIENT_ID` / `RUNTRAINER_APPLE_CLIENT_SECRET` / `RUNTRAINER_APPLE_REDIRECT_URI`: Apple Sign in client; create a Services ID in Apple Developer, set the redirect URI, generate a client secret (JWT signed with your key) and supply here.
 - `RUNTRAINER_DATABASE_URL`: SQLAlchemy connection string to Postgres (e.g., `postgresql://user:pass@host:5432/runtrainer`).
 - `RUNTRAINER_FERNET_KEY`: key used to encrypt user/provider tokens; generate with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
-- `RUNTRAINER_INFLUX_DEFAULT_URL`: optional default Influx endpoint shown to users (can be empty if you don’t want a default).
+- `RUNTRAINER_INFLUX_URL`: operator-managed Influx endpoint used only for optional timeseries mirroring. Athletes cannot view or change it. `RUNTRAINER_INFLUX_DEFAULT_URL` remains a temporary deployment alias.
 - `RUNTRAINER_OPENAI_API_KEY`: API key for GPT-based coaching responses (from platform.openai.com).
 - `RUNTRAINER_ACCESS_TOKEN_EXP_MINUTES` / `RUNTRAINER_REFRESH_TOKEN_EXP_DAYS`: JWT lifetimes; leave defaults unless you need to shorten/extend sessions.
 - `RUNTRAINER_DEDUPE_START_TIME_TOLERANCE_SECONDS` / `RUNTRAINER_DEDUPE_DURATION_TOLERANCE_RATIO` / `RUNTRAINER_DEDUPE_DISTANCE_TOLERANCE_RATIO`: tweak dedup tolerances; defaults are ±90s start, ±10% duration, ±3% distance.

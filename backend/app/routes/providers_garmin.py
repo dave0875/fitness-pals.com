@@ -21,7 +21,7 @@ from app.deps import get_current_user
 from app.db import get_db
 from app.models import Activity, IngestRun, IngestDecision
 from pydantic import BaseModel
-from app.types import CurrentUserLike, InfluxClientLike
+from app.types import CurrentUserLike
 from app.services.providers import (
     ProviderTokenDetails,
     decrypt_user_tokens,
@@ -31,9 +31,7 @@ from app.services.providers import (
 from app.services.garmin_scheduler import fetch_all as fetch_all_users
 from app.services import garmin_ingest
 from app.services.sync_jobs import run_garmin_sync_job
-from app.services.influx import get_influx_client_for_user, get_user_datasource
 from app.services.garmin_fetchers import CONNECTAPI_SOURCES, STAT_FETCHERS
-from app.utils.security import decrypt_token
 
 router = APIRouter(prefix="/api/providers/garmin", tags=["garmin"])
 logger = logging.getLogger("garmin.routes")
@@ -804,7 +802,7 @@ def test_garmin_category(
 
 @router.get("/test-data/summary")
 def summarize_test_data(user: CurrentUserLike = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Summarize Postgres and Influx rows tied to TEST_ ingest runs for this user."""
+    """Summarize canonical rows tied to TEST_ ingest runs for this user."""
     try:
         user_uuid = _user_uuid(user)
         test_runs = (
@@ -835,87 +833,16 @@ def summarize_test_data(user: CurrentUserLike = Depends(get_current_user), db: S
             or 0
         )
 
-    influx_counts = []
-    try:
-        if run_ids:
-            client: InfluxClientLike = get_influx_client_for_user(db, _user_uuid(user))
-            tags = [f"TEST_{rid}" for rid in run_ids_str]
-            pattern = "|".join([t.replace("-", r"\-") for t in tags])
-            predicate = f'r.ingest_run_id =~ /^({pattern})$/'
-            flux = f'''
-from(bucket: "{client.default_bucket}")
-  |> range(start: 0)
-  |> filter(fn: (r) => {predicate})
-  |> group(columns: ["_measurement"])
-  |> count()
-  |> group()
-'''
-            tables = client.query_api().query(org=client.org, query=flux)
-            for table in tables:
-                for record in table.records:
-                    influx_counts.append(
-                        {
-                            "measurement": record.get_measurement(),
-                            "count": record.get_value(),
-                        }
-                    )
-    except Exception as exc:  # pylint: disable=broad-except
-        # Flux may be disabled on Influx 1.x; attempt InfluxQL fallback.
-        try:
-            ds = get_user_datasource(db, user.id)
-            if ds and ds.influx_url and ds.influx_bucket:
-                token = decrypt_token(cast(bytes, ds.token_encrypted))
-                auth = None
-                headers: dict[str, str] = {}
-                influx_user = getattr(ds, "influx_user", None)
-                if influx_user and token:
-                    auth = (influx_user, token)
-                elif token:
-                    headers["Authorization"] = f"Token {token}"
-                meas_resp = requests.get(
-                    f"{ds.influx_url}/query",
-                    params={"db": ds.influx_bucket, "q": "SHOW MEASUREMENTS"},
-                    auth=auth,
-                    headers=headers,
-                    timeout=5,
-                )
-                if meas_resp.ok:
-                    measurements = [
-                        row[0] for row in meas_resp.json().get("results", [{}])[0].get("series", [{}])[0].get("values", [])
-                    ]
-                    for m in measurements:
-                        q = f'SELECT COUNT(*) FROM "{m}" WHERE "ingest_run_id" =~ /^({pattern})$/'
-                        cnt_resp = requests.get(
-                            f"{ds.influx_url}/query",
-                            params={"db": ds.influx_bucket, "q": q},
-                            auth=auth,
-                            headers=headers,
-                            timeout=5,
-                        )
-                        if cnt_resp.ok:
-                            res = cnt_resp.json().get("results", [{}])[0].get("series", [])
-                            if res and "values" in res[0]:
-                                vals = res[0]["values"][0]
-                                # values layout: [time, count_field1, count_field2, ...]; sum counts
-                                total = sum(v for v in vals[1:] if isinstance(v, (int, float)))
-                                influx_counts.append({"measurement": m, "count": int(total)})
-        except Exception as exc2:  # pylint: disable=broad-except
-            logger.warning(
-                "test data influx summary failed",
-                extra={"user_id": str(user.id), "error": str(exc), "fallback_error": str(exc2)},
-            )
-
     return {
         "test_runs": run_ids_str,
         "activities": activity_count,
         "ingest_decisions": decision_count,
-        "influx": influx_counts,
     }
 
 
 @router.post("/test-data/clear")
 def clear_test_data(user: CurrentUserLike = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Delete Postgres + Influx data tied to TEST_ ingest runs for this user."""
+    """Delete canonical data tied to TEST_ ingest runs for this user."""
     summary = summarize_test_data(user=user, db=db)
     run_ids_str = summary.get("test_runs") or []
     run_ids = [UUID(rid) for rid in run_ids_str]
@@ -943,23 +870,5 @@ def clear_test_data(user: CurrentUserLike = Depends(get_current_user), db: Sessi
             "test data activity cleanup failed",
             extra={"user_id": str(user.id), "error": str(exc)},
         )
-
-    # Influx deletes
-    try:
-        if run_ids:
-            client: InfluxClientLike = get_influx_client_for_user(db, _user_uuid(user))
-            tags = [f"TEST_{rid}" for rid in run_ids_str]
-            pattern = "|".join([t.replace("-", r"\-") for t in tags])
-            predicate = f'ingest_run_id=~/^({pattern})$/'
-            delete_api = client.delete_api()
-            delete_api.delete(
-                start="1970-01-01T00:00:00Z",
-                stop="2100-01-01T00:00:00Z",
-                predicate=predicate,
-                bucket=client.default_bucket,
-                org=client.org,
-            )
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning("test data influx clear failed", extra={"user_id": str(user.id), "error": str(exc)})
 
     return {"status": "ok", "cleared_runs": run_ids_str}

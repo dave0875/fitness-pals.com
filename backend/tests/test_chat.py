@@ -7,8 +7,6 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import pytest
-
 from app.models import Activity, Conversation
 from app.routes.chat import ChatRequest, chat
 
@@ -88,9 +86,7 @@ def _make_activity(user_id, days_ago, distance_m):
     )
 
 
-def test_chat_assembles_context_from_canonical_read_model_when_influx_is_unavailable(
-    monkeypatch,
-):
+def test_chat_assembles_context_from_canonical_read_model():
     """Chat should still produce an LLM response when canonical data is available."""
     user_id = uuid.uuid4()
     user = SimpleNamespace(id=user_id)
@@ -101,16 +97,6 @@ def test_chat_assembles_context_from_canonical_read_model_when_influx_is_unavail
         ]
     )
     captured = {}
-
-    monkeypatch.setattr(
-        "app.routes.metrics.get_user_datasource", lambda *_args, **_kwargs: None
-    )
-    monkeypatch.setattr(
-        "app.routes.metrics.get_influx_client_for_user",
-        lambda *_args, **_kwargs: pytest.fail(
-            "chat should not depend on Influx when canonical data exists"
-        ),
-    )
 
     def fake_run_coach_prompt(message, metrics):
         captured["message"] = message

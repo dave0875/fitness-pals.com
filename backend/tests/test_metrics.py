@@ -9,24 +9,8 @@ from types import SimpleNamespace
 import pytest
 
 from app.models import Activity, DataSource
-from app.routes.metrics import summary
+from app.routes.metrics import RaceReadinessRequest, race_readiness, summary
 from app.utils.security import encrypt_token
-
-
-class QueryApiStub:
-    """Return canned Flux results and fail only on the histogram query."""
-
-    def query(self, org, query):  # pylint: disable=unused-argument
-        if "histogram(" in query:
-            raise ValueError("histogram bin overflow")
-        return []
-
-
-class InfluxClientStub:
-    """Minimal Influx client stub for summary tests."""
-
-    def query_api(self):
-        return QueryApiStub()
 
 
 class FakeQuery:
@@ -103,35 +87,27 @@ def _make_activity(user_id, days_ago, distance_m):
     )
 
 
-def test_summary_tolerates_histogram_query_failure(monkeypatch):
-    """Summary should degrade gracefully when the pace histogram query fails."""
+def test_summary_ignores_legacy_influx_datasource():
+    """A persisted athlete URL must never influence product metric reads."""
     user_id = uuid.uuid4()
     user = SimpleNamespace(id=user_id)
     ds = DataSource(
         user_id=user_id,
-        influx_url="http://localhost:8086",
+        influx_url="http://169.254.169.254/latest/meta-data",
         influx_org="default",
         influx_bucket="GarminStats",
         token_encrypted=encrypt_token("token"),
     )
 
-    monkeypatch.setattr(
-        "app.routes.metrics.get_user_datasource", lambda *_args, **_kwargs: ds
-    )
-    monkeypatch.setattr(
-        "app.routes.metrics.get_influx_client_for_user",
-        lambda *_args, **_kwargs: InfluxClientStub(),
-    )
+    db = FakeSession([ds, _make_activity(user_id, 4, 7000.0)])
 
-    result = summary(user=user, db=object())
+    result = summary(user=user, db=db)
 
-    assert result["mileage"] == {"30d": 0.0, "60d": 0.0, "90d": 0.0}
+    assert result["mileage"] == {"30d": 7000.0, "60d": 7000.0, "90d": 7000.0}
     assert result["pace_histogram"] == []
 
 
-def test_summary_uses_canonical_activity_data_when_influx_datasource_is_missing(
-    monkeypatch,
-):
+def test_summary_uses_canonical_activity_data():
     """Summary should derive mileage and long-run values from canonical Postgres data."""
     user_id = uuid.uuid4()
     user = SimpleNamespace(id=user_id)
@@ -143,16 +119,6 @@ def test_summary_uses_canonical_activity_data_when_influx_datasource_is_missing(
         ]
     )
 
-    monkeypatch.setattr(
-        "app.routes.metrics.get_user_datasource", lambda *_args, **_kwargs: None
-    )
-    monkeypatch.setattr(
-        "app.routes.metrics.get_influx_client_for_user",
-        lambda *_args, **_kwargs: pytest.fail(
-            "summary should not require Influx when canonical data exists"
-        ),
-    )
-
     result = summary(user=user, db=db)
 
     assert result["mileage"] == {"30d": 15000.0, "60d": 35000.0, "90d": 35000.0}
@@ -162,23 +128,42 @@ def test_summary_uses_canonical_activity_data_when_influx_datasource_is_missing(
     assert result["training_load"] == []
 
 
-def test_summary_remains_resilient_when_influx_is_absent(monkeypatch):
-    """Canonical read-model behavior should not fall over just because Influx is missing."""
+def test_summary_isolates_athlete_rows():
+    """Canonical metric reads must exclude another athlete's activity rows."""
     user_id = uuid.uuid4()
+    other_user_id = uuid.uuid4()
     user = SimpleNamespace(id=user_id)
-    db = FakeSession([_make_activity(user_id, 2, 8000.0)])
-
-    monkeypatch.setattr(
-        "app.routes.metrics.get_user_datasource", lambda *_args, **_kwargs: None
-    )
-    monkeypatch.setattr(
-        "app.routes.metrics.get_influx_client_for_user",
-        lambda *_args, **_kwargs: pytest.fail(
-            "canonical metrics should not depend on Influx"
-        ),
+    db = FakeSession(
+        [_make_activity(user_id, 2, 8000.0), _make_activity(other_user_id, 1, 42000.0)]
     )
 
     result = summary(user=user, db=db)
 
     assert result["mileage"]["30d"] == 8000.0
     assert result["long_run_max"] == 8000.0
+
+
+def test_race_readiness_uses_canonical_activity_mileage_and_isolates_user():
+    """Race readiness should use only the athlete's last 30 days in Postgres."""
+    user_id = uuid.uuid4()
+    other_user_id = uuid.uuid4()
+    user = SimpleNamespace(id=user_id)
+    db = FakeSession(
+        [
+            _make_activity(user_id, 2, 10000.0),
+            _make_activity(user_id, 35, 50000.0),
+            _make_activity(other_user_id, 1, 100000.0),
+        ]
+    )
+
+    result = race_readiness(
+        RaceReadinessRequest(
+            race_type="marathon", race_date=datetime.now(timezone.utc) + timedelta(days=30)
+        ),
+        user=user,
+        db=db,
+    )
+
+    expected_miles = 10000.0 / 1609.34
+    assert result["readiness"] == pytest.approx(expected_miles / 400 * 100)
+    assert f"{expected_miles:.1f} miles" in result["commentary"]
