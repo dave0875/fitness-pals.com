@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 from app.models import IngestRun
 from app.services import dedupe
-from app.services.influx import get_influx_client_for_user
+from app.services.influx import get_operator_influx_client
 from app.services.garmin_fetchers import fetch_health_bundle
 from app.services.garmin_timeseries import build_timeseries, write_timeseries
 from app.services.garmin_aggregates import build_aggregate_summary
@@ -179,9 +179,9 @@ def _set_client_username_if_supported(client: Any, username: Optional[str]) -> N
         )
 
 
-def _maybe_get_influx_client(db: Session, user: CurrentUserLike) -> InfluxClientLike | None:
+def _maybe_get_influx_client() -> InfluxClientLike | None:
     try:
-        return get_influx_client_for_user(db, user.id)
+        return get_operator_influx_client()
     except Exception:
         return None
 
@@ -243,11 +243,6 @@ def fetch_garmin_recent(db: Session, user: CurrentUserLike, test_run: bool = Fal
     token_row = get_user_provider_token(db, user.id, provider_key, getattr(user, "tenant_id", None))
     if not token_row:
         raise HTTPException(status_code=410, detail="Garmin reauth required")
-    try:
-        from app.services.influx import ensure_user_datasource
-        ensure_user_datasource(db, user.id)
-    except Exception:
-        pass
     if mode == "oauth":
         tokens = _ensure_fresh_tokens(db, user, token_row)
     else:
@@ -280,7 +275,7 @@ def fetch_garmin_recent(db: Session, user: CurrentUserLike, test_run: bool = Fal
 
     run = dedupe.record_ingest_run(db, provider="garmin", user_id=getattr(user, "id", None))
     ingest_run_tag = f"TEST_{run.id}" if test_run else str(run.id)
-    influx_client = _maybe_get_influx_client(db, user)
+    influx_client = _maybe_get_influx_client()
 
     gps_written_total = 0
 

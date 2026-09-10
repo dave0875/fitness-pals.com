@@ -12,7 +12,6 @@ from sqlalchemy import inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.auth.oauth import router as auth_router
-from app.routes.datasource import router as datasource_router
 from app.routes.metrics import router as metrics_router
 from app.routes.chat import router as chat_router
 from app.routes import auth_status, providers as provider_router
@@ -54,7 +53,6 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
-app.include_router(datasource_router)
 app.include_router(metrics_router)
 app.include_router(chat_router)
 app.include_router(provider_router.router)

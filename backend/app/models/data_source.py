@@ -11,7 +11,7 @@ from app.models.mixins import PrimaryUUIDMixin, TimestampMixin, UserOwnedMixin
 
 
 class DataSource(PrimaryUUIDMixin, UserOwnedMixin, TimestampMixin, Base):  # pylint: disable=too-few-public-methods
-    """Encrypted Influx/Garmin sources registered per user."""
+    """Legacy per-user Influx rows retained only for migration compatibility."""
 
     __tablename__ = "data_sources"
 

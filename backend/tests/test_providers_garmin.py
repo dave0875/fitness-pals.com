@@ -394,10 +394,10 @@ def test_fetch_happy_path(monkeypatch):
         def delete_api(self):
             return SimpleNamespace(delete=lambda **_kwargs: None)
 
-    def fake_influx_client(_db, _uid):  # pylint: disable=unused-argument
+    def fake_influx_client():
         return FakeInfluxClient()
 
-    monkeypatch.setattr(garmin_ingest, "get_influx_client_for_user", fake_influx_client)
+    monkeypatch.setattr(garmin_ingest, "get_operator_influx_client", fake_influx_client)
 
     resp = providers_garmin.garmin_fetch(user=user, db=db)
     assert resp["status"] == "queued"
