@@ -223,11 +223,7 @@ services:
     container_name: training-agent
     restart: unless-stopped
     environment:
-      - INFLUXDB_HOST=${INFLUXDB_HOST}
-      - INFLUXDB_PORT=${INFLUXDB_PORT}
-      - INFLUXDB_USERNAME=${INFLUXDB_USERNAME}
-      - INFLUXDB_PASSWORD=${INFLUXDB_PASSWORD}
-      - INFLUXDB_DATABASE=${INFLUXDB_DATABASE}
+      - RUNTRAINER_DATABASE_URL=postgresql://${RUNTRAINER_POSTGRES_USER:?RUNTRAINER_POSTGRES_USER is required}:${RUNTRAINER_POSTGRES_PASSWORD:?RUNTRAINER_POSTGRES_PASSWORD is required}@runtrainer-postgres:5432/${RUNTRAINER_POSTGRES_DB:?RUNTRAINER_POSTGRES_DB is required}
       - RUNTRAINER_GOOGLE_CLIENT_ID=${RUNTRAINER_GOOGLE_CLIENT_ID}
       - RUNTRAINER_GOOGLE_CLIENT_SECRET=${RUNTRAINER_GOOGLE_CLIENT_SECRET}
       - RUNTRAINER_GOOGLE_REDIRECT_URI=${RUNTRAINER_GOOGLE_REDIRECT_URI}
@@ -249,8 +245,6 @@ services:
       start_period: 20s
     depends_on:
       backend:
-        condition: service_healthy
-      influxdb:
         condition: service_healthy
 
   frontend:
