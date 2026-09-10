@@ -1,16 +1,16 @@
-"""Tests for metrics summary resilience."""
+"""Tests for the canonical Postgres metrics read model."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
-import uuid
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+import uuid
 
 import pytest
 
 from app.models import Activity, DataSource
 from app.routes.metrics import RaceReadinessRequest, race_readiness, summary
-from app.utils.security import encrypt_token
+from app.services.activity_summary import build_canonical_summary
 
 
 class FakeQuery:
@@ -29,20 +29,13 @@ class FakeQuery:
     def all(self):
         return list(self.data)
 
-    def first(self):
-        return self.data[0] if self.data else None
-
-    def order_by(self, *_args, **_kwargs):
-        return self
-
-    def limit(self, _count):
-        return self
-
     @staticmethod
     def _resolve_value(side, item):
         attr = getattr(side, "key", None) or getattr(side, "name", None)
         if attr and hasattr(item, attr):
             return getattr(item, attr)
+        if hasattr(side, "value"):
+            return side.value
         return side
 
     def _matches(self, condition, item):
@@ -66,18 +59,19 @@ class FakeSession:
     def query(self, model):
         return FakeQuery([item for item in self.items if isinstance(item, model)])
 
-    def add(self, _obj):
-        return None
 
-    def commit(self):
-        return None
+class FailingSession:
+    """Canonical store stub that simulates an unavailable database."""
+
+    def query(self, _model):
+        raise RuntimeError("postgres unavailable")
 
 
-def _make_activity(user_id, days_ago, distance_m):
-    """Create activity data relative to the current rolling metrics window."""
+def _make_activity(user_id, now, days_ago, distance_m):
+    """Create activity data relative to a deterministic metrics window."""
     return Activity(
         user_id=user_id,
-        start_time=datetime.now(timezone.utc) - timedelta(days=days_ago),
+        start_time=now - timedelta(days=days_ago),
         duration_seconds=3600,
         distance_m=distance_m,
         sport="run",
@@ -87,83 +81,115 @@ def _make_activity(user_id, days_ago, distance_m):
     )
 
 
-def test_summary_ignores_legacy_influx_datasource():
-    """A persisted athlete URL must never influence product metric reads."""
+def test_summary_ignores_legacy_influx_and_isolates_canonical_athlete_data():
+    """A legacy datasource must not affect product reads or leak another athlete."""
+    now = datetime.now(timezone.utc)
     user_id = uuid.uuid4()
+    other_user_id = uuid.uuid4()
     user = SimpleNamespace(id=user_id)
-    ds = DataSource(
+    legacy_datasource = DataSource(
         user_id=user_id,
-        influx_url="http://169.254.169.254/latest/meta-data",
-        influx_org="default",
-        influx_bucket="GarminStats",
-        token_encrypted=encrypt_token("token"),
+        influx_url="http://127.0.0.1:8086",
+        influx_org="legacy",
+        influx_bucket="legacy",
+        token_encrypted="unused",
     )
-
-    db = FakeSession([ds, _make_activity(user_id, 4, 7000.0)])
-
-    result = summary(user=user, db=db)
-
-    assert result["mileage"] == {"30d": 7000.0, "60d": 7000.0, "90d": 7000.0}
-    assert result["pace_histogram"] == []
-
-
-def test_summary_uses_canonical_activity_data():
-    """Summary should derive mileage and long-run values from canonical Postgres data."""
-    user_id = uuid.uuid4()
-    user = SimpleNamespace(id=user_id)
     db = FakeSession(
         [
-            _make_activity(user_id, 5, 5000.0),
-            _make_activity(user_id, 20, 10000.0),
-            _make_activity(user_id, 50, 20000.0),
+            legacy_datasource,
+            _make_activity(user_id, now, 2, 5000.0),
+            _make_activity(user_id, now, 20, 10000.0),
+            _make_activity(other_user_id, now, 1, 999999.0),
         ]
     )
 
     result = summary(user=user, db=db)
 
-    assert result["mileage"] == {"30d": 15000.0, "60d": 35000.0, "90d": 35000.0}
-    assert result["average_weekly_mileage"] == pytest.approx(2916.6666666666665)
-    assert result["long_run_max"] == 20000.0
-    assert result["pace_histogram"] == []
-    assert result["training_load"] == []
+    assert result["source"] == "canonical_postgres"
+    assert result["state"] == "fresh"
+    assert result["generated_at"]
+    assert result["data_through"] == (now - timedelta(days=2)).isoformat()
+    assert result["stale_after"] == (now + timedelta(days=1)).isoformat()
+    assert result["mileage"] == {"30d": 15000.0, "60d": 15000.0, "90d": 15000.0}
+    assert result["long_run_max"] == 10000.0
+    assert result["metric_states"]["hrv_avg"] == "unknown"
 
 
-def test_summary_isolates_athlete_rows():
-    """Canonical metric reads must exclude another athlete's activity rows."""
+def test_canonical_summary_marks_old_data_stale_without_discarding_values():
+    """Old canonical values remain visible with an explicit stale state."""
+    now = datetime(2026, 9, 10, 12, tzinfo=timezone.utc)
     user_id = uuid.uuid4()
-    other_user_id = uuid.uuid4()
-    user = SimpleNamespace(id=user_id)
-    db = FakeSession(
-        [_make_activity(user_id, 2, 8000.0), _make_activity(other_user_id, 1, 42000.0)]
+    result = build_canonical_summary(
+        FakeSession([_make_activity(user_id, now, 10, 8000.0)]),
+        user_id,
+        now=now,
     )
 
-    result = summary(user=user, db=db)
-
+    assert result["state"] == "stale"
+    assert result["generated_at"] == now.isoformat()
+    assert result["data_through"] == (now - timedelta(days=10)).isoformat()
+    assert result["stale_after"] == (now - timedelta(days=7)).isoformat()
     assert result["mileage"]["30d"] == 8000.0
     assert result["long_run_max"] == 8000.0
 
 
-def test_race_readiness_uses_canonical_activity_mileage_and_isolates_user():
-    """Race readiness should use only the athlete's last 30 days in Postgres."""
+def test_canonical_summary_marks_missing_data_unknown_instead_of_zero():
+    """No canonical history is unknown, not a fabricated zero-mile history."""
+    now = datetime(2026, 9, 10, 12, tzinfo=timezone.utc)
+    result = build_canonical_summary(FakeSession([]), uuid.uuid4(), now=now)
+
+    assert result["state"] == "unknown"
+    assert result["generated_at"] == now.isoformat()
+    assert result["data_through"] is None
+    assert result["stale_after"] is None
+    assert result["mileage"] == {"30d": None, "60d": None, "90d": None}
+    assert result["average_weekly_mileage"] is None
+    assert result["long_run_max"] is None
+    assert result["hrv_avg"] is None
+    assert result["pace_histogram"] is None
+    assert result["training_load"] is None
+
+
+def test_canonical_summary_reports_postgres_error_without_fabricated_values():
+    """Canonical query failure is explicit and safe for product consumers."""
+    now = datetime(2026, 9, 10, 12, tzinfo=timezone.utc)
+    result = build_canonical_summary(FailingSession(), uuid.uuid4(), now=now)
+
+    assert result["state"] == "error"
+    assert result["generated_at"] == now.isoformat()
+    assert result["data_through"] is None
+    assert result["mileage"]["30d"] is None
+    assert result["error"] == {
+        "code": "canonical_read_failed",
+        "message": "Canonical fitness data is temporarily unavailable.",
+    }
+
+
+def test_race_readiness_uses_only_canonical_postgres():
+    """Race readiness shares the canonical athlete-scoped read model."""
+    now = datetime.now(timezone.utc)
     user_id = uuid.uuid4()
     other_user_id = uuid.uuid4()
     user = SimpleNamespace(id=user_id)
     db = FakeSession(
         [
-            _make_activity(user_id, 2, 10000.0),
-            _make_activity(user_id, 35, 50000.0),
-            _make_activity(other_user_id, 1, 100000.0),
+            _make_activity(user_id, now, 2, 40000.0),
+            _make_activity(other_user_id, now, 1, 400000.0),
         ]
     )
 
     result = race_readiness(
         RaceReadinessRequest(
-            race_type="marathon", race_date=datetime.now(timezone.utc) + timedelta(days=30)
+            race_type="half marathon",
+            race_date=now + timedelta(days=30),
         ),
         user=user,
         db=db,
     )
 
-    expected_miles = 10000.0 / 1609.34
-    assert result["readiness"] == pytest.approx(expected_miles / 400 * 100)
-    assert f"{expected_miles:.1f} miles" in result["commentary"]
+    miles_30 = 40000.0 / 1609.34
+    assert result["source"] == "canonical_postgres"
+    assert result["state"] == "fresh"
+    assert result["data_through"] == (now - timedelta(days=2)).isoformat()
+    assert result["readiness"] == pytest.approx(miles_30 / 400 * 100)
+    assert "24.9 miles" in result["commentary"]

@@ -63,6 +63,8 @@ class FakeQuery:
         attr = getattr(side, "key", None) or getattr(side, "name", None)
         if attr and hasattr(item, attr):
             return getattr(item, attr)
+        if hasattr(side, "value"):
+            return side.value
         return side
 
     def _matches(self, condition, item):

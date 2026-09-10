@@ -1,4 +1,4 @@
-"""Postgres-backed athlete insight endpoints."""
+"""Product insight endpoints backed by canonical Postgres records."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/metrics", tags=["metrics"])
 def summary(
     user: CurrentUserLike = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    """Aggregate readiness metrics from canonical athlete activity rows."""
+    """Aggregate product metrics exclusively from the canonical read model."""
     return build_canonical_summary(db, user.id)
 
 
@@ -38,13 +38,40 @@ def race_readiness(
     user: CurrentUserLike = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Estimate readiness from the athlete's canonical 30-day mileage."""
-    summary_data = build_canonical_summary(db, user.id)
-    distance_m = float(summary_data["mileage"]["30d"])
+    """Estimate readiness from the same canonical summary used by coaching."""
+    metrics = build_canonical_summary(db, user.id)
+    response = {
+        key: metrics[key]
+        for key in ("source", "state", "generated_at", "data_through", "stale_after")
+    }
+    if metrics["state"] == "error":
+        return {
+            **response,
+            "readiness": None,
+            "commentary": (
+                "Race readiness is unavailable because canonical fitness data "
+                "could not be read."
+            ),
+            "error": metrics["error"],
+        }
+    if metrics["state"] == "unknown":
+        return {
+            **response,
+            "readiness": None,
+            "commentary": (
+                "Race readiness is unknown until canonical activity history is "
+                "available."
+            ),
+            "error": None,
+        }
+
+    distance_m = float(metrics["mileage"]["30d"] or 0.0)
     miles_30 = distance_m / 1609.34
     readiness = min(100, max(0, miles_30 / 400 * 100))
     commentary = (
         f"Based on {miles_30:.1f} miles in last 30d, your readiness for a "
         f"{body.race_type} looks {readiness:.0f}/100."
     )
-    return {"readiness": readiness, "commentary": commentary}
+    if metrics["state"] == "stale":
+        commentary += " The underlying data is stale; refresh before changing training."
+    return {**response, "readiness": readiness, "commentary": commentary, "error": None}

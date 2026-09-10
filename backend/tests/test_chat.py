@@ -41,6 +41,8 @@ class FakeQuery:
         attr = getattr(side, "key", None) or getattr(side, "name", None)
         if attr and hasattr(item, attr):
             return getattr(item, attr)
+        if hasattr(side, "value"):
+            return side.value
         return side
 
     def _matches(self, condition, item):
@@ -87,12 +89,12 @@ def _make_activity(user_id, days_ago, distance_m):
 
 
 def test_chat_assembles_context_from_canonical_read_model():
-    """Chat should still produce an LLM response when canonical data is available."""
+    """Chat should receive and persist canonical values plus freshness metadata."""
     user_id = uuid.uuid4()
     user = SimpleNamespace(id=user_id)
     db = FakeSession(
         [
-            _make_activity(user_id, 3, 6000.0),
+            _make_activity(user_id, 2, 6000.0),
             _make_activity(user_id, 11, 12000.0),
         ]
     )
@@ -108,10 +110,16 @@ def test_chat_assembles_context_from_canonical_read_model():
 
     assert resp["response"] == "coach-response"
     assert captured["message"] == "what should I do?"
+    assert captured["metrics"]["source"] == "canonical_postgres"
+    assert captured["metrics"]["state"] == "fresh"
+    assert captured["metrics"]["generated_at"]
+    assert captured["metrics"]["data_through"]
     assert captured["metrics"]["mileage"]["30d"] == 18000.0
     assert captured["metrics"]["long_run_max"] == 12000.0
-    assert captured["metrics"]["training_load"] == []
+    assert captured["metrics"]["training_load"] is None
     stored_conversation = next(
         item for item in db.added if isinstance(item, Conversation)
     )
     assert stored_conversation.metadata_json["metrics"]["mileage"]["30d"] == 18000.0
+    assert stored_conversation.metadata_json["metrics"]["state"] == "fresh"
+    assert stored_conversation.metadata_json["metrics"]["data_through"]
