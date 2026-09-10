@@ -8,6 +8,7 @@ from .activity import Activity, ActivitySource, IngestRun, IngestDecision
 from .sleep import SleepSession
 from .sync import SyncJob, SyncCheckpoint
 from .dossier import DossierJob, DossierArtifact
+from .archive_import import ArchiveImportJob, ArchiveImportObject
 
 __all__ = [
     "User",
@@ -25,4 +26,6 @@ __all__ = [
     "SyncCheckpoint",
     "DossierJob",
     "DossierArtifact",
+    "ArchiveImportJob",
+    "ArchiveImportObject",
 ]

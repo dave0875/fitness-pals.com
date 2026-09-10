@@ -82,6 +82,18 @@ class Settings(BaseSettings):
     dedupe_duration_tolerance_ratio: float = 0.1
     dedupe_distance_tolerance_ratio: float = 0.03
 
+    # --- Athlete-bound archive ingestion ---
+    archive_import_storage_backend: str = "filesystem"
+    archive_import_filesystem_root: str = "/tmp/runtrainer-archive-imports"
+    archive_import_upload_url_ttl_seconds: int = 3600
+    archive_import_gcs_bucket: Optional[str] = None
+    archive_import_gcs_credentials_json: Optional[str] = None
+    archive_import_gcs_credentials_file: Optional[str] = None
+    google_drive_archive_sources_json: str = "{}"
+    google_drive_service_account_json: Optional[str] = None
+    google_drive_service_account_file: Optional[str] = None
+    google_drive_archive_max_objects: int = 10000
+
     # ---------- NEW Pydantic v2 config -----------
     model_config = SettingsConfigDict(
         env_file=".env",
