@@ -35,7 +35,7 @@ def test_ci_summary_keeps_the_exact_validation_matrix():
 
 
 def test_dependency_caches_follow_both_lockfile_sets():
-    assert "PIP_CACHE_DIR: ${{ runner.temp }}/pip-cache" in TEST_JOB
+    assert 'PIP_CACHE_DIR=$RUNNER_TEMP/pip-cache" >> "$GITHUB_ENV' in TEST_JOB
     assert "cache: pip" in TEST_JOB
     assert "backend/requirements.txt" in TEST_JOB
     assert "services/training_agent/requirements.txt" in TEST_JOB

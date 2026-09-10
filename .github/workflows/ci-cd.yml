@@ -32,7 +32,6 @@ jobs:
       - self-hosted
       - ${{ github.event_name == 'pull_request' && 'dev' || 'prod' }}
     env:
-      PIP_CACHE_DIR: ${{ runner.temp }}/pip-cache
       RUNTRAINER_JWT_SECRET: ci-secret
       RUNTRAINER_GOOGLE_CLIENT_ID: ci-google-id
       RUNTRAINER_GOOGLE_CLIENT_SECRET: ci-google-secret
@@ -54,6 +53,9 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Configure isolated pip cache
+        run: echo "PIP_CACHE_DIR=$RUNNER_TEMP/pip-cache" >> "$GITHUB_ENV"
 
       - name: Set up Python
         uses: actions/setup-python@v6
