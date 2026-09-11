@@ -542,6 +542,14 @@ jobs:
           fi
           docker compose --env-file "$ENV_FILE" up -d --no-deps "${recreate_args[@]}" "${services[@]}"
 
+      - name: Recover stopped dev application services
+        if: steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+        run: |
+          recovery_services=(backend worker training-agent frontend cloudflared cloudflared-loopback)
+          python3 scripts/recover_stopped_compose_services.py \
+            --env-file "$ENV_FILE" \
+            "${recovery_services[@]}"
+
       - name: Skip deploy when no app services changed
         if: steps.changes.outputs.frontend_changed != 'true' && steps.changes.outputs.backend_changed != 'true' && steps.changes.outputs.worker_changed != 'true' && steps.changes.outputs.training_agent_changed != 'true'
         run: echo "No backend, worker, or training-agent changes detected; skipping DEV deploy."
@@ -566,66 +574,59 @@ jobs:
       - name: Reconcile Authentik upstream Google SSO
         run: docker compose --env-file "$ENV_FILE" --profile bootstrap run --rm --no-deps authentik-bootstrap
 
-      - name: Smoke check changed service readiness
+      - name: Smoke check complete local dev application runtime
         if: steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
         run: |
-          urls=()
-          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ] || [ "${{ steps.changes.outputs.worker_changed }}" = "true" ]; then
-            BACKEND_HOST_PORT="$(python3 scripts/read_env_value.py "$ENV_FILE" RUNTRAINER_BACKEND_HOST_PORT --default 8000)"
-            urls+=("http://127.0.0.1:${BACKEND_HOST_PORT}/ready")
+          BACKEND_HOST_PORT="$(python3 scripts/read_env_value.py "$ENV_FILE" RUNTRAINER_BACKEND_HOST_PORT --default 8000)"
+          TRAINING_AGENT_HOST_PORT="$(python3 scripts/read_env_value.py "$ENV_FILE" TRAINING_AGENT_HOST_PORT --default 9000)"
+          urls=(
+            "http://127.0.0.1:${BACKEND_HOST_PORT}/ready"
+            "http://127.0.0.1:${TRAINING_AGENT_HOST_PORT}/ready"
+          )
+          worker_cid="$(docker compose --env-file "$ENV_FILE" ps -q worker)"
+          if [ -z "$worker_cid" ]; then
+            echo "Worker container is not running." >&2
+            exit 1
           fi
-          if [ "${{ steps.changes.outputs.training_agent_changed }}" = "true" ]; then
-            TRAINING_AGENT_HOST_PORT="$(python3 scripts/read_env_value.py "$ENV_FILE" TRAINING_AGENT_HOST_PORT --default 9000)"
-            urls+=("http://127.0.0.1:${TRAINING_AGENT_HOST_PORT}/ready")
+          worker_status="$(docker inspect -f '{{.State.Status}}' "$worker_cid")"
+          if [ "$worker_status" != "running" ]; then
+            echo "Worker container status is $worker_status, expected running." >&2
+            exit 1
           fi
-          if [ "${{ steps.changes.outputs.backend_changed }}" = "true" ] || [ "${{ steps.changes.outputs.worker_changed }}" = "true" ]; then
-            worker_cid="$(docker compose --env-file "$ENV_FILE" ps -q worker)"
-            if [ -z "$worker_cid" ]; then
-              echo "Worker container is not running." >&2
-              exit 1
+          worker_cmd="$(docker inspect -f '{{json .Config.Cmd}}' "$worker_cid")"
+          echo "$worker_cmd" | grep -q 'app.workers.sync_jobs_worker' || {
+            echo "Worker container command does not target the sync job worker." >&2
+            exit 1
+          }
+          frontend_cid="$(docker compose --env-file "$ENV_FILE" ps -q frontend)"
+          if [ -z "$frontend_cid" ]; then
+            echo "Frontend container is not running." >&2
+            exit 1
+          fi
+          frontend_health_deadline=$((SECONDS + 120))
+          frontend_health="starting"
+          while [ "$SECONDS" -lt "$frontend_health_deadline" ]; do
+            frontend_health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$frontend_cid")"
+            if [ "$frontend_health" = "healthy" ]; then
+              break
             fi
-            worker_status="$(docker inspect -f '{{.State.Status}}' "$worker_cid")"
-            if [ "$worker_status" != "running" ]; then
-              echo "Worker container status is $worker_status, expected running." >&2
-              exit 1
-            fi
-            worker_cmd="$(docker inspect -f '{{json .Config.Cmd}}' "$worker_cid")"
-            echo "$worker_cmd" | grep -q 'app.workers.sync_jobs_worker' || {
-              echo "Worker container command does not target the sync job worker." >&2
-              exit 1
-            }
+            sleep 2
+          done
+          if [ "$frontend_health" != "healthy" ]; then
+            echo "Frontend did not become healthy; last status was $frontend_health." >&2
+            exit 1
           fi
           if [ "${{ steps.changes.outputs.frontend_changed }}" = "true" ]; then
-            frontend_cid="$(docker compose --env-file "$ENV_FILE" ps -q frontend)"
-            if [ -z "$frontend_cid" ]; then
-              echo "Frontend container is not running." >&2
-              exit 1
-            fi
-            frontend_health_deadline=$((SECONDS + 120))
-            frontend_health="starting"
-            while [ "$SECONDS" -lt "$frontend_health_deadline" ]; do
-              frontend_health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$frontend_cid")"
-              if [ "$frontend_health" = "healthy" ]; then
-                break
-              fi
-              sleep 2
-            done
-            if [ "$frontend_health" != "healthy" ]; then
-              echo "Frontend did not become healthy; last status was $frontend_health." >&2
-              exit 1
-            fi
             frontend_release="$(docker inspect -f '{{index .Config.Labels "com.fitness-pals.release-sha"}}' "$frontend_cid")"
             if [ "$frontend_release" != "$RUNTRAINER_RELEASE_SHA" ]; then
               echo "Frontend container is release $frontend_release, expected release $RUNTRAINER_RELEASE_SHA." >&2
               exit 1
             fi
           fi
-          if [ ${#urls[@]} -gt 0 ]; then
-            python3 scripts/smoke_urls.py \
-              --urls "$(printf '%s\n' "${urls[@]}")" \
-              --timeout 150 \
-              --request-timeout 15
-          fi
+          python3 scripts/smoke_urls.py \
+            --urls "$(printf '%s\n' "${urls[@]}")" \
+            --timeout 150 \
+            --request-timeout 15
 
       - name: Smoke check external Cloudflare ingress
         if: steps.changes.outputs.cloudflared_changed == 'true' || steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true' || steps.changes.outputs.grafana_changed == 'true'

@@ -139,6 +139,28 @@ test("explicit branch deploys reconcile dev without exposing production", () => 
   assert.ok(!productionJob.includes("inputs.deploy_dev"));
 });
 
+test("dev deploy recovers stopped application services before ingress smoke", () => {
+  const workflow = read(".github/workflows/ci-cd.yml");
+  const recoveryScript = read("scripts/recover_stopped_compose_services.py");
+  const devJob = workflow.split("  deploy-dev:\n", 2)[1].split("  deploy-prod:\n", 1)[0];
+
+  const restartPosition = devJob.indexOf("Restart changed app services");
+  const recoveryPosition = devJob.indexOf("Recover stopped dev application services");
+  const readinessPosition = devJob.indexOf("Smoke check complete local dev application runtime");
+  const ingressPosition = devJob.indexOf("Smoke check external Cloudflare ingress");
+
+  assert.ok(restartPosition >= 0);
+  assert.ok(recoveryPosition > restartPosition);
+  assert.ok(readinessPosition > recoveryPosition);
+  assert.ok(ingressPosition > readinessPosition);
+  assert.ok(devJob.includes("recovery_services=(backend worker training-agent frontend cloudflared cloudflared-loopback)"));
+  assert.ok(devJob.includes("scripts/recover_stopped_compose_services.py"));
+  assert.ok(recoveryScript.includes('"ps", "-a", "-q", service'));
+  assert.ok(recoveryScript.includes('["docker", "start", container_id]'));
+  assert.ok(devJob.includes("Frontend did not become healthy"));
+  assert.ok(devJob.includes('if [ "${{ steps.changes.outputs.frontend_changed }}" = "true" ]; then'));
+});
+
 test("production deploy reads its overlay from the protected production secret store", () => {
   const workflow = read(".github/workflows/ci-cd.yml");
   const productionJob = workflow.split("  deploy-prod:\n", 2)[1];
