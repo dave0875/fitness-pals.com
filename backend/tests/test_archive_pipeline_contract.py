@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_archive_pipeline_keeps_schema_model_route_worker_and_ui_together():
     """Fail CI if any layer of the restored archive pipeline disappears."""
-    migration = ROOT / "backend/migrations/versions/0012_add_drive_archive_checkpoints.py"
+    migration = ROOT / "backend/migrations/versions/0012_drive_archive_checkpoints.py"
     ui = ROOT / "frontend/pages/import/garmin-archive.js"
 
     assert migration.exists()
