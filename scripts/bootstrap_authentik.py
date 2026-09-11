@@ -34,8 +34,8 @@ def _is_placeholder(value: str) -> bool:
 class GoogleSourceConfig:
     """Desired Authentik upstream Google source configuration."""
 
-    client_id: str
-    client_secret: str
+    client_id: str | None
+    client_secret: str | None
     credential_source: str
     name: str = "Google"
     slug: str = "google"
@@ -89,18 +89,19 @@ def _credential_pair(
 
 
 def load_google_source_config() -> GoogleSourceConfig:
-    """Load dedicated Google source credentials for the Authentik broker."""
+    """Load dedicated Google credentials when supplied for create or rotation."""
     dedicated = _credential_pair(
         "AUTHENTIK_GOOGLE_CLIENT_ID",
         "AUTHENTIK_GOOGLE_CLIENT_SECRET",
     )
-    if not dedicated:
-        raise SystemExit(
-            "Missing Google OAuth credentials: set AUTHENTIK_GOOGLE_CLIENT_ID "
-            "and AUTHENTIK_GOOGLE_CLIENT_SECRET"
-        )
-    client_id, client_secret = dedicated
-    credential_source = "AUTHENTIK_GOOGLE_CLIENT_ID/AUTHENTIK_GOOGLE_CLIENT_SECRET"
+    client_id: str | None
+    client_secret: str | None
+    if dedicated:
+        client_id, client_secret = dedicated
+        credential_source = "AUTHENTIK_GOOGLE_CLIENT_ID/AUTHENTIK_GOOGLE_CLIENT_SECRET"
+    else:
+        client_id = client_secret = None
+        credential_source = "existing Authentik Google source (credentials retained)"
     return GoogleSourceConfig(
         client_id=client_id,
         client_secret=client_secret,
@@ -306,12 +307,10 @@ def ensure_google_source(
     enrollment_flow: str,
 ) -> tuple[dict[str, Any], str]:
     """Create or reconcile the upstream Google OAuth source by unique slug."""
-    payload = {
+    payload: dict[str, Any] = {
         "name": config.name,
         "slug": config.slug,
         "provider_type": "google",
-        "consumer_key": config.client_id,
-        "consumer_secret": config.client_secret,
         "authentication_flow": authentication_flow,
         "enrollment_flow": enrollment_flow,
         "user_matching_mode": "email_link",
@@ -321,6 +320,11 @@ def ensure_google_source(
         "authorization_code_auth_method": "post_body",
         "oidc_well_known_url": GOOGLE_WELL_KNOWN_URL,
     }
+    if config.client_id and config.client_secret:
+        payload.update(
+            consumer_key=config.client_id,
+            consumer_secret=config.client_secret,
+        )
     existing = first_result(
         "/sources/oauth/",
         query={"slug": config.slug, "page_size": 1},
@@ -333,6 +337,11 @@ def ensure_google_source(
             expected=(200,),
         )
         return source, "updated"
+    if not config.client_id or not config.client_secret:
+        raise SystemExit(
+            "Cannot create the Authentik Google source without "
+            "AUTHENTIK_GOOGLE_CLIENT_ID and AUTHENTIK_GOOGLE_CLIENT_SECRET"
+        )
     source = api_call(
         "POST",
         "/sources/oauth/",

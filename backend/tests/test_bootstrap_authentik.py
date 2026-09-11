@@ -169,12 +169,14 @@ def test_bootstrap_output_never_contains_secrets(capsys):
 
 
 def test_missing_google_credentials_fail_clearly(monkeypatch):
-    """Dedicated credentials are required before reaching the Authentik API."""
+    """Missing credentials are allowed for reconciling an existing source."""
     monkeypatch.delenv("AUTHENTIK_GOOGLE_CLIENT_ID", raising=False)
     monkeypatch.delenv("AUTHENTIK_GOOGLE_CLIENT_SECRET", raising=False)
 
-    with pytest.raises(SystemExit, match="AUTHENTIK_GOOGLE_CLIENT_ID"):
-        bootstrap.load_google_source_config()
+    config = bootstrap.load_google_source_config()
+    assert config.client_id is None
+    assert config.client_secret is None
+    assert "credentials retained" in config.credential_source
 
     monkeypatch.setenv("AUTHENTIK_GOOGLE_CLIENT_ID", "replace-me")
     monkeypatch.setenv("AUTHENTIK_GOOGLE_CLIENT_SECRET", "replace-me")
@@ -199,8 +201,46 @@ def test_google_credentials_do_not_fall_back_to_direct_pair(monkeypatch):
     monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "fallback-id")
     monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_SECRET", "fallback-secret")
 
-    with pytest.raises(SystemExit, match="AUTHENTIK_GOOGLE_CLIENT_ID"):
-        bootstrap.load_google_source_config()
+    config = bootstrap.load_google_source_config()
+    assert config.client_id is None
+    assert config.client_secret is None
+
+
+def test_existing_google_source_is_reconciled_without_credentials(monkeypatch):
+    """An existing source keeps its Authentik secret when no rotation pair exists."""
+    monkeypatch.delenv("AUTHENTIK_GOOGLE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("AUTHENTIK_GOOGLE_CLIENT_SECRET", raising=False)
+    calls = []
+
+    def fake_api_call(method, path, **kwargs):
+        calls.append((method, path, kwargs))
+        if method == "GET":
+            return {"results": [{"pk": "source-uuid", "slug": "google"}]}
+        return {"pk": "source-uuid", "slug": "google", "enabled": True}
+
+    monkeypatch.setattr(bootstrap, "api_call", fake_api_call)
+    bootstrap.ensure_google_source(
+        bootstrap.load_google_source_config(),
+        authentication_flow="authentication-flow-uuid",
+        enrollment_flow="enrollment-flow-uuid",
+    )
+
+    assert "consumer_key" not in calls[-1][2]["payload"]
+    assert "consumer_secret" not in calls[-1][2]["payload"]
+
+
+def test_new_google_source_requires_dedicated_credentials(monkeypatch):
+    """A missing source cannot be created without dedicated upstream credentials."""
+    monkeypatch.delenv("AUTHENTIK_GOOGLE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("AUTHENTIK_GOOGLE_CLIENT_SECRET", raising=False)
+    monkeypatch.setattr(bootstrap, "api_call", lambda *args, **kwargs: {"results": []})
+
+    with pytest.raises(SystemExit, match="Cannot create.*AUTHENTIK_GOOGLE_CLIENT_ID"):
+        bootstrap.ensure_google_source(
+            bootstrap.load_google_source_config(),
+            authentication_flow="authentication-flow-uuid",
+            enrollment_flow="enrollment-flow-uuid",
+        )
 
 
 def test_flow_lookup_failure_has_actionable_error(monkeypatch):
