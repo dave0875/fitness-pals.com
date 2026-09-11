@@ -1,6 +1,6 @@
 """Add Drive source metadata and per-object archive checkpoints.
 
-Revision ID: 0012_add_drive_archive_checkpoints
+Revision ID: 0012_drive_archive_checkpoints
 Revises: 0011_add_user_roles
 """
 
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision = "0012_add_drive_archive_checkpoints"
+revision = "0012_drive_archive_checkpoints"
 down_revision = "0011_add_user_roles"
 branch_labels = None
 depends_on = None
