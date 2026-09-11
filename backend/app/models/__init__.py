@@ -1,6 +1,7 @@
 """SQLAlchemy models exported for easy imports."""
 
 from .user import User, UserRole
+from .oidc_identity import OidcIdentity
 from .data_source import DataSource
 from .conversation import Conversation
 from .provider import ProviderApp, UserProviderToken
@@ -13,6 +14,7 @@ from .archive_import import ArchiveImportJob, ArchiveImportObject
 __all__ = [
     "User",
     "UserRole",
+    "OidcIdentity",
     "DataSource",
     "Conversation",
     "ProviderApp",

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     refresh_token_exp_days: int = 30
 
     # --- OAuth: Google fallback ---
+    google_fallback_enabled: bool = False
     google_client_id: Optional[str] = None
     google_client_secret: Optional[str] = None
     google_redirect_uri: Optional[AnyUrl] = None

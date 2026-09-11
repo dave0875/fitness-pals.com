@@ -37,3 +37,13 @@ def test_configured_optional_oauth_url_remains_validated():
     settings = make_settings(web_oidc_issuer="https://auth.fitness-pals.com/application/o/web/")
 
     assert str(settings.web_oidc_issuer) == "https://auth.fitness-pals.com/application/o/web/"
+
+
+def test_direct_google_fallback_is_disabled_by_default():
+    settings = make_settings(
+        google_client_id="google-client",
+        google_client_secret="google-secret",
+        google_redirect_uri="https://example.com/auth/google/callback",
+    )
+
+    assert settings.google_fallback_enabled is False
