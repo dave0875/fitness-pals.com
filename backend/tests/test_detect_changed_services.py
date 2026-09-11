@@ -80,3 +80,12 @@ def test_build_outputs_reconciles_every_service_for_smoke_contract_changes() -> 
     )
 
     assert all(outputs.values())
+
+
+def test_build_outputs_reconciles_every_service_for_runtime_recovery_changes() -> None:
+    outputs = detect_changed_services.build_outputs(
+        ["scripts/recover_stopped_compose_services.py"],
+        set(),
+    )
+
+    assert all(outputs.values())

@@ -28,6 +28,7 @@ SERVICE_ALIASES = {
 DEPLOYMENT_CONTROL_PATHS = {
     ".github/workflows/ci-cd.yml",
     "scripts/detect_changed_services.py",
+    "scripts/recover_stopped_compose_services.py",
     "scripts/smoke_production.py",
 }
 
