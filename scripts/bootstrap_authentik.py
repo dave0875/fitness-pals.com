@@ -89,32 +89,18 @@ def _credential_pair(
 
 
 def load_google_source_config() -> GoogleSourceConfig:
-    """Prefer dedicated Google source credentials, with a deliberate fallback."""
+    """Load dedicated Google source credentials for the Authentik broker."""
     dedicated = _credential_pair(
         "AUTHENTIK_GOOGLE_CLIENT_ID",
         "AUTHENTIK_GOOGLE_CLIENT_SECRET",
     )
-    if dedicated:
-        client_id, client_secret = dedicated
-        credential_source = (
-            "AUTHENTIK_GOOGLE_CLIENT_ID/AUTHENTIK_GOOGLE_CLIENT_SECRET"
+    if not dedicated:
+        raise SystemExit(
+            "Missing Google OAuth credentials: set AUTHENTIK_GOOGLE_CLIENT_ID "
+            "and AUTHENTIK_GOOGLE_CLIENT_SECRET"
         )
-    else:
-        fallback = _credential_pair(
-            "RUNTRAINER_GOOGLE_CLIENT_ID",
-            "RUNTRAINER_GOOGLE_CLIENT_SECRET",
-        )
-        if not fallback:
-            raise SystemExit(
-                "Missing Google OAuth credentials: set "
-                "AUTHENTIK_GOOGLE_CLIENT_ID and AUTHENTIK_GOOGLE_CLIENT_SECRET "
-                "(preferred), or RUNTRAINER_GOOGLE_CLIENT_ID and "
-                "RUNTRAINER_GOOGLE_CLIENT_SECRET (documented fallback)"
-            )
-        client_id, client_secret = fallback
-        credential_source = (
-            "RUNTRAINER_GOOGLE_CLIENT_ID/RUNTRAINER_GOOGLE_CLIENT_SECRET (fallback)"
-        )
+    client_id, client_secret = dedicated
+    credential_source = "AUTHENTIK_GOOGLE_CLIENT_ID/AUTHENTIK_GOOGLE_CLIENT_SECRET"
     return GoogleSourceConfig(
         client_id=client_id,
         client_secret=client_secret,

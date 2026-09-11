@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from urllib.parse import quote
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
@@ -34,15 +35,30 @@ os.environ.setdefault(
 
 import app.auth.oauth as oauth_mod
 from app import main
+from app.models import OidcIdentity, User
 from app.utils.security import APP_REFRESH_COOKIE, APP_SESSION_COOKIE
+
+
+class FakeQuery:
+    """Return a configured result for the callback query under test."""
+
+    def __init__(self, result):
+        self.result = result
+
+    def filter(self, *_args, **_kwargs):
+        return self
+
+    def first(self):
+        return self.result
 
 
 class FakeSession:
     """Minimal DB session stub."""
 
-    def __init__(self):
+    def __init__(self, *, identity=None, user=None):
         """Initialize with empty storage."""
-        self._items = []
+        self.identity = identity
+        self.user = user
         self.added = []
 
     def add(self, obj):
@@ -57,9 +73,13 @@ class FakeSession:
         """Return the refreshed object."""
         return obj
 
-    def query(self, _model):
-        """Return an object that yields no existing user."""
-        return SimpleNamespace(filter=lambda *args, **kwargs: SimpleNamespace(first=lambda: None))
+    def query(self, model):
+        """Return the configured identity or email-linked user."""
+        if model is OidcIdentity:
+            return FakeQuery(self.identity)
+        if model is User:
+            return FakeQuery(self.user)
+        raise AssertionError(f"Unexpected query model: {model}")
 
 
 class FakeClient:
@@ -68,7 +88,10 @@ class FakeClient:
     def __init__(self, provider: str):
         """Initialize with canned metadata."""
         self.provider = provider
-        self.server_metadata = {"userinfo_endpoint": "https://example.com/userinfo"}
+        self.server_metadata = {
+            "issuer": f"https://issuer.example/{provider}",
+            "userinfo_endpoint": "https://example.com/userinfo",
+        }
         self.redirects: list[str] = []
         self.access_tokens: list[dict] = []
 
@@ -82,7 +105,9 @@ class FakeClient:
         token = {
             "access_token": f"token-{self.provider}",
             "userinfo": {
+                "sub": f"subject-{self.provider}",
                 "email": f"{self.provider}@example.com",
+                "email_verified": True,
                 "name": f"{self.provider}-user",
                 "picture": "http://example.com/pic.png",
             },
@@ -129,6 +154,7 @@ def reload_oauth(monkeypatch):
             f"RUNTRAINER_{provider}_REDIRECT_URI",
             f"https://example.com/auth/{provider.lower()}/callback",
         )
+    monkeypatch.setenv("RUNTRAINER_GOOGLE_FALLBACK_ENABLED", "true")
     monkeypatch.delenv("RUNTRAINER_OIDC_ISSUER", raising=False)
     monkeypatch.delenv("RUNTRAINER_OIDC_CLIENT_ID", raising=False)
     monkeypatch.delenv("RUNTRAINER_OIDC_CLIENT_SECRET", raising=False)
@@ -142,6 +168,40 @@ def reload_oauth(monkeypatch):
     # Reload module to pick up the env
     importlib.reload(oauth_mod)
     return oauth_mod
+
+
+def test_google_fallback_is_not_registered_without_explicit_enablement(monkeypatch):
+    """Google credentials alone must not activate the rollback path."""
+    monkeypatch.delenv("RUNTRAINER_OIDC_ISSUER", raising=False)
+    monkeypatch.delenv("RUNTRAINER_OIDC_CLIENT_ID", raising=False)
+    monkeypatch.delenv("RUNTRAINER_OIDC_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("RUNTRAINER_WEB_OIDC_ISSUER", raising=False)
+    monkeypatch.delenv("RUNTRAINER_WEB_OIDC_CLIENT_ID", raising=False)
+    monkeypatch.delenv("RUNTRAINER_WEB_OIDC_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("RUNTRAINER_GOOGLE_FALLBACK_ENABLED", raising=False)
+    monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "google-id")
+    monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_SECRET", "google-secret")
+
+    reloaded = importlib.reload(oauth_mod)
+
+    assert "google" not in reloaded._registered  # pylint: disable=protected-access
+
+
+def test_incomplete_authentik_config_is_not_registered(monkeypatch):
+    """A missing broker callback URI cannot leave a half-configured login path."""
+    monkeypatch.setenv(
+        "RUNTRAINER_WEB_OIDC_ISSUER",
+        "https://auth.fitness-pals.com/application/o/fitness-pals-web/",
+    )
+    monkeypatch.setenv("RUNTRAINER_WEB_OIDC_CLIENT_ID", "oidc-client")
+    monkeypatch.setenv("RUNTRAINER_WEB_OIDC_CLIENT_SECRET", "oidc-secret")
+    monkeypatch.delenv("RUNTRAINER_WEB_OIDC_REDIRECT_URI", raising=False)
+    monkeypatch.delenv("RUNTRAINER_OIDC_REDIRECT_URI", raising=False)
+    monkeypatch.delenv("RUNTRAINER_GOOGLE_FALLBACK_ENABLED", raising=False)
+
+    reloaded = importlib.reload(oauth_mod)
+
+    assert "authentik" not in reloaded._registered  # pylint: disable=protected-access
 
 
 def test_discovery_url_uses_authentik_application_issuer():
@@ -238,6 +298,146 @@ async def test_login_and_callback_with_stubbed_oidc(provider, reload_oauth):
     cookies = callback_resp.headers.getlist("set-cookie")
     assert any(APP_SESSION_COOKIE in cookie for cookie in cookies)
     assert any(APP_REFRESH_COOKIE in cookie for cookie in cookies)
+    identity = next(item for item in db.added if isinstance(item, OidcIdentity))
+    assert identity.subject == f"subject-{provider}"
+    assert identity.user.email == f"{provider}@example.com"
+
+
+@pytest.mark.asyncio
+async def test_callback_rejects_unverified_email(reload_oauth):
+    """An OIDC subject cannot be linked through an unverified email claim."""
+    oauth_module = reload_oauth
+    fake_client = FakeClient("google")
+    oauth_module._registered["google"] = True  # pylint: disable=protected-access
+    setattr(oauth_module.oauth, "google", fake_client)
+    request = Request(scope={"type": "http", "query_string": b"", "headers": []})
+    token = await fake_client.authorize_access_token(request)
+    token["userinfo"]["email_verified"] = False
+
+    async def authorize_access_token(_request):
+        return token
+
+    fake_client.authorize_access_token = authorize_access_token
+
+    with pytest.raises(HTTPException) as exc_info:
+        await oauth_module.auth_callback("google", request, db=FakeSession())
+
+    assert getattr(exc_info.value, "status_code", None) == 400
+    assert "verified email" in str(getattr(exc_info.value, "detail", ""))
+
+
+@pytest.mark.asyncio
+async def test_callback_rejects_missing_subject(reload_oauth):
+    """A verified email is insufficient without the stable OIDC subject."""
+    oauth_module = reload_oauth
+    fake_client = FakeClient("google")
+    oauth_module._registered["google"] = True  # pylint: disable=protected-access
+    setattr(oauth_module.oauth, "google", fake_client)
+    request = Request(scope={"type": "http", "query_string": b"", "headers": []})
+    token = await fake_client.authorize_access_token(request)
+    del token["userinfo"]["sub"]
+
+    async def authorize_access_token(_request):
+        return token
+
+    fake_client.authorize_access_token = authorize_access_token
+
+    with pytest.raises(HTTPException) as exc_info:
+        await oauth_module.auth_callback("google", request, db=FakeSession())
+
+    assert getattr(exc_info.value, "status_code", None) == 400
+    assert "subject" in str(getattr(exc_info.value, "detail", ""))
+
+
+@pytest.mark.asyncio
+async def test_callback_rejects_provider_without_trusted_issuer(reload_oauth):
+    """Identity bindings cannot be created from an unknown issuer."""
+    oauth_module = reload_oauth
+    fake_client = FakeClient("microsoft")
+    del fake_client.server_metadata["issuer"]
+    oauth_module._registered["microsoft"] = True  # pylint: disable=protected-access
+    setattr(oauth_module.oauth, "microsoft", fake_client)
+    request = Request(scope={"type": "http", "query_string": b"", "headers": []})
+
+    with pytest.raises(HTTPException) as exc_info:
+        await oauth_module.auth_callback("microsoft", request, db=FakeSession())
+
+    assert getattr(exc_info.value, "status_code", None) == 400
+    assert "trusted issuer" in str(getattr(exc_info.value, "detail", ""))
+
+
+@pytest.mark.asyncio
+async def test_callback_normalizes_verified_email_before_linking(reload_oauth):
+    """Verified email is normalized before a new user is created and bound."""
+    oauth_module = reload_oauth
+    fake_client = FakeClient("google")
+    oauth_module._registered["google"] = True  # pylint: disable=protected-access
+    setattr(oauth_module.oauth, "google", fake_client)
+    request = Request(scope={"type": "http", "query_string": b"", "headers": []})
+    token = await fake_client.authorize_access_token(request)
+    token["userinfo"]["email"] = "  RUNNER@Example.COM  "
+
+    async def authorize_access_token(_request):
+        return token
+
+    fake_client.authorize_access_token = authorize_access_token
+    db = FakeSession()
+
+    await oauth_module.auth_callback("google", request, db=db)
+
+    user = next(item for item in db.added if isinstance(item, User))
+    identity = next(item for item in db.added if isinstance(item, OidcIdentity))
+    assert user.email == "runner@example.com"
+    assert identity.issuer == "https://accounts.google.com"
+    assert identity.subject == "subject-google"
+    assert identity.user is user
+
+
+@pytest.mark.asyncio
+async def test_callback_links_existing_account_by_verified_normalized_email(reload_oauth):
+    """The first trusted identity may link to an existing normalized email."""
+    oauth_module = reload_oauth
+    fake_client = FakeClient("google")
+    oauth_module._registered["google"] = True  # pylint: disable=protected-access
+    setattr(oauth_module.oauth, "google", fake_client)
+    request = Request(scope={"type": "http", "query_string": b"", "headers": []})
+    token = await fake_client.authorize_access_token(request)
+    token["userinfo"]["email"] = " RUNNER@Example.COM "
+
+    async def authorize_access_token(_request):
+        return token
+
+    fake_client.authorize_access_token = authorize_access_token
+    existing_user = User(email="Runner@example.com", name="Existing runner")
+    db = FakeSession(user=existing_user)
+
+    await oauth_module.auth_callback("google", request, db=db)
+
+    identity = next(item for item in db.added if isinstance(item, OidcIdentity))
+    assert identity.user is existing_user
+    assert existing_user.email == "runner@example.com"
+
+
+@pytest.mark.asyncio
+async def test_callback_resolves_bound_identity_before_email_linking(reload_oauth):
+    """A durable issuer/subject binding is the key on later logins."""
+    oauth_module = reload_oauth
+    fake_client = FakeClient("google")
+    oauth_module._registered["google"] = True  # pylint: disable=protected-access
+    setattr(oauth_module.oauth, "google", fake_client)
+    request = Request(scope={"type": "http", "query_string": b"", "headers": []})
+    user = User(email="original@example.com", name="Original")
+    identity = OidcIdentity(
+        issuer="https://accounts.google.com",
+        subject="subject-google",
+        user=user,
+    )
+    db = FakeSession(identity=identity, user=User(email="google@example.com"))
+
+    await oauth_module.auth_callback("google", request, db=db)
+
+    assert user.last_login_at is not None
+    assert not any(isinstance(item, OidcIdentity) for item in db.added)
 
 
 @pytest.mark.asyncio

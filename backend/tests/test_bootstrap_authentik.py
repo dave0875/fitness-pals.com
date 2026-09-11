@@ -169,15 +169,15 @@ def test_bootstrap_output_never_contains_secrets(capsys):
 
 
 def test_missing_google_credentials_fail_clearly(monkeypatch):
-    """Neither missing nor placeholder credentials can reach the Authentik API."""
+    """Dedicated credentials are required before reaching the Authentik API."""
     monkeypatch.delenv("AUTHENTIK_GOOGLE_CLIENT_ID", raising=False)
     monkeypatch.delenv("AUTHENTIK_GOOGLE_CLIENT_SECRET", raising=False)
 
-    with pytest.raises(SystemExit, match="AUTHENTIK_GOOGLE_CLIENT_ID.*RUNTRAINER_GOOGLE_CLIENT_ID"):
+    with pytest.raises(SystemExit, match="AUTHENTIK_GOOGLE_CLIENT_ID"):
         bootstrap.load_google_source_config()
 
-    monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "replace-me")
-    monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_SECRET", "replace-me")
+    monkeypatch.setenv("AUTHENTIK_GOOGLE_CLIENT_ID", "replace-me")
+    monkeypatch.setenv("AUTHENTIK_GOOGLE_CLIENT_SECRET", "replace-me")
     with pytest.raises(SystemExit, match="placeholder"):
         bootstrap.load_google_source_config()
 
@@ -192,18 +192,15 @@ def test_partial_dedicated_credentials_do_not_mix_pairs(monkeypatch):
         bootstrap.load_google_source_config()
 
 
-def test_google_credentials_deliberately_fall_back_to_direct_pair(monkeypatch):
-    """The documented emergency-fallback OAuth pair may bootstrap Authentik."""
+def test_google_credentials_do_not_fall_back_to_direct_pair(monkeypatch):
+    """Direct-app credentials never become Authentik upstream credentials."""
     monkeypatch.delenv("AUTHENTIK_GOOGLE_CLIENT_ID")
     monkeypatch.delenv("AUTHENTIK_GOOGLE_CLIENT_SECRET")
     monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_ID", "fallback-id")
     monkeypatch.setenv("RUNTRAINER_GOOGLE_CLIENT_SECRET", "fallback-secret")
 
-    config = bootstrap.load_google_source_config()
-
-    assert config.client_id == "fallback-id"
-    assert config.client_secret == "fallback-secret"
-    assert config.credential_source.startswith("RUNTRAINER_GOOGLE_CLIENT_ID")
+    with pytest.raises(SystemExit, match="AUTHENTIK_GOOGLE_CLIENT_ID"):
+        bootstrap.load_google_source_config()
 
 
 def test_flow_lookup_failure_has_actionable_error(monkeypatch):

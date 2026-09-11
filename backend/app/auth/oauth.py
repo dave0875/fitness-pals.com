@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import unicodedata
 from datetime import datetime
 from typing import Optional, cast
 from uuid import UUID
@@ -10,11 +11,12 @@ from uuid import UUID
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
-from app.models import User
+from app.models import OidcIdentity, User
 from app.utils.security import (
     clear_auth_cookies,
     create_access_token,
@@ -32,6 +34,7 @@ logger.setLevel(logging.INFO)
 DEFAULT_PROVIDER = "authentik"
 AUTH_NEXT_COOKIE = "runtrainer_auth_next"
 LEGACY_FALLBACK_PROVIDER = "google"
+GOOGLE_ISSUER = "https://accounts.google.com"
 LEGACY_PROVIDER_ALIASES = {
     "google": DEFAULT_PROVIDER,
     "microsoft": DEFAULT_PROVIDER,
@@ -74,12 +77,13 @@ def _oidc_scope() -> str:
 
 
 def _oidc_enabled() -> bool:
-    """Return True when the brokered Authentik login is configured."""
+    """Return True when the complete brokered Authentik login is configured."""
     return all(
         [
             _oidc_issuer(),
             _oidc_client_id(),
             _oidc_client_secret(),
+            _oidc_redirect_uri(),
         ]
     )
 
@@ -117,13 +121,21 @@ if _oidc_enabled():
         _oidc_scope(),
     )
 else:
-    _register_provider(
-        "google",
-        "https://accounts.google.com/.well-known/openid-configuration",
-        settings.google_client_id,
-        settings.google_client_secret,
-        "openid email profile",
-    )
+    if all(
+        [
+            settings.google_fallback_enabled,
+            settings.google_client_id,
+            settings.google_client_secret,
+            settings.google_redirect_uri,
+        ]
+    ):
+        _register_provider(
+            "google",
+            "https://accounts.google.com/.well-known/openid-configuration",
+            settings.google_client_id,
+            settings.google_client_secret,
+            "openid email profile",
+        )
     _register_provider(
         "microsoft",
         "https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration",
@@ -153,16 +165,18 @@ def _canonical_provider(provider: str) -> str:
 
 def _default_provider() -> str:
     """Return the provider used by the top-level login route."""
-    return DEFAULT_PROVIDER if _oidc_enabled() else LEGACY_FALLBACK_PROVIDER
+    if _oidc_enabled():
+        return DEFAULT_PROVIDER
+    if settings.google_fallback_enabled:
+        return LEGACY_FALLBACK_PROVIDER
+    return DEFAULT_PROVIDER
 
 
 def _redirect_uri_for(provider: str) -> Optional[str]:
     """Return the configured redirect URI for a given provider."""
     canonical = _canonical_provider(provider)
     if canonical == DEFAULT_PROVIDER:
-        return _oidc_redirect_uri() or (
-            str(settings.google_redirect_uri) if settings.google_redirect_uri else None
-        )
+        return _oidc_redirect_uri()
 
     mapping = {
         "google": str(settings.google_redirect_uri) if settings.google_redirect_uri else None,
@@ -172,6 +186,96 @@ def _redirect_uri_for(provider: str) -> Optional[str]:
         "apple": str(settings.apple_redirect_uri) if settings.apple_redirect_uri else None,
     }
     return mapping.get(canonical)
+
+
+def _trusted_issuer(provider: str) -> str | None:
+    """Return the issuer whose token validation configured this provider."""
+    if provider == DEFAULT_PROVIDER:
+        return _oidc_issuer()
+    if provider == LEGACY_FALLBACK_PROVIDER:
+        return GOOGLE_ISSUER
+    client = getattr(oauth, provider)
+    issuer = client.server_metadata.get("issuer")
+    return str(issuer) if issuer else None
+
+
+def _normalized_email(userinfo) -> str:
+    """Require a provider-verified email and return its canonical form."""
+    if userinfo.get("email_verified") is not True:
+        raise HTTPException(
+            status_code=400,
+            detail="OIDC provider did not return a verified email",
+        )
+    email = userinfo.get("email")
+    if not isinstance(email, str):
+        raise HTTPException(status_code=400, detail="OIDC provider did not return an email")
+    normalized = unicodedata.normalize("NFKC", email).strip().casefold()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="OIDC provider returned an empty email")
+    return normalized
+
+
+def _subject(userinfo) -> str:
+    """Require the stable, case-sensitive OIDC subject claim."""
+    subject = userinfo.get("sub")
+    if not isinstance(subject, str) or not subject:
+        raise HTTPException(
+            status_code=400,
+            detail="OIDC provider did not return a subject",
+        )
+    return subject
+
+
+def _resolve_user(
+    db: Session,
+    *,
+    issuer: str,
+    subject: str,
+    email: str,
+    userinfo,
+) -> User:
+    """Resolve by stable identity, linking by verified normalized email once."""
+    identity = (
+        db.query(OidcIdentity)
+        .filter(
+            OidcIdentity.issuer == issuer,
+            OidcIdentity.subject == subject,
+        )
+        .first()
+    )
+    now = datetime.utcnow()
+    if identity:
+        bound_user = identity.user
+        setattr(bound_user, "last_login_at", now)
+        return bound_user
+
+    email_user: Optional[User] = (
+        db.query(User)
+        .filter(func.lower(func.trim(User.email)) == email)
+        .first()
+    )
+    if (
+        email_user
+        and unicodedata.normalize("NFKC", email_user.email).strip().casefold()
+        != email
+    ):
+        email_user = None
+    if not email_user:
+        user = User(
+            email=email,
+            name=userinfo.get("name"),
+            picture_url=userinfo.get("picture"),
+            created_at=now,
+            last_login_at=now,
+        )
+        db.add(user)
+    else:
+        user = email_user
+        setattr(user, "email", email)
+        setattr(user, "last_login_at", now)
+
+    db.add(OidcIdentity(issuer=issuer, subject=subject, user=user))
+    return user
 
 
 def _safe_next_path(candidate: Optional[str], default: str = "/welcome") -> str:
@@ -263,24 +367,21 @@ async def auth_callback(provider: str, request: Request, db: Session = Depends(g
     userinfo = await _fetch_userinfo(provider, token, request)
     if not userinfo:
         raise HTTPException(status_code=400, detail=f"No userinfo from {provider}")
-    email = userinfo.get("email")
-    if not email:
+    issuer = _trusted_issuer(provider)
+    if not issuer:
         raise HTTPException(
-            status_code=400, detail=f"{provider} did not return an email"
+            status_code=400,
+            detail=f"No trusted issuer configured for {provider}",
         )
-    user: Optional[User] = db.query(User).filter(User.email == email).first()
-    now = datetime.utcnow()
-    if not user:
-        user = User(
-            email=email,
-            name=userinfo.get("name"),
-            picture_url=userinfo.get("picture"),
-            created_at=now,
-            last_login_at=now,
-        )
-        db.add(user)
-    else:
-        setattr(user, "last_login_at", now)
+    email = _normalized_email(userinfo)
+    subject = _subject(userinfo)
+    user = _resolve_user(
+        db,
+        issuer=issuer,
+        subject=subject,
+        email=email,
+        userinfo=userinfo,
+    )
     db.commit()
     db.refresh(user)
     user_id_value = cast(UUID, getattr(user, "id"))
