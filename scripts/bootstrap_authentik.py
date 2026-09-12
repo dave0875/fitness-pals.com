@@ -21,7 +21,10 @@ GOOGLE_VERIFIED_EMAIL_SOURCE_MAPPING_NAME = (
 VERIFIED_EMAIL_SCOPE_MAPPING_NAME = "Fitness Pals verified email scope"
 GOOGLE_VERIFIED_EMAIL_SOURCE_MAPPING_EXPRESSION = """
 email = info.get("email")
-email_verified = info.get("email_verified") is True and isinstance(email, str)
+# Authentik's built-in Google adapter uses OAuth v1 userinfo (verified_email).
+# Only fall back when the OIDC claim is absent; an explicit denial wins.
+verified = info.get("email_verified", info.get("verified_email"))
+email_verified = verified is True and isinstance(email, str)
 return {
     "attributes": {
         "fitness_pals_google_email_verified": email_verified,
@@ -340,6 +343,66 @@ def ensure_google_verified_email_source_mapping() -> tuple[dict[str, Any], str]:
     return mapping, "created"
 
 
+def ensure_source_authentication_user_write(authentication_flow: str) -> str:
+    """Save source mappings for returning users before the authentication stages."""
+    stage_name = "fitness-pals-google-authentication-write"
+    stage = first_result(
+        "/stages/user_write/", query={"name": stage_name, "page_size": 1}
+    )
+    status = "already_configured"
+    if not stage:
+        stage = api_call(
+            "POST",
+            "/stages/user_write/",
+            payload={"name": stage_name, "user_creation_mode": "never_create"},
+            expected=(201,),
+        )
+        status = "created"
+    elif stage.get("user_creation_mode") != "never_create":
+        api_call(
+            "PATCH",
+            f"/stages/user_write/{resource_pk(stage)}/",
+            payload={"user_creation_mode": "never_create"},
+            expected=(200,),
+        )
+        status = "updated"
+    stage_id = str(resource_pk(stage))
+    bindings = response_results(api_call(
+        "GET", "/flows/bindings/",
+        query={"target": authentication_flow, "page_size": 100},
+    ))
+    own_binding = next(
+        (binding for binding in bindings if str(binding.get("stage")) == stage_id),
+        None,
+    )
+    first_order = min(
+        (binding["order"] for binding in bindings
+         if str(binding.get("stage")) != stage_id),
+        default=0,
+    )
+    if own_binding is None:
+        api_call(
+            "POST",
+            "/flows/bindings/",
+            payload={
+                "target": authentication_flow,
+                "stage": stage_id,
+                "order": first_order - 1,
+            },
+            expected=(201,),
+        )
+        return "created"
+    if own_binding["order"] >= first_order:
+        api_call(
+            "PATCH",
+            f"/flows/bindings/{resource_pk(own_binding)}/",
+            payload={"order": first_order - 1},
+            expected=(200,),
+        )
+        return "updated"
+    return status
+
+
 def ensure_verified_email_scope_mapping() -> tuple[dict[str, Any], str]:
     """Create or update the custom OIDC email scope that asserts verified status."""
     payload = {
@@ -614,6 +677,7 @@ def bootstrap_google_federation(config: GoogleSourceConfig) -> dict[str, Any]:
         config.enrollment_flow_slug,
         purpose="Google enrollment flow",
     )
+    user_write_status = ensure_source_authentication_user_write(authentication_flow)
     source_mapping, source_mapping_status = (
         ensure_google_verified_email_source_mapping()
     )
@@ -651,6 +715,7 @@ def bootstrap_google_federation(config: GoogleSourceConfig) -> dict[str, Any]:
         "identification_stage_pk": str(resource_pk(bound_stage)),
         "binding_status": binding_status,
         "google_verified_email_mapping_status": source_mapping_status,
+        "google_authentication_user_write_status": user_write_status,
         "web_email_scope_definition_status": email_scope_definition_status,
         "web_email_scope_mapping_status": web_scope_status,
         "web_oidc_application_slug": web_scope_result["application_slug"],

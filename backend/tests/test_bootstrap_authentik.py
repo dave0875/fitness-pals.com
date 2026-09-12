@@ -99,7 +99,6 @@ def test_google_source_mapping_preserves_upstream_email_verification(monkeypatch
         ("POST", "/propertymappings/source/oauth/"),
     ]
     expression = calls[-1][2]["payload"]["expression"]
-    assert 'info.get("email_verified") is True' in expression
     assert 'info.get("email")' in expression
     assert "fitness_pals_google_email_verified" in expression
     assert "fitness_pals_google_verified_email" in expression
@@ -121,6 +120,90 @@ def test_google_source_mapping_preserves_upstream_email_verification(monkeypatch
             "fitness_pals_google_verified_email": "",
         }
     }
+
+
+@pytest.mark.parametrize(
+    ("claims", "verified"),
+    [
+        ({"verified_email": True}, True),
+        ({"email_verified": True}, True),
+        ({"verified_email": False}, False),
+        ({"verified_email": "true"}, False),
+        ({"verified_email": 1}, False),
+        ({}, False),
+        ({"email_verified": False, "verified_email": True}, False),
+        ({"email_verified": None, "verified_email": True}, False),
+    ],
+)
+def test_google_profile_verification_reaches_web_claim(claims, verified):
+    """Exercise both Google's built-in OAuth profile and OIDC claim shapes."""
+    email = " Runner@Example.com "
+    attributes = _evaluate_authentik_expression(
+        bootstrap.GOOGLE_VERIFIED_EMAIL_SOURCE_MAPPING_EXPRESSION,
+        info={"id": "google-subject", "email": email, **claims},
+    )["attributes"]
+    result = _evaluate_authentik_expression(
+        bootstrap.VERIFIED_EMAIL_SCOPE_MAPPING_EXPRESSION,
+        request=SimpleNamespace(user=SimpleNamespace(email=email, attributes=attributes)),
+    )
+    assert result == {"email": email, "email_verified": verified}
+    assert attributes["fitness_pals_google_verified_email"] == (
+        "runner@example.com" if verified else ""
+    )
+
+
+def test_source_authentication_saves_returning_user_before_login(monkeypatch):
+    """Default source auth only logs in; mapped attributes need a write stage."""
+    calls = []
+    bindings = [{"pk": "login-binding", "stage": "login", "order": 0}]
+    stages = []
+
+    def fake_api_call(method, path, **kwargs):
+        calls.append((method, path, kwargs))
+        if method == "GET":
+            return {"results": stages if path == "/stages/user_write/" else bindings}
+        if path == "/stages/user_write/":
+            assert kwargs["payload"]["user_creation_mode"] == "never_create"
+            stages.append({"pk": "write", **kwargs["payload"]})
+            return stages[-1]
+        if path == "/flows/bindings/":
+            assert kwargs["payload"]["target"] == "source-auth-flow"
+            assert kwargs["payload"]["stage"] == "write"
+            assert kwargs["payload"]["order"] < 0
+            bindings.append({"pk": "write-binding", **kwargs["payload"]})
+            return bindings[-1]
+        raise AssertionError((method, path, kwargs))
+
+    monkeypatch.setattr(bootstrap, "api_call", fake_api_call)
+    assert bootstrap.ensure_source_authentication_user_write("source-auth-flow") == "created"
+    assert bindings[0] == {"pk": "login-binding", "stage": "login", "order": 0}
+    calls.clear()
+    assert bootstrap.ensure_source_authentication_user_write("source-auth-flow") == "already_configured"
+    assert all(method == "GET" for method, _, _ in calls)
+
+
+def test_source_authentication_repairs_unsafe_write_mode_and_order(monkeypatch):
+    """Reconciliation restores update-only writes ahead of existing stages."""
+    calls = []
+
+    def fake_api_call(method, path, **kwargs):
+        calls.append((method, path, kwargs))
+        if method == "GET" and path == "/stages/user_write/":
+            return {"results": [{"pk": "write", "user_creation_mode": "always_create"}]}
+        if method == "GET" and path == "/flows/bindings/":
+            return {"results": [
+                {"pk": "write-binding", "stage": "write", "order": 10},
+                {"pk": "login-binding", "stage": "login", "order": 0},
+            ]}
+        return kwargs["payload"]
+
+    monkeypatch.setattr(bootstrap, "api_call", fake_api_call)
+    assert bootstrap.ensure_source_authentication_user_write("source-auth-flow") == "updated"
+    mutations = [(path, kwargs["payload"]) for method, path, kwargs in calls if method != "GET"]
+    assert mutations == [
+        ("/stages/user_write/write/", {"user_creation_mode": "never_create"}),
+        ("/flows/bindings/write-binding/", {"order": -1}),
+    ]
 
 
 def test_verified_email_scope_mapping_emits_claim_only_for_current_verified_email(
@@ -239,6 +322,11 @@ def test_google_federation_bootstrap_wires_both_verified_email_mappings(monkeypa
         "https://auth.example.com/application/o/fitness-pals-web/",
     )
     source_calls = []
+    write_flows = []
+    monkeypatch.setattr(
+        bootstrap, "ensure_source_authentication_user_write",
+        lambda flow: write_flows.append(flow) or "created",
+    )
     monkeypatch.setattr(
         bootstrap,
         "resolve_flow_uuid",
@@ -282,6 +370,8 @@ def test_google_federation_bootstrap_wires_both_verified_email_mappings(monkeypa
 
     result = bootstrap.bootstrap_google_federation(_google_config())
 
+    assert write_flows == ["authentication-flow"]
+    assert result["google_authentication_user_write_status"] == "created"
     assert source_calls[0][1]["user_property_mapping_id"] == "source-mapping"
     assert result["google_verified_email_mapping_status"] == "created"
     assert result["web_email_scope_definition_status"] == "created"
