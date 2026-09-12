@@ -30,3 +30,14 @@ def test_authentik_bootstrap_does_not_receive_direct_google_credentials():
     assert "AUTHENTIK_GOOGLE_CLIENT_SECRET" in bootstrap_block
     assert "RUNTRAINER_GOOGLE_CLIENT_ID" not in bootstrap_block
     assert "RUNTRAINER_GOOGLE_CLIENT_SECRET" not in bootstrap_block
+
+
+def test_authentik_bootstrap_receives_the_web_oidc_issuer_for_claim_reconciliation():
+    compose_text = (Path(__file__).resolve().parents[2] / "compose.yml").read_text(
+        encoding="utf-8"
+    )
+    bootstrap_block = compose_text.split("  authentik-bootstrap:", maxsplit=1)[1].split(
+        "  cloudflared:", maxsplit=1
+    )[0]
+
+    assert "RUNTRAINER_WEB_OIDC_ISSUER=${RUNTRAINER_WEB_OIDC_ISSUER:-}" in bootstrap_block

@@ -82,7 +82,7 @@ plus the GCS bucket and credential settings to return a direct signed upload URL
 
 ## Authentication providers
 - The default `/auth/login` route uses the Authentik broker when web OIDC is configured. Direct provider routes remain available at `/auth/{provider}/login` as emergency fallbacks; their callbacks live at `/auth/{provider}/callback`.
-- Tokens issued by these providers are exchanged for app JWTs the same way as Google; user records are keyed by email. Ensure the IdP returns an email claim or the login is rejected.
+- Tokens issued by these providers are exchanged for app JWTs the same way as Google. A first-time account link requires a verified, normalized email; later logins resolve by the durable `(issuer, subject)` identity binding. Missing or unverified email claims are rejected.
 
 ### Authentik upstream Google SSO
 
@@ -102,7 +102,9 @@ https://fitness-pals.com/auth/google/callback
 
 Place `AUTHENTIK_GOOGLE_CLIENT_ID` and `AUTHENTIK_GOOGLE_CLIENT_SECRET` in the untracked deployment secrets overlay when creating or rotating the Authentik Google source. Existing sources can be reconciled without reloading their secret. Missing, partial, or placeholder pairs fail before any API mutation when a create or rotation is requested, and direct-app fallback credentials are never reused by the broker bootstrap.
 
-Every deployment runs the profile-scoped `authentik-bootstrap` one-shot service after the Authentik API is healthy. It idempotently creates or patches source slug `google`, resolves `default-source-authentication` and `default-source-enrollment`, discovers the Identification stage actually bound to `default-authentication-flow`, and appends the Google source UUID only when missing. Its Identification-stage PATCH contains only `sources`, so existing sources, `user_fields`, and local username/password login are preserved. It also reconciles a dedicated `grafana` OIDC provider/application with the strict callback `https://grafana.fitness-pals.com/login/generic_oauth`; it does not alter the website or training-agent OIDC clients and does not enable automatic Google redirects.
+Every deployment runs the profile-scoped `authentik-bootstrap` one-shot service after the Authentik API is healthy. It idempotently creates or patches source slug `google`, resolves `default-source-authentication` and `default-source-enrollment`, discovers the Identification stage actually bound to `default-authentication-flow`, and appends the Google source UUID only when missing. Its Identification-stage PATCH contains only `sources`, so existing sources, `user_fields`, and local username/password login are preserved. The Google source gets a custom user-property mapping that stores the upstream verified-email bit and normalized address. For the web OIDC application identified by `RUNTRAINER_WEB_OIDC_ISSUER`, bootstrap replaces only that provider's default `email` scope mapping with one that returns `email_verified=true` only while the Google-verified address still matches the user's current Authentik email. Other clients' scopes and the website provider's `openid`/`profile` mappings are preserved. It also reconciles a dedicated `grafana` OIDC provider/application with the strict callback `https://grafana.fitness-pals.com/login/generic_oauth`; it does not alter the training-agent OIDC client or enable automatic Google redirects.
+
+After the mapping is first deployed, existing Authentik users must complete a fresh Google sign-in so Authentik can store the upstream verification attributes. If a user's Authentik email later changes, the website OIDC mapping deliberately returns `email_verified=false` until that address is verified through Google.
 
 Run it manually with the current untracked `.env` when needed:
 
@@ -110,7 +112,7 @@ Run it manually with the current untracked `.env` when needed:
 docker compose --env-file .env --profile bootstrap run --rm --no-deps authentik-bootstrap
 ```
 
-The secret-free JSON output reports the source slug/UUID, Identification-stage name/UUID, credential-pair origin, Grafana provider/application identifiers, and whether each resource was created, updated, or already attached.
+The secret-free JSON output reports the source slug/UUID, Google verification-mapping status, website application/provider and email-scope reconciliation status, Identification-stage name/UUID, credential-pair origin, Grafana provider/application identifiers, and whether each resource was created, updated, or already attached.
 
 ### Grafana administrator access
 
