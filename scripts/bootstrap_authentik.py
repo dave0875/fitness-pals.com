@@ -15,6 +15,36 @@ from typing import Any
 
 
 GOOGLE_WELL_KNOWN_URL = "https://accounts.google.com/.well-known/openid-configuration"
+GOOGLE_VERIFIED_EMAIL_SOURCE_MAPPING_NAME = (
+    "Fitness Pals Google verified email attributes"
+)
+VERIFIED_EMAIL_SCOPE_MAPPING_NAME = "Fitness Pals verified email scope"
+GOOGLE_VERIFIED_EMAIL_SOURCE_MAPPING_EXPRESSION = """
+email = info.get("email")
+email_verified = info.get("email_verified") is True and isinstance(email, str)
+return {
+    "attributes": {
+        "fitness_pals_google_email_verified": email_verified,
+        "fitness_pals_google_verified_email": (
+            email.strip().casefold() if email_verified else ""
+        ),
+    }
+}
+""".strip()
+VERIFIED_EMAIL_SCOPE_MAPPING_EXPRESSION = """
+email = request.user.email or ""
+normalized_email = email.strip().casefold() if isinstance(email, str) else ""
+verified_email = request.user.attributes.get("fitness_pals_google_verified_email")
+return {
+    "email": email,
+    "email_verified": (
+        request.user.attributes.get("fitness_pals_google_email_verified") is True
+        and isinstance(verified_email, str)
+        and bool(normalized_email)
+        and verified_email == normalized_email
+    ),
+}
+""".strip()
 
 
 def get_env(name: str, default: str | None = None, *, required: bool = False) -> str:
@@ -283,6 +313,153 @@ def resolve_flow_uuid(designation: str, slug: str, *, purpose: str) -> str:
     )
 
 
+def ensure_google_verified_email_source_mapping() -> tuple[dict[str, Any], str]:
+    """Persist Google's verified-email claim as Authentik user attributes."""
+    payload = {
+        "name": GOOGLE_VERIFIED_EMAIL_SOURCE_MAPPING_NAME,
+        "expression": GOOGLE_VERIFIED_EMAIL_SOURCE_MAPPING_EXPRESSION,
+    }
+    existing = first_result(
+        "/propertymappings/source/oauth/",
+        query={"name": GOOGLE_VERIFIED_EMAIL_SOURCE_MAPPING_NAME, "page_size": 1},
+    )
+    if existing:
+        mapping = api_call(
+            "PATCH",
+            f"/propertymappings/source/oauth/{resource_pk(existing)}/",
+            payload=payload,
+            expected=(200,),
+        )
+        return mapping, "updated"
+    mapping = api_call(
+        "POST",
+        "/propertymappings/source/oauth/",
+        payload=payload,
+        expected=(201,),
+    )
+    return mapping, "created"
+
+
+def ensure_verified_email_scope_mapping() -> tuple[dict[str, Any], str]:
+    """Create or update the custom OIDC email scope that asserts verified status."""
+    payload = {
+        "name": VERIFIED_EMAIL_SCOPE_MAPPING_NAME,
+        "scope_name": "email",
+        "expression": VERIFIED_EMAIL_SCOPE_MAPPING_EXPRESSION,
+    }
+    existing = first_result(
+        "/propertymappings/provider/scope/",
+        query={"name": VERIFIED_EMAIL_SCOPE_MAPPING_NAME, "page_size": 1},
+    )
+    if existing:
+        mapping = api_call(
+            "PATCH",
+            f"/propertymappings/provider/scope/{resource_pk(existing)}/",
+            payload=payload,
+            expected=(200,),
+        )
+        return mapping, "updated"
+    mapping = api_call(
+        "POST",
+        "/propertymappings/provider/scope/",
+        payload=payload,
+        expected=(201,),
+    )
+    return mapping, "created"
+
+
+def _mapping_reference(value: Any) -> str:
+    """Normalize Authentik property mapping references for API writes."""
+    return str(resource_pk(value)) if isinstance(value, dict) else str(value)
+
+
+def ensure_web_verified_email_scope_mapping(
+    issuer: str,
+    email_mapping_id: str,
+) -> dict[str, Any]:
+    """Attach the custom email claim only to the website's Authentik provider."""
+    parsed_issuer = urllib.parse.urlsplit(issuer.strip())
+    path_parts = [part for part in parsed_issuer.path.split("/") if part]
+    if (
+        parsed_issuer.scheme not in {"http", "https"}
+        or not parsed_issuer.netloc
+        or parsed_issuer.query
+        or parsed_issuer.fragment
+        or len(path_parts) != 3
+        or path_parts[:2] != ["application", "o"]
+        or not path_parts[2]
+    ):
+        raise SystemExit(
+            "RUNTRAINER_WEB_OIDC_ISSUER must use the Authentik "
+            "application/o/<slug>/ issuer format"
+        )
+    application_slug = path_parts[2]
+    application = api_call(
+        "GET",
+        f"/core/applications/{urllib.parse.quote(application_slug, safe='')}/",
+        expected=(200, 404),
+    )
+    if (
+        not isinstance(application, dict)
+        or application.get("slug") != application_slug
+    ):
+        raise SystemExit(
+            "RUNTRAINER_WEB_OIDC_ISSUER does not resolve to an Authentik "
+            f"application: {application_slug}"
+        )
+    provider_ref = application.get("provider")
+    provider_id = (
+        resource_pk(provider_ref) if isinstance(provider_ref, dict) else provider_ref
+    )
+    if provider_id is None:
+        raise SystemExit(
+            f"Authentik application '{application_slug}' has no OAuth2 provider"
+        )
+    provider_path = f"/providers/oauth2/{provider_id}/"
+    provider = api_call("GET", provider_path)
+    mappings = response_results(
+        api_call(
+            "GET",
+            "/propertymappings/provider/scope/",
+            query={"page_size": 100},
+        )
+    )
+    mapping_by_id = {_mapping_reference(mapping): mapping for mapping in mappings}
+    desired_mapping = mapping_by_id.get(str(email_mapping_id))
+    if not desired_mapping or desired_mapping.get("scope_name") != "email":
+        raise SystemExit(
+            "The custom verified-email mapping is missing or is not an email scope"
+        )
+    email_mapping_ids = {
+        mapping_id
+        for mapping_id, mapping in mapping_by_id.items()
+        if mapping.get("scope_name") == "email"
+    }
+    current_mappings = provider.get("property_mappings") or []
+    desired_mappings = [
+        _mapping_reference(mapping)
+        for mapping in current_mappings
+        if _mapping_reference(mapping) not in email_mapping_ids
+    ]
+    desired_mappings.append(str(email_mapping_id))
+    current_refs = [_mapping_reference(mapping) for mapping in current_mappings]
+    if current_refs == desired_mappings:
+        status = "already_configured"
+    else:
+        api_call(
+            "PATCH",
+            provider_path,
+            payload={"property_mappings": desired_mappings},
+            expected=(200,),
+        )
+        status = "updated"
+    return {
+        "application_slug": application_slug,
+        "provider_id": provider_id,
+        "status": status,
+    }
+
+
 def ensure_flow_uuid(designation: str, preferred_slugs: list[str]) -> str:
     """Find a flow UUID by designation, preferring known default slugs."""
     response = api_call(
@@ -305,6 +482,7 @@ def ensure_google_source(
     *,
     authentication_flow: str,
     enrollment_flow: str,
+    user_property_mapping_id: str,
 ) -> tuple[dict[str, Any], str]:
     """Create or reconcile the upstream Google OAuth source by unique slug."""
     payload: dict[str, Any] = {
@@ -313,6 +491,7 @@ def ensure_google_source(
         "provider_type": "google",
         "authentication_flow": authentication_flow,
         "enrollment_flow": enrollment_flow,
+        "user_property_mappings": [user_property_mapping_id],
         "user_matching_mode": "email_link",
         "enabled": True,
         "promoted": True,
@@ -330,6 +509,13 @@ def ensure_google_source(
         query={"slug": config.slug, "page_size": 1},
     )
     if existing:
+        current_mapping_ids = [
+            _mapping_reference(mapping)
+            for mapping in (existing.get("user_property_mappings") or [])
+        ]
+        if user_property_mapping_id not in current_mapping_ids:
+            current_mapping_ids.append(user_property_mapping_id)
+        payload["user_property_mappings"] = current_mapping_ids
         source = api_call(
             "PATCH",
             f"/sources/oauth/{urllib.parse.quote(config.slug, safe='')}/",
@@ -428,10 +614,14 @@ def bootstrap_google_federation(config: GoogleSourceConfig) -> dict[str, Any]:
         config.enrollment_flow_slug,
         purpose="Google enrollment flow",
     )
+    source_mapping, source_mapping_status = (
+        ensure_google_verified_email_source_mapping()
+    )
     source, source_status = ensure_google_source(
         config,
         authentication_flow=authentication_flow,
         enrollment_flow=enrollment_flow,
+        user_property_mapping_id=str(resource_pk(source_mapping)),
     )
     source_id = str(resource_pk(source))
     stage = find_identification_stage(config.login_flow_slug)
@@ -439,6 +629,20 @@ def bootstrap_google_federation(config: GoogleSourceConfig) -> dict[str, Any]:
         stage,
         source_id,
     )
+    web_issuer = get_env("RUNTRAINER_WEB_OIDC_ISSUER").strip()
+    if web_issuer:
+        email_scope_mapping, email_scope_definition_status = (
+            ensure_verified_email_scope_mapping()
+        )
+        web_scope_result = ensure_web_verified_email_scope_mapping(
+            web_issuer,
+            str(resource_pk(email_scope_mapping)),
+        )
+        web_scope_status = web_scope_result["status"]
+    else:
+        email_scope_definition_status = "skipped_no_issuer"
+        web_scope_status = "skipped_no_issuer"
+        web_scope_result = {"application_slug": None, "provider_id": None}
     return {
         "google_source_slug": config.slug,
         "google_source_pk": source_id,
@@ -446,6 +650,11 @@ def bootstrap_google_federation(config: GoogleSourceConfig) -> dict[str, Any]:
         "identification_stage": bound_stage.get("name") or stage.get("name"),
         "identification_stage_pk": str(resource_pk(bound_stage)),
         "binding_status": binding_status,
+        "google_verified_email_mapping_status": source_mapping_status,
+        "web_email_scope_definition_status": email_scope_definition_status,
+        "web_email_scope_mapping_status": web_scope_status,
+        "web_oidc_application_slug": web_scope_result["application_slug"],
+        "web_oidc_provider_id": web_scope_result["provider_id"],
         "credential_source": config.credential_source,
         "callback_path": f"/source/oauth/callback/{config.slug}/",
     }
@@ -701,7 +910,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--google-only",
         action="store_true",
-        help="reconcile only upstream Google federation and its login-stage binding",
+        help=(
+            "reconcile upstream Google federation, verified-email OIDC claims, "
+            "and the login-stage binding"
+        ),
     )
     parser.add_argument(
         "--grafana-sso",

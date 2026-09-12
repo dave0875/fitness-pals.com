@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import textwrap
+from types import SimpleNamespace
 
 import pytest
 
@@ -20,6 +22,13 @@ def google_credentials(monkeypatch):
 
 def _google_config() -> bootstrap.GoogleSourceConfig:
     return bootstrap.load_google_source_config()
+
+
+def _evaluate_authentik_expression(expression: str, **context):
+    """Evaluate a trusted mapping expression in the shape Authentik supplies."""
+    namespace = dict(context)
+    exec("def evaluate_mapping():\n" + textwrap.indent(expression, "    "), namespace)
+    return namespace["evaluate_mapping"]()
 
 
 def test_google_source_is_created_when_absent(monkeypatch):
@@ -42,6 +51,7 @@ def test_google_source_is_created_when_absent(monkeypatch):
         _google_config(),
         authentication_flow="authentication-flow-uuid",
         enrollment_flow="enrollment-flow-uuid",
+        user_property_mapping_id="verified-email-map",
     )
 
     assert status == "created"
@@ -59,6 +69,7 @@ def test_google_source_is_created_when_absent(monkeypatch):
         "consumer_secret": "test-google-client-secret",
         "authentication_flow": "authentication-flow-uuid",
         "enrollment_flow": "enrollment-flow-uuid",
+        "user_property_mappings": ["verified-email-map"],
         "user_matching_mode": "email_link",
         "enabled": True,
         "promoted": True,
@@ -68,6 +79,217 @@ def test_google_source_is_created_when_absent(monkeypatch):
     }
 
 
+def test_google_source_mapping_preserves_upstream_email_verification(monkeypatch):
+    """The source mapping stores verified status and the exact verified address."""
+    calls = []
+
+    def fake_api_call(method, path, **kwargs):
+        calls.append((method, path, kwargs))
+        if method == "GET":
+            return {"results": []}
+        return {"pk": "source-map-uuid", **kwargs["payload"]}
+
+    monkeypatch.setattr(bootstrap, "api_call", fake_api_call)
+    mapping, status = bootstrap.ensure_google_verified_email_source_mapping()
+
+    assert status == "created"
+    assert mapping["pk"] == "source-map-uuid"
+    assert [call[:2] for call in calls] == [
+        ("GET", "/propertymappings/source/oauth/"),
+        ("POST", "/propertymappings/source/oauth/"),
+    ]
+    expression = calls[-1][2]["payload"]["expression"]
+    assert 'info.get("email_verified") is True' in expression
+    assert 'info.get("email")' in expression
+    assert "fitness_pals_google_email_verified" in expression
+    assert "fitness_pals_google_verified_email" in expression
+    assert _evaluate_authentik_expression(
+        expression,
+        info={"email": "  RUNNER@Example.COM ", "email_verified": True},
+    ) == {
+        "attributes": {
+            "fitness_pals_google_email_verified": True,
+            "fitness_pals_google_verified_email": "runner@example.com",
+        }
+    }
+    assert _evaluate_authentik_expression(
+        expression,
+        info={"email": "runner@example.com", "email_verified": False},
+    ) == {
+        "attributes": {
+            "fitness_pals_google_email_verified": False,
+            "fitness_pals_google_verified_email": "",
+        }
+    }
+
+
+def test_verified_email_scope_mapping_emits_claim_only_for_current_verified_email(
+    monkeypatch,
+):
+    """The web scope only claims verification while the source email still matches."""
+    calls = []
+
+    def fake_api_call(method, path, **kwargs):
+        calls.append((method, path, kwargs))
+        if method == "GET":
+            return {"results": []}
+        return {"pk": "scope-map-uuid", **kwargs["payload"]}
+
+    monkeypatch.setattr(bootstrap, "api_call", fake_api_call)
+    mapping, status = bootstrap.ensure_verified_email_scope_mapping()
+
+    assert status == "created"
+    assert mapping["pk"] == "scope-map-uuid"
+    assert [call[:2] for call in calls] == [
+        ("GET", "/propertymappings/provider/scope/"),
+        ("POST", "/propertymappings/provider/scope/"),
+    ]
+    payload = calls[-1][2]["payload"]
+    assert payload["scope_name"] == "email"
+    expression = payload["expression"]
+    assert "fitness_pals_google_email_verified" in expression
+    assert "fitness_pals_google_verified_email" in expression
+    assert '"email_verified"' in expression
+    assert "email.strip().casefold()" in expression
+    verified_user = SimpleNamespace(
+        email=" Runner@Example.com ",
+        attributes={
+            "fitness_pals_google_email_verified": True,
+            "fitness_pals_google_verified_email": "runner@example.com",
+        },
+    )
+    assert _evaluate_authentik_expression(
+        expression,
+        request=SimpleNamespace(user=verified_user),
+    ) == {"email": " Runner@Example.com ", "email_verified": True}
+    verified_user.email = "attacker@example.com"
+    assert _evaluate_authentik_expression(
+        expression,
+        request=SimpleNamespace(user=verified_user),
+    ) == {"email": "attacker@example.com", "email_verified": False}
+
+
+def test_web_provider_uses_custom_email_scope_and_preserves_other_scopes(monkeypatch):
+    """The website provider replaces only its default email scope mapping."""
+    calls = []
+
+    def fake_api_call(method, path, **kwargs):
+        calls.append((method, path, kwargs))
+        if path == "/core/applications/fitness-pals-web/":
+            return {"slug": "fitness-pals-web", "provider": 42}
+        if path == "/providers/oauth2/42/":
+            if method == "GET":
+                return {
+                    "pk": 42,
+                    "property_mappings": [
+                        "openid-map",
+                        "default-email-map",
+                        "profile-map",
+                    ],
+                }
+            return {
+                "pk": 42,
+                "property_mappings": kwargs["payload"]["property_mappings"],
+            }
+        if path == "/propertymappings/provider/scope/":
+            return {
+                "results": [
+                    {"pk": "openid-map", "scope_name": "openid"},
+                    {"pk": "default-email-map", "scope_name": "email"},
+                    {"pk": "verified-email-map", "scope_name": "email"},
+                    {"pk": "profile-map", "scope_name": "profile"},
+                ]
+            }
+        raise AssertionError((method, path, kwargs))
+
+    monkeypatch.setattr(bootstrap, "api_call", fake_api_call)
+    result = bootstrap.ensure_web_verified_email_scope_mapping(
+        "https://auth.example.com/application/o/fitness-pals-web/",
+        "verified-email-map",
+    )
+
+    assert result == {
+        "application_slug": "fitness-pals-web",
+        "provider_id": 42,
+        "status": "updated",
+    }
+    assert [call[:2] for call in calls] == [
+        ("GET", "/core/applications/fitness-pals-web/"),
+        ("GET", "/providers/oauth2/42/"),
+        ("GET", "/propertymappings/provider/scope/"),
+        ("PATCH", "/providers/oauth2/42/"),
+    ]
+    assert calls[-1][2]["payload"] == {
+        "property_mappings": ["openid-map", "profile-map", "verified-email-map"]
+    }
+
+
+def test_web_provider_mapping_requires_authentik_application_issuer_shape():
+    """A malformed issuer is rejected rather than attaching a claim to a guessed app."""
+    with pytest.raises(SystemExit, match="RUNTRAINER_WEB_OIDC_ISSUER.*application/o"):
+        bootstrap.ensure_web_verified_email_scope_mapping(
+            "https://auth.example.com/not-the-web-app/", "verified-email-map"
+        )
+
+
+def test_google_federation_bootstrap_wires_both_verified_email_mappings(monkeypatch):
+    """Google source and website scope are reconciled in the regular bootstrap."""
+    monkeypatch.setenv(
+        "RUNTRAINER_WEB_OIDC_ISSUER",
+        "https://auth.example.com/application/o/fitness-pals-web/",
+    )
+    source_calls = []
+    monkeypatch.setattr(
+        bootstrap,
+        "resolve_flow_uuid",
+        lambda designation, slug, *, purpose: f"{designation}-flow",
+    )
+    monkeypatch.setattr(
+        bootstrap,
+        "ensure_google_verified_email_source_mapping",
+        lambda: ({"pk": "source-mapping"}, "created"),
+    )
+
+    def fake_ensure_source(config, **kwargs):
+        source_calls.append((config, kwargs))
+        return {"pk": "google-source"}, "updated"
+
+    monkeypatch.setattr(bootstrap, "ensure_google_source", fake_ensure_source)
+    monkeypatch.setattr(
+        bootstrap,
+        "find_identification_stage",
+        lambda _slug: {"pk": "stage", "name": "production-identification"},
+    )
+    monkeypatch.setattr(
+        bootstrap,
+        "ensure_source_bound_to_identification_stage",
+        lambda stage, _source: (stage, "already_attached"),
+    )
+    monkeypatch.setattr(
+        bootstrap,
+        "ensure_verified_email_scope_mapping",
+        lambda: ({"pk": "email-scope-mapping"}, "created"),
+    )
+    monkeypatch.setattr(
+        bootstrap,
+        "ensure_web_verified_email_scope_mapping",
+        lambda issuer, mapping_id: {
+            "application_slug": "fitness-pals-web",
+            "provider_id": 42,
+            "status": "updated",
+        },
+    )
+
+    result = bootstrap.bootstrap_google_federation(_google_config())
+
+    assert source_calls[0][1]["user_property_mapping_id"] == "source-mapping"
+    assert result["google_verified_email_mapping_status"] == "created"
+    assert result["web_email_scope_definition_status"] == "created"
+    assert result["web_email_scope_mapping_status"] == "updated"
+    assert result["web_oidc_application_slug"] == "fitness-pals-web"
+    assert result["web_oidc_provider_id"] == 42
+
+
 def test_existing_google_source_is_patched_not_duplicated(monkeypatch):
     """An existing slug is reconciled with PATCH, including credential rotation."""
     calls = []
@@ -75,7 +297,15 @@ def test_existing_google_source_is_patched_not_duplicated(monkeypatch):
     def fake_api_call(method, path, **kwargs):
         calls.append((method, path, kwargs))
         if method == "GET":
-            return {"results": [{"pk": "source-uuid", "slug": "google"}]}
+            return {
+                "results": [
+                    {
+                        "pk": "source-uuid",
+                        "slug": "google",
+                        "user_property_mappings": ["existing-map"],
+                    }
+                ]
+            }
         assert method == "PATCH"
         assert path == "/sources/oauth/google/"
         return {"pk": "source-uuid", "slug": "google", "enabled": True}
@@ -85,12 +315,17 @@ def test_existing_google_source_is_patched_not_duplicated(monkeypatch):
         _google_config(),
         authentication_flow="authentication-flow-uuid",
         enrollment_flow="enrollment-flow-uuid",
+        user_property_mapping_id="verified-email-map",
     )
 
     assert status == "updated"
     assert source["pk"] == "source-uuid"
     assert [method for method, _, _ in calls] == ["GET", "PATCH"]
     assert calls[-1][2]["payload"]["consumer_secret"] == "test-google-client-secret"
+    assert calls[-1][2]["payload"]["user_property_mappings"] == [
+        "existing-map",
+        "verified-email-map",
+    ]
 
 
 def test_identification_stage_preserves_sources_and_adds_google(monkeypatch):
@@ -223,6 +458,7 @@ def test_existing_google_source_is_reconciled_without_credentials(monkeypatch):
         bootstrap.load_google_source_config(),
         authentication_flow="authentication-flow-uuid",
         enrollment_flow="enrollment-flow-uuid",
+        user_property_mapping_id="verified-email-map",
     )
 
     assert "consumer_key" not in calls[-1][2]["payload"]
@@ -240,6 +476,7 @@ def test_new_google_source_requires_dedicated_credentials(monkeypatch):
             bootstrap.load_google_source_config(),
             authentication_flow="authentication-flow-uuid",
             enrollment_flow="enrollment-flow-uuid",
+            user_property_mapping_id="verified-email-map",
         )
 
 
