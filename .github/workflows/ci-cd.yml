@@ -33,6 +33,9 @@ jobs:
       - ${{ github.event_name == 'pull_request' && 'dev' || 'prod' }}
     env:
       RUNTRAINER_JWT_SECRET: ci-secret
+      RUNTRAINER_JWT_ISSUER: https://fitness-pals.com
+      RUNTRAINER_JWT_ACCESS_AUDIENCE: fitness-pals-api
+      RUNTRAINER_JWT_REFRESH_AUDIENCE: fitness-pals-refresh
       RUNTRAINER_GOOGLE_CLIENT_ID: ci-google-id
       RUNTRAINER_GOOGLE_CLIENT_SECRET: ci-google-secret
       RUNTRAINER_GOOGLE_REDIRECT_URI: https://example.com/oauth/callback

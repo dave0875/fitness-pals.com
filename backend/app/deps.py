@@ -6,13 +6,12 @@ import uuid
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from google.oauth2 import id_token as google_id_token  # retained for auth normalization tests
-from jose import jwt, JWTError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
 from app.models import User, UserRole
-from app.utils.security import APP_SESSION_COOKIE
+from app.utils.security import APP_SESSION_COOKIE, InvalidAppToken, decode_access_token
 
 settings = get_settings()
 bearer = HTTPBearer(auto_error=False)
@@ -30,12 +29,12 @@ def get_current_user(
     if token is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credentials missing")
     try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        payload = decode_access_token(token)
         user_id = payload.get("sub")
         if user_id is None:
             raise ValueError("sub missing")
         uid = uuid.UUID(user_id)
-    except (JWTError, ValueError) as exc:
+    except (InvalidAppToken, KeyError, TypeError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",

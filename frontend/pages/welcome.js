@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { authenticatedFetch } from "../lib/authFetch.mjs";
 
 const GOAL_OPTIONS = [
   ["marathon", "Train for a marathon"],
@@ -140,7 +141,7 @@ export default function Welcome() {
 
     async function loadStatus() {
       try {
-        const sessionResponse = await fetch("/api/auth/session", { credentials: "include" });
+        const sessionResponse = await authenticatedFetch("/api/auth/session", { credentials: "include" });
         if (!active) {
           return;
         }
@@ -149,7 +150,7 @@ export default function Welcome() {
           return;
         }
 
-        const onboardingResponse = await fetch("/api/onboarding/status", {
+        const onboardingResponse = await authenticatedFetch("/api/onboarding/status", {
           credentials: "include",
         });
         if (!active) {
@@ -232,7 +233,7 @@ export default function Welcome() {
     }
 
     try {
-      await fetch("/api/onboarding/goal", {
+      await authenticatedFetch("/api/onboarding/goal", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -254,7 +255,7 @@ export default function Welcome() {
     setConnectionBusy(true);
     setConnectionMessage("Saving your PulsAI connection.");
     try {
-      const response = await fetch("/api/providers/pulsai/connection", {
+      const response = await authenticatedFetch("/api/providers/pulsai/connection", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -281,7 +282,7 @@ export default function Welcome() {
     setWelcomeState("sync_queued");
     setSyncMessage("Building your first coaching view from recent Garmin history through PulsAI.");
     try {
-      const response = await fetch("/api/onboarding/first-sync", {
+      const response = await authenticatedFetch("/api/onboarding/first-sync", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

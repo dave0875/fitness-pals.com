@@ -21,7 +21,7 @@ test("dossier library covers asynchronous and recoverable lifecycle states", () 
   const source = read("pages/dossiers/index.js");
 
   assert.ok(source.includes('"/api/dossiers"'));
-  assert.ok(source.includes('axios.post("/api/dossiers"'));
+  assert.ok(source.includes('authenticatedJson("/api/dossiers"'));
   for (const state of [
     "queued",
     "generating",

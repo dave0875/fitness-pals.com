@@ -1,10 +1,10 @@
-import axios from "axios";
 import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 
 import AuthenticatedShell from "../../components/AuthenticatedShell";
+import { authenticatedJson } from "../../lib/authFetch.mjs";
 import styles from "../../styles/Dossiers.module.css";
 
 function formatDate(value) {
@@ -36,9 +36,8 @@ export default function DossierDetail() {
   useEffect(() => {
     if (!router.isReady || typeof router.query.id !== "string") return;
     let active = true;
-    axios
-      .get(`/api/dossiers/${router.query.id}`)
-      .then(({ data }) => {
+    authenticatedJson(`/api/dossiers/${router.query.id}`)
+      .then((data) => {
         if (active) {
           setDossier(data);
           setViewState("ready");
@@ -47,9 +46,9 @@ export default function DossierDetail() {
       .catch((error) => {
         if (!active) return;
         setViewState(
-          error.response?.status === 401
+          error.status === 401
             ? "unauthenticated"
-            : error.response?.status === 404
+            : error.status === 404
               ? "not_found"
               : "error"
         );

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import axios from "axios";
 import { useRouter } from "next/router";
 
 import AuthenticatedShell, { StatusNotice } from "../components/AuthenticatedShell";
+import { authenticatedJson } from "../lib/authFetch.mjs";
 import styles from "../styles/Journey.module.css";
 
 const JOURNEY_API = "/api/journey";
@@ -83,14 +83,14 @@ export default function Journey() {
       sport: selectedSport,
       goal: selectedGoal,
     });
-    axios.get(`${JOURNEY_API}?${params.toString()}`)
-      .then((response) => {
-        setJourney(response.data);
+    authenticatedJson(`${JOURNEY_API}?${params.toString()}`)
+      .then((data) => {
+        setJourney(data);
         setViewState("ready");
       })
       .catch((error) => {
         setJourney(null);
-        setViewState(error.response?.status === 401 ? "unauthenticated" : "error");
+        setViewState(error.status === 401 ? "unauthenticated" : "error");
       });
   }, [router.isReady, router.query.window, router.query.sport, router.query.goal]);
 

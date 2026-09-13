@@ -38,6 +38,7 @@ REQUIRED_TABLES = (
     "dossier_artifacts",
     "archive_import_jobs",
     "archive_import_objects",
+    "refresh_token_sessions",
 )
 
 app.add_middleware(

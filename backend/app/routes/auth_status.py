@@ -6,13 +6,13 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
 from app.deps import get_current_user
 from app.types import CurrentUserLike
 from app.config import get_settings
+from app.utils.security import InvalidAppToken, decode_access_token
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 bearer = HTTPBearer(auto_error=False)
@@ -97,12 +97,8 @@ def app_token_status(
         )
     token = credentials.credentials
     try:
-        claims = jwt.decode(
-            token,
-            settings.jwt_secret,
-            algorithms=[settings.jwt_algorithm],
-        )
-    except (JWTError, ValueError) as exc:
+        claims = decode_access_token(token)
+    except (InvalidAppToken, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
@@ -129,5 +125,5 @@ def app_token_status(
         "expires_at": expires_at.isoformat() if expires_at else None,
         "seconds_remaining": seconds_remaining,
         "subject": subject,
-        "token_type": "app_jwt",
+        "token_type": "access",
     }

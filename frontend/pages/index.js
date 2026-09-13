@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { authenticatedFetch } from "../lib/authFetch.mjs";
 
 const HERO_DOSSIER_URL =
   "https://fitness-pals.com/reports/urban-feet-coach-dossier-third-edition-2026-04-05.html";
@@ -227,7 +228,7 @@ export default function Home() {
 
     async function resolveSessionState() {
       try {
-        const sessionResponse = await fetch("/api/auth/session", {
+        const sessionResponse = await authenticatedFetch("/api/auth/session", {
           credentials: "include",
         });
 
@@ -242,7 +243,7 @@ export default function Home() {
 
         setSessionState("checkingOnboarding");
 
-        const onboardingResponse = await fetch("/api/onboarding/status", {
+        const onboardingResponse = await authenticatedFetch("/api/onboarding/status", {
           credentials: "include",
         });
 

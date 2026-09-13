@@ -1,5 +1,7 @@
 """Configuration parsing regression tests."""
 
+import pytest
+
 from app.config import Settings
 
 
@@ -47,3 +49,17 @@ def test_direct_google_fallback_is_disabled_by_default():
     )
 
     assert settings.google_fallback_enabled is False
+
+
+def test_access_and_refresh_audiences_must_be_distinct():
+    with pytest.raises(ValueError, match="must be distinct"):
+        make_settings(jwt_access_audience="same", jwt_refresh_audience="same")
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["jwt_issuer", "jwt_access_audience", "jwt_refresh_audience"],
+)
+def test_app_jwt_boundary_values_cannot_be_blank(field):
+    with pytest.raises(ValueError, match="cannot be empty"):
+        make_settings(**{field: "   "})

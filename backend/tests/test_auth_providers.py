@@ -4,6 +4,7 @@
 
 import importlib
 import os
+import uuid
 from types import SimpleNamespace
 from urllib.parse import quote
 
@@ -35,7 +36,7 @@ os.environ.setdefault(
 
 import app.auth.oauth as oauth_mod
 from app import main
-from app.models import OidcIdentity, User
+from app.models import OidcIdentity, RefreshTokenSession, User
 from app.utils.security import APP_REFRESH_COOKIE, APP_SESSION_COOKIE
 
 
@@ -68,6 +69,16 @@ class FakeSession:
     def commit(self):
         """No-op commit."""
         return None
+
+    def execute(self, _statement):
+        """Return a rowcount for refresh-session cleanup statements."""
+        return SimpleNamespace(rowcount=0)
+
+    def flush(self):
+        """Assign database-style UUID defaults before refresh issuance."""
+        for item in self.added:
+            if isinstance(item, User) and getattr(item, "id", None) is None:
+                item.id = uuid.uuid4()
 
     def refresh(self, obj):
         """Return the refreshed object."""
@@ -299,8 +310,14 @@ async def test_login_and_callback_with_stubbed_oidc(provider, reload_oauth):
     assert any(APP_SESSION_COOKIE in cookie for cookie in cookies)
     assert any(APP_REFRESH_COOKIE in cookie for cookie in cookies)
     identity = next(item for item in db.added if isinstance(item, OidcIdentity))
+    refresh_session = next(
+        item for item in db.added if isinstance(item, RefreshTokenSession)
+    )
     assert identity.subject == f"subject-{provider}"
     assert identity.user.email == f"{provider}@example.com"
+    assert refresh_session.user_id == identity.user.id
+    assert refresh_session.consumed_at is None
+    assert refresh_session.revoked_at is None
 
 
 @pytest.mark.asyncio
