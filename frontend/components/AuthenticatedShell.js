@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
+import { authenticatedFetch } from "../lib/authFetch.mjs";
 import styles from "../styles/AuthenticatedShell.module.css";
 
 const navigation = [
@@ -36,7 +37,7 @@ export default function AuthenticatedShell({ active = "home", children }) {
   useEffect(() => {
     if (!router.isReady) return undefined;
     let mounted = true;
-    fetch("/api/auth/session", { credentials: "same-origin" })
+    authenticatedFetch("/api/auth/session")
       .then((response) => {
         if (response.status === 401 || response.status === 403) {
           const next = encodeURIComponent(safeReturnPath(router.asPath));

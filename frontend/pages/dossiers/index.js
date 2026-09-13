@@ -1,10 +1,10 @@
-import axios from "axios";
 import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import AuthenticatedShell, { StatusNotice } from "../../components/AuthenticatedShell";
+import { authenticatedJson } from "../../lib/authFetch.mjs";
 import styles from "../../styles/Dossiers.module.css";
 
 const ACTIVE_STATES = ["queued", "generating"];
@@ -53,11 +53,11 @@ export default function DossierLibrary() {
 
   const loadLibrary = useCallback(async () => {
     try {
-      const { data } = await axios.get("/api/dossiers");
+      const data = await authenticatedJson("/api/dossiers");
       setLibrary(data);
       setViewState("ready");
     } catch (error) {
-      setViewState(error.response?.status === 401 ? "unauthenticated" : "error");
+      setViewState(error.status === 401 ? "unauthenticated" : "error");
     }
   }, []);
 
@@ -78,7 +78,7 @@ export default function DossierLibrary() {
   async function generateDossier() {
     setActionState("generating");
     try {
-      await axios.post("/api/dossiers", selection);
+      await authenticatedJson("/api/dossiers", { method: "POST", json: selection });
       await loadLibrary();
       setActionState("idle");
     } catch {
@@ -89,7 +89,7 @@ export default function DossierLibrary() {
   async function retry(jobId) {
     setActionState(jobId);
     try {
-      await axios.post(`/api/dossiers/jobs/${jobId}/retry`);
+      await authenticatedJson(`/api/dossiers/jobs/${jobId}/retry`, { method: "POST" });
       await loadLibrary();
       setActionState("idle");
     } catch {

@@ -21,6 +21,7 @@ from app.utils.security import (  # noqa: E402  pylint: disable=wrong-import-pos
     APP_REFRESH_COOKIE,
     APP_SESSION_COOKIE,
     create_access_token,
+    create_refresh_token,
 )
 
 
@@ -76,6 +77,16 @@ def test_auth_session_endpoint_returns_app_session_for_cookie_user():
     assert body["user_id"] == str(user.id)
     assert body["email"] == "runner@example.com"
     assert body["session_type"] == "app"
+
+
+def test_auth_session_endpoint_rejects_refresh_cookie_as_access_cookie():
+    """A refresh JWT cannot be replayed through the access-cookie channel."""
+    client = TestClient(main.app)
+    client.cookies.set(APP_SESSION_COOKIE, create_refresh_token(uuid.uuid4()))
+
+    response = client.get("/api/auth/session")
+
+    assert response.status_code == 401
 
 
 def test_logout_clears_app_cookies_and_returns_home():

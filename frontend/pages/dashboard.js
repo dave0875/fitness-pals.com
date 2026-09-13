@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import axios from "axios";
 import { useRouter } from "next/router";
 
 import AuthenticatedShell, { StatusNotice } from "../components/AuthenticatedShell";
+import { authenticatedJson } from "../lib/authFetch.mjs";
 import styles from "../styles/AthletePages.module.css";
 
 function formatDate(value) {
@@ -46,13 +46,13 @@ export default function Dashboard() {
 
   const loadHome = useCallback(() => {
     setViewState("loading");
-    axios.get("/api/athlete-home").then((res) => {
-        setHome(res.data);
+    authenticatedJson("/api/athlete-home").then((data) => {
+        setHome(data);
         setViewState("ready");
       })
       .catch((error) => {
         setHome(null);
-        setViewState(error.response?.status === 401 ? "unauthenticated" : "error");
+        setViewState(error.status === 401 ? "unauthenticated" : "error");
       });
   }, []);
 
@@ -70,11 +70,14 @@ export default function Dashboard() {
     if (!message.trim() || sending) return;
     setSending(true);
     try {
-      const res = await axios.post("/api/chat", { message: message.trim() });
-      setChat(res.data.response);
+      const data = await authenticatedJson("/api/chat", {
+        method: "POST",
+        json: { message: message.trim() },
+      });
+      setChat(data.response);
       setMessage("");
     } catch (error) {
-      if (error.response?.status === 401) {
+      if (error.status === 401) {
         setViewState("unauthenticated");
         setChat("Please sign in again before asking your coach.");
       } else {

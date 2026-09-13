@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import AuthenticatedShell, { StatusNotice } from "../../components/AuthenticatedShell";
+import { authenticatedFetch } from "../../lib/authFetch.mjs";
 import styles from "../../styles/AthletePages.module.css";
 
 
@@ -13,7 +14,7 @@ export default function GarminArchiveImport() {
 
   async function poll(statusUrl) {
     for (let attempt = 0; attempt < 120; attempt += 1) {
-      const response = await fetch(statusUrl, { credentials: "same-origin" });
+      const response = await authenticatedFetch(statusUrl);
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.detail || "Archive status failed.");
       if (payload.status === "completed") return payload;
@@ -29,7 +30,7 @@ export default function GarminArchiveImport() {
     setBusy(true);
     setMessage("Queueing your configured Google Drive archive…");
     try {
-      const response = await fetch("/api/archive-imports/google-drive", {
+      const response = await authenticatedFetch("/api/archive-imports/google-drive", {
         method: "POST",
         credentials: "same-origin",
       });
@@ -52,7 +53,7 @@ export default function GarminArchiveImport() {
     setBusy(true);
     setMessage("Preparing archive upload…");
     try {
-      const startResponse = await fetch("/api/archive-imports/uploads/start", {
+      const startResponse = await authenticatedFetch("/api/archive-imports/uploads/start", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
@@ -70,7 +71,7 @@ export default function GarminArchiveImport() {
         body: selectedFile,
       });
       if (!uploadResponse.ok) throw new Error("Archive upload failed.");
-      const completeResponse = await fetch(start.complete_url, {
+      const completeResponse = await authenticatedFetch(start.complete_url, {
         method: "POST",
         credentials: "same-origin",
       });

@@ -7,7 +7,7 @@ import sys
 from functools import lru_cache
 from typing import Any, Optional
 
-from pydantic import AnyUrl, field_validator
+from pydantic import AnyUrl, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,8 +21,30 @@ class Settings(BaseSettings):
     # --- JWT / Auth ---
     jwt_secret: str
     jwt_algorithm: str = "HS256"
+    jwt_issuer: str = "https://fitness-pals.com"
+    jwt_access_audience: str = "fitness-pals-api"
+    jwt_refresh_audience: str = "fitness-pals-refresh"
     access_token_exp_minutes: int = 30
     refresh_token_exp_days: int = 30
+
+    @field_validator(
+        "jwt_issuer",
+        "jwt_access_audience",
+        "jwt_refresh_audience",
+    )
+    @classmethod
+    def nonempty_app_jwt_boundary(cls, value: str) -> str:
+        """Reject boundary values that would make app-token identity ambiguous."""
+        if not value.strip():
+            raise ValueError("app JWT boundary values cannot be empty")
+        return value
+
+    @model_validator(mode="after")
+    def distinct_app_jwt_audiences(self) -> "Settings":
+        """Access and refresh credentials must never share an audience."""
+        if self.jwt_access_audience == self.jwt_refresh_audience:
+            raise ValueError("app JWT access and refresh audiences must be distinct")
+        return self
 
     # --- OAuth: Google fallback ---
     google_fallback_enabled: bool = False

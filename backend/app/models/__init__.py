@@ -10,6 +10,7 @@ from .sleep import SleepSession
 from .sync import SyncJob, SyncCheckpoint
 from .dossier import DossierJob, DossierArtifact
 from .archive_import import ArchiveImportJob, ArchiveImportObject
+from .refresh_token import RefreshTokenSession
 
 __all__ = [
     "User",
@@ -30,4 +31,5 @@ __all__ = [
     "DossierArtifact",
     "ArchiveImportJob",
     "ArchiveImportObject",
+    "RefreshTokenSession",
 ]

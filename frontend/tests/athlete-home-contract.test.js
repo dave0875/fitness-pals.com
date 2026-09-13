@@ -9,7 +9,7 @@ const dashboardSource = fs.readFileSync(
 );
 
 test("athlete home reads the canonical home contract", () => {
-  assert.ok(dashboardSource.includes('axios.get("/api/athlete-home")'));
+  assert.ok(dashboardSource.includes('authenticatedJson("/api/athlete-home")'));
   assert.ok(!dashboardSource.includes("/api/metrics/summary"));
   assert.ok(!dashboardSource.includes("JSON.stringify"));
 });

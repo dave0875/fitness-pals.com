@@ -1,10 +1,10 @@
-import axios from "axios";
 import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
 
 import AuthenticatedShell from "../../components/AuthenticatedShell";
+import { authenticatedJson } from "../../lib/authFetch.mjs";
 import styles from "../../styles/Journey.module.css";
 
 const formatDate = (value) => {
@@ -54,9 +54,8 @@ export default function ActivityDetailPage() {
     let active = true;
 
     setState("loading");
-    axios
-      .get(`/api/journey/activities/${router.query.id}`)
-      .then(({ data }) => {
+    authenticatedJson(`/api/journey/activities/${router.query.id}`)
+      .then((data) => {
         if (!active) return;
         setActivity({
           ...data.activity,
@@ -67,10 +66,10 @@ export default function ActivityDetailPage() {
       })
       .catch((error) => {
         if (!active) return;
-        if (error?.response?.status === 401) {
+        if (error?.status === 401) {
           setMessage("Please sign in again to review this activity.");
           setState("unauthorized");
-        } else if (error?.response?.status === 404) {
+        } else if (error?.status === 404) {
           setMessage("This activity is unavailable or does not belong to your account.");
           setState("not-found");
         } else {

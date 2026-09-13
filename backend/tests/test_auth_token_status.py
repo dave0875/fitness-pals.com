@@ -12,7 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 
 from app.routes import auth_status, providers_garmin
 from app.models import UserProviderToken
-from app.utils.security import create_access_token
+from app.utils.security import create_access_token, create_refresh_token
 
 
 @pytest.fixture
@@ -122,3 +122,30 @@ def test_get_current_user_accepts_app_jwt():
 
     creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
     assert deps.get_current_user(credentials=creds, db=FakeSession()) is user
+
+
+def test_get_current_user_rejects_refresh_token_before_database_lookup():
+    """A refresh credential can never authorize a protected API request."""
+    from app import deps  # imported here to avoid circular import at module load
+
+    class RejectDatabaseUse:
+        def query(self, _model):
+            raise AssertionError("refresh token must be rejected before database lookup")
+
+    creds = HTTPAuthorizationCredentials(
+        scheme="Bearer",
+        credentials=create_refresh_token(uuid.uuid4()),
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        deps.get_current_user(credentials=creds, db=RejectDatabaseUse())
+    assert exc_info.value.status_code == 401
+
+
+def test_app_token_status_rejects_refresh_credentials():
+    credentials = HTTPAuthorizationCredentials(
+        scheme="Bearer",
+        credentials=create_refresh_token(uuid.uuid4()),
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        auth_status.app_token_status(credentials=credentials)
+    assert exc_info.value.status_code == 401

@@ -9,7 +9,7 @@ from typing import Optional, cast
 from uuid import UUID
 
 from authlib.integrations.starlette_client import OAuth, OAuthError
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -17,10 +17,15 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import get_db
 from app.models import OidcIdentity, User
+from app.services.refresh_tokens import (
+    RefreshTokenRejected,
+    issue_token_pair,
+    revoke_refresh_token,
+    rotate_refresh_token,
+)
 from app.utils.security import (
+    APP_REFRESH_COOKIE,
     clear_auth_cookies,
-    create_access_token,
-    create_refresh_token,
     set_auth_cookies,
 )
 
@@ -319,10 +324,31 @@ def _require_provider(provider: str) -> str:
 
 
 @router.get("/logout")
-async def logout():
+async def logout(request: Request, db: Session = Depends(get_db)):
     """Clear the app session and return to the public home page."""
+    refresh_token = request.cookies.get(APP_REFRESH_COOKIE)
+    if refresh_token:
+        try:
+            revoke_refresh_token(db, refresh_token)
+        except RefreshTokenRejected:
+            pass
     response = RedirectResponse(url="/", status_code=303)
     clear_auth_cookies(response)
+    return response
+
+
+@router.post("/refresh", status_code=204)
+async def refresh(request: Request, db: Session = Depends(get_db)):
+    """Rotate one valid refresh cookie and return new app credentials."""
+    refresh_token = request.cookies.get(APP_REFRESH_COOKIE)
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    try:
+        pair = rotate_refresh_token(db, refresh_token)
+    except RefreshTokenRejected as exc:
+        raise HTTPException(status_code=401, detail="Invalid refresh token") from exc
+    response = Response(status_code=204)
+    set_auth_cookies(response, pair.access_token, pair.refresh_token)
     return response
 
 
@@ -382,16 +408,16 @@ async def auth_callback(provider: str, request: Request, db: Session = Depends(g
         email=email,
         userinfo=userinfo,
     )
+    db.flush()
+    user_id_value = cast(UUID, getattr(user, "id"))
+    pair = issue_token_pair(db, user_id_value)
     db.commit()
     db.refresh(user)
-    user_id_value = cast(UUID, getattr(user, "id"))
-    access = create_access_token(user_id_value)
-    refresh = create_refresh_token(user_id_value)
     response = RedirectResponse(
         url=_safe_next_path(request.cookies.get(AUTH_NEXT_COOKIE), "/welcome"),
         status_code=303,
     )
-    set_auth_cookies(response, access, refresh)
+    set_auth_cookies(response, pair.access_token, pair.refresh_token)
     response.delete_cookie(AUTH_NEXT_COOKIE, path="/")
     return response
 

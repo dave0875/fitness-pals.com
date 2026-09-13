@@ -34,6 +34,7 @@ Key services:
 
 ## Environment configuration (what each variable does and where to get it)
 - `RUNTRAINER_JWT_SECRET`: random string used to sign app-issued JWTs (generate with `openssl rand -hex 32`).
+- `RUNTRAINER_JWT_ISSUER` / `RUNTRAINER_JWT_ACCESS_AUDIENCE` / `RUNTRAINER_JWT_REFRESH_AUDIENCE`: stable app-token trust boundary. Access and refresh audiences must remain distinct across every backend/worker instance.
 - `RUNTRAINER_WEB_OIDC_ISSUER` / `RUNTRAINER_WEB_OIDC_CLIENT_ID` / `RUNTRAINER_WEB_OIDC_CLIENT_SECRET` / `RUNTRAINER_WEB_OIDC_REDIRECT_URI`: Authentik OIDC client for the website. Point the issuer at the Authentik application slug for the web app (for example `https://auth.your-domain.com/application/o/fitness-pals-web/`) and set the callback to `https://your-domain.com/auth/callback`.
 - `RUNTRAINER_OIDC_ISSUER` / `RUNTRAINER_OIDC_CLIENT_ID` / `RUNTRAINER_OIDC_CLIENT_SECRET`: Authentik OIDC client for the GPT/training-agent integration. Keep this as a separate Authentik application even though it resolves to the same upstream Google identity.
 - `AUTHENTIK_GOOGLE_CLIENT_ID` / `AUTHENTIK_GOOGLE_CLIENT_SECRET`: Google OAuth client used only by Authentik as the upstream identity source. Store these only in the deployment secrets file; they are needed when creating or rotating the source, while routine reconciliation preserves credentials already stored in Authentik. The bootstrap never inherits the direct-app fallback pair.
@@ -46,6 +47,8 @@ Key services:
 - `RUNTRAINER_INFLUX_URL`: operator-managed Influx endpoint used only for optional timeseries mirroring. Athletes cannot view or change it. `RUNTRAINER_INFLUX_DEFAULT_URL` remains a temporary deployment alias.
 - `RUNTRAINER_OPENAI_API_KEY`: API key for GPT-based coaching responses (from platform.openai.com).
 - `RUNTRAINER_ACCESS_TOKEN_EXP_MINUTES` / `RUNTRAINER_REFRESH_TOKEN_EXP_DAYS`: JWT lifetimes; leave defaults unless you need to shorten/extend sessions.
+
+Deploying this boundary intentionally invalidates legacy app access and refresh cookies. Existing users must authenticate again; there is no permissive legacy decoder or refresh-session backfill.
 - `RUNTRAINER_DEDUPE_START_TIME_TOLERANCE_SECONDS` / `RUNTRAINER_DEDUPE_DURATION_TOLERANCE_RATIO` / `RUNTRAINER_DEDUPE_DISTANCE_TOLERANCE_RATIO`: tweak dedup tolerances; defaults are ±90s start, ±10% duration, ±3% distance.
 - `INFLUXDB_HOST` / `INFLUXDB_PORT` / `INFLUXDB_USERNAME` / `INFLUXDB_PASSWORD` / `INFLUXDB_DATABASE`: InfluxDB connection for training-agent and garmin-fetch-data.
 - `GARMINCONNECT_EMAIL` / `GARMINCONNECT_BASE64_PASSWORD`: legacy single Garmin account for garmin-fetch-data; avoid for multi-tenant and move to per-user provider connections instead.
