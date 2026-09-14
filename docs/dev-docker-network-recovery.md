@@ -68,3 +68,22 @@ confirm application health and the expected database migration state.
 After the next planned host reboot, repeat daemon ownership, firewall, peer,
 egress, and service checks. Treat a change of Docker distribution or data root
 as a separate migration; never point a second daemon at another daemon's data.
+
+## Deployment guard
+
+Every DEV deployment now stops before reconciliation unless exactly one
+`dockerd` process owns the host network namespace. After the complete runtime is
+reconciled, the workflow runs a disposable, read-only, capability-dropped
+container that verifies Docker DNS, TCP access to the database, metrics, and
+identity services, plus outbound HTTPS. Authentik bootstrap does not run unless
+all probes pass.
+
+Operators can run the same non-mutating probe from the deployment checkout:
+
+```bash
+docker compose --env-file <dev-env-file> --profile diagnostics run --rm --no-deps network-preflight
+```
+
+The probe is a gate, not an automatic firewall repair. If it fails, use the
+recovery procedure above to restore the single-daemon invariant and regenerate
+Docker's rules; do not add a permanent host-wide forwarding exception.

@@ -180,6 +180,53 @@ def test_dev_reconciles_infrastructure_before_app_only_restart():
         assert f"steps.changes.outputs.{service}_changed != 'true'" in restart_step
 
 
+def test_network_preflight_exercises_peer_services_and_external_https():
+    """The disposable probe must cover the network paths Authentik depends on."""
+    compose_text = (REPOSITORY_ROOT / "compose.yml").read_text(encoding="utf-8")
+    preflight = _service_block(compose_text, "network-preflight")
+
+    assert "image: alpine@sha256:" in preflight
+    assert "- diagnostics" in preflight
+    assert "restart: \"no\"" in preflight
+    assert "read_only: true" in preflight
+    assert "cap_drop:" in preflight
+    assert "getent hosts runtrainer-postgres" in preflight
+    assert "nc -zvw5 runtrainer-postgres 5432" in preflight
+    assert "nc -zvw5 influxdb 8086" in preflight
+    assert "nc -zvw5 authentik-server 9000" in preflight
+    assert (
+        "https://accounts.google.com/.well-known/openid-configuration" in preflight
+    )
+
+
+def test_dev_deploy_fails_fast_on_duplicate_daemons_and_broken_network():
+    """Every DEV deployment checks host ownership and real container egress."""
+    workflow_text = (REPOSITORY_ROOT / ".github/workflows/ci-cd.yml").read_text(
+        encoding="utf-8"
+    )
+    dev_job = workflow_text.split("  deploy-dev:\n", maxsplit=1)[1].split(
+        "  deploy-prod:\n", maxsplit=1
+    )[0]
+
+    assert "Validate single Docker daemon ownership" in dev_job
+    assert "pgrep -x dockerd" in dev_job
+    assert "Expected exactly one host Docker daemon" in dev_job
+    assert "Verify dev peer traffic and outbound HTTPS" in dev_job
+    assert (
+        'docker compose --env-file "$ENV_FILE" --profile diagnostics run '
+        "--rm --no-deps network-preflight"
+    ) in dev_job
+    assert dev_job.index("Validate single Docker daemon ownership") < dev_job.index(
+        "Detect changed services"
+    )
+    assert dev_job.index("Reconcile complete dev runtime") < dev_job.index(
+        "Verify dev peer traffic and outbound HTTPS"
+    )
+    assert dev_job.index("Verify dev peer traffic and outbound HTTPS") < dev_job.index(
+        "Reconcile Authentik upstream Google SSO"
+    )
+
+
 def test_dev_failure_diagnostics_are_non_secret_and_non_masking():
     """A failed deployment reports service state without dumping environments."""
     workflow_text = (REPOSITORY_ROOT / ".github/workflows/ci-cd.yml").read_text(

@@ -452,6 +452,19 @@ jobs:
       - name: Show environment target
         run: echo "Deploying to DEV via self-hosted runner $(hostname)"
 
+      - name: Validate single Docker daemon ownership
+        run: |
+          dockerd_pids="$(pgrep -x dockerd || true)"
+          if [ -z "$dockerd_pids" ]; then
+            dockerd_count=0
+          else
+            dockerd_count="$(printf '%s\n' "$dockerd_pids" | wc -l)"
+          fi
+          if [ "$dockerd_count" -ne 1 ]; then
+            echo "::error title=Docker daemon ownership::Expected exactly one host Docker daemon; found $dockerd_count. Stop deployment and repair host ownership."
+            exit 1
+          fi
+
       - name: Detect changed services
         id: changes
         run: |
@@ -587,6 +600,9 @@ jobs:
       - name: Skip app restart when no app services changed
         if: steps.changes.outputs.frontend_changed != 'true' && steps.changes.outputs.backend_changed != 'true' && steps.changes.outputs.worker_changed != 'true' && steps.changes.outputs.training_agent_changed != 'true'
         run: echo "No application changes detected; no app-only restart is needed."
+
+      - name: Verify dev peer traffic and outbound HTTPS
+        run: docker compose --env-file "$ENV_FILE" --profile diagnostics run --rm --no-deps network-preflight
 
       - name: Reconcile Authentik upstream Google SSO
         run: docker compose --env-file "$ENV_FILE" --profile bootstrap run --rm --no-deps authentik-bootstrap
