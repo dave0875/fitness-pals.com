@@ -733,3 +733,12 @@ def test_grafana_oidc_credentials_are_required_as_a_pair(monkeypatch):
 
     with pytest.raises(SystemExit, match="must be set together"):
         bootstrap.load_grafana_oidc_config()
+
+
+def test_grafana_oidc_credentials_cannot_both_be_absent(monkeypatch):
+    """Compose inspection may omit credentials, but bootstrap must fail closed."""
+    monkeypatch.delenv("GRAFANA_OIDC_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GRAFANA_OIDC_CLIENT_SECRET", raising=False)
+
+    with pytest.raises(SystemExit, match="Missing Grafana OIDC credentials"):
+        bootstrap.load_grafana_oidc_config()

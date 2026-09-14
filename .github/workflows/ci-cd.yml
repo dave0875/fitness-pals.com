@@ -47,8 +47,6 @@ jobs:
       RUNTRAINER_APPLE_REDIRECT_URI: https://example.com/auth/apple/callback
       RUNTRAINER_DATABASE_URL: sqlite:///./ci.db
       RUNTRAINER_FERNET_KEY: 1TvhF4GaxnOIBIq74rU9VrAXaxoBZw-oTCT3vJWRTwc=
-      GRAFANA_OIDC_CLIENT_ID: ci-grafana-client
-      GRAFANA_OIDC_CLIENT_SECRET: ci-grafana-secret
       DOCKER_BUILDKIT: 1
       BUILDKIT_PROGRESS: plain
     steps:
@@ -199,7 +197,7 @@ jobs:
           echo "=== Validate deployment Compose configurations ==="
           run_cmd "Deployment Compose configurations" compose_config_status \
             "ci-logs/compose-config.log" bash -c \
-            'docker compose --env-file .env.production config -q && COMPOSE_FILE=compose.yml:compose.dev.yml docker compose --env-file .env.production config -q'
+            'env -u PYTHONPATH GRAFANA_OIDC_CLIENT_ID= GRAFANA_OIDC_CLIENT_SECRET= docker compose --env-file .env.production config -q && env -u PYTHONPATH GRAFANA_OIDC_CLIENT_ID= GRAFANA_OIDC_CLIENT_SECRET= COMPOSE_FILE=compose.yml:compose.dev.yml docker compose --env-file .env.production config -q && env -u PYTHONPATH GRAFANA_OIDC_CLIENT_ID= GRAFANA_OIDC_CLIENT_SECRET= COMPOSE_FILE=compose.yml:compose.dev.yml docker compose --env-file .env.production ps --all >/dev/null'
 
           run_cmd "Backend lint" backend_lint_status "ci-logs/backend-lint.log" \
             bash -c "python -m compileall backend services/training_agent && ruff check --select=E9,F63,F7,F82 --target-version=py310 backend services/training_agent"
@@ -522,8 +520,33 @@ jobs:
           fi
           docker compose --env-file "$ENV_FILE" build "${services[@]}"
 
+      - name: Reconcile complete dev runtime
+        if: steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true' || steps.changes.outputs.cloudflared_changed == 'true'
+        run: |
+          docker compose --env-file "$ENV_FILE" up -d --remove-orphans \
+            runtrainer-postgres \
+            influxdb \
+            grafana \
+            authentik-redis \
+            authentik-server \
+            authentik-worker \
+            backend \
+            worker \
+            training-agent \
+            frontend \
+            cloudflared \
+            cloudflared-loopback
+
       - name: Restart changed app services
-        if: steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+        if: >-
+          (steps.changes.outputs.frontend_changed == 'true' ||
+          steps.changes.outputs.backend_changed == 'true' ||
+          steps.changes.outputs.worker_changed == 'true' ||
+          steps.changes.outputs.training_agent_changed == 'true') &&
+          steps.changes.outputs.postgres_changed != 'true' &&
+          steps.changes.outputs.influxdb_changed != 'true' &&
+          steps.changes.outputs.grafana_changed != 'true' &&
+          steps.changes.outputs.cloudflared_changed != 'true'
         run: |
           services=()
           if [ "${{ steps.changes.outputs.frontend_changed }}" = "true" ]; then
@@ -546,33 +569,24 @@ jobs:
           docker compose --env-file "$ENV_FILE" up -d --no-deps "${recreate_args[@]}" "${services[@]}"
 
       - name: Recover stopped dev application services
-        if: steps.changes.outputs.frontend_changed == 'true' || steps.changes.outputs.backend_changed == 'true' || steps.changes.outputs.worker_changed == 'true' || steps.changes.outputs.training_agent_changed == 'true'
+        if: >-
+          (steps.changes.outputs.frontend_changed == 'true' ||
+          steps.changes.outputs.backend_changed == 'true' ||
+          steps.changes.outputs.worker_changed == 'true' ||
+          steps.changes.outputs.training_agent_changed == 'true') &&
+          steps.changes.outputs.postgres_changed != 'true' &&
+          steps.changes.outputs.influxdb_changed != 'true' &&
+          steps.changes.outputs.grafana_changed != 'true' &&
+          steps.changes.outputs.cloudflared_changed != 'true'
         run: |
           recovery_services=(backend worker training-agent frontend cloudflared cloudflared-loopback)
           python3 scripts/recover_stopped_compose_services.py \
             --env-file "$ENV_FILE" \
             "${recovery_services[@]}"
 
-      - name: Skip deploy when no app services changed
+      - name: Skip app restart when no app services changed
         if: steps.changes.outputs.frontend_changed != 'true' && steps.changes.outputs.backend_changed != 'true' && steps.changes.outputs.worker_changed != 'true' && steps.changes.outputs.training_agent_changed != 'true'
-        run: echo "No backend, worker, or training-agent changes detected; skipping DEV deploy."
-
-      - name: Reconcile complete dev runtime
-        if: steps.changes.outputs.postgres_changed == 'true' || steps.changes.outputs.influxdb_changed == 'true' || steps.changes.outputs.grafana_changed == 'true' || steps.changes.outputs.cloudflared_changed == 'true'
-        run: |
-          docker compose --env-file "$ENV_FILE" up -d --remove-orphans \
-            runtrainer-postgres \
-            influxdb \
-            grafana \
-            authentik-redis \
-            authentik-server \
-            authentik-worker \
-            backend \
-            worker \
-            training-agent \
-            frontend \
-            cloudflared \
-            cloudflared-loopback
+        run: echo "No application changes detected; no app-only restart is needed."
 
       - name: Reconcile Authentik upstream Google SSO
         run: docker compose --env-file "$ENV_FILE" --profile bootstrap run --rm --no-deps authentik-bootstrap
@@ -643,6 +657,30 @@ jobs:
           python3 scripts/smoke_urls.py \
             --urls "$CLOUDFLARE_SMOKE_URLS" \
             --timeout "$CLOUDFLARE_SMOKE_TIMEOUT_SECONDS"
+
+      - name: Capture dev deployment failure diagnostics
+        if: failure()
+        continue-on-error: true
+        run: |
+          if [ ! -f "$ENV_FILE" ]; then
+            echo "Deployment env was not assembled; Compose diagnostics are unavailable."
+            exit 0
+          fi
+
+          docker compose --env-file "$ENV_FILE" ps --all || true
+          docker compose --env-file "$ENV_FILE" logs --no-color --tail=200 \
+            backend runtrainer-postgres influxdb authentik-server authentik-worker || true
+
+          for service in backend runtrainer-postgres influxdb authentik-server authentik-worker; do
+            container_id="$(docker compose --env-file "$ENV_FILE" ps -q "$service" 2>/dev/null || true)"
+            if [ -n "$container_id" ]; then
+              docker inspect --format \
+                'name={{.Name}} image={{.Config.Image}} status={{.State.Status}} exit={{.State.ExitCode}} error={{json .State.Error}} started={{.State.StartedAt}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+                "$container_id" || true
+            else
+              echo "$service has no Compose container."
+            fi
+          done
 
   deploy-prod:
     name: Deploy to Prod

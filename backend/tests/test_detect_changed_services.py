@@ -89,3 +89,12 @@ def test_build_outputs_reconciles_every_service_for_runtime_recovery_changes() -
     )
 
     assert all(outputs.values())
+
+
+def test_build_outputs_reconciles_every_service_for_dev_compose_changes() -> None:
+    outputs = detect_changed_services.build_outputs(
+        ["compose.dev.yml"],
+        set(),
+    )
+
+    assert all(outputs.values())
