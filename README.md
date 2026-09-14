@@ -131,8 +131,10 @@ pair for dev in the repository's `DEV_GRAFANA_OIDC_CLIENT_ID` and
 `DEV_GRAFANA_OIDC_CLIENT_SECRET` Actions secrets, and a different pair in the
 `production` environment's `GRAFANA_OIDC_CLIENT_ID` and
 `GRAFANA_OIDC_CLIENT_SECRET` secrets. The deploy jobs validate presence before
-Compose interpolation without logging values. A missing, partial, or placeholder
-local pair makes configuration or bootstrap fail before Authentik is changed.
+assembling the deployment environment or launching services, without logging
+values. Compose model inspection (`config`, `ps`, or `images`) intentionally
+allows the pair to be absent; the Authentik bootstrap independently rejects a
+missing, partial, or placeholder pair before it changes Authentik.
 Verify a Viewer cannot open Grafana administration and a `Grafana Admins` member
 can. Retain the local Grafana admin credentials in the operator secret store for
 CLI-assisted recovery; password login is disabled during normal production

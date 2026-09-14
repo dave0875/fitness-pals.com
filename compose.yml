@@ -61,8 +61,10 @@ services:
       - GF_AUTH_BASIC_ENABLED=false
       - GF_AUTH_GENERIC_OAUTH_ENABLED=true
       - GF_AUTH_GENERIC_OAUTH_NAME=Authentik
-      - GF_AUTH_GENERIC_OAUTH_CLIENT_ID=${GRAFANA_OIDC_CLIENT_ID:?GRAFANA_OIDC_CLIENT_ID is required}
-      - GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=${GRAFANA_OIDC_CLIENT_SECRET:?GRAFANA_OIDC_CLIENT_SECRET is required}
+      # Keep model rendering usable for read-only inspection. Deployment workflows
+      # preflight both values before any service is launched.
+      - GF_AUTH_GENERIC_OAUTH_CLIENT_ID=${GRAFANA_OIDC_CLIENT_ID:-}
+      - GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=${GRAFANA_OIDC_CLIENT_SECRET:-}
       - GF_AUTH_GENERIC_OAUTH_SCOPES=openid profile email
       - GF_AUTH_GENERIC_OAUTH_AUTH_URL=https://auth.fitness-pals.com/application/o/authorize/
       - GF_AUTH_GENERIC_OAUTH_TOKEN_URL=https://auth.fitness-pals.com/application/o/token/
@@ -169,8 +171,8 @@ services:
       - AUTHENTIK_GOOGLE_ENROLLMENT_FLOW_SLUG=${AUTHENTIK_GOOGLE_ENROLLMENT_FLOW_SLUG:-default-source-enrollment}
       - AUTHENTIK_LOGIN_FLOW_SLUG=${AUTHENTIK_LOGIN_FLOW_SLUG:-default-authentication-flow}
       - RUNTRAINER_WEB_OIDC_ISSUER=${RUNTRAINER_WEB_OIDC_ISSUER:-}
-      - GRAFANA_OIDC_CLIENT_ID=${GRAFANA_OIDC_CLIENT_ID:?GRAFANA_OIDC_CLIENT_ID is required}
-      - GRAFANA_OIDC_CLIENT_SECRET=${GRAFANA_OIDC_CLIENT_SECRET:?GRAFANA_OIDC_CLIENT_SECRET is required}
+      - GRAFANA_OIDC_CLIENT_ID=${GRAFANA_OIDC_CLIENT_ID:-}
+      - GRAFANA_OIDC_CLIENT_SECRET=${GRAFANA_OIDC_CLIENT_SECRET:-}
       - GRAFANA_ROOT_URL=https://grafana.fitness-pals.com
     depends_on:
       authentik-server:
@@ -281,7 +283,7 @@ services:
       - /bin/sh
       - -ec
       - |
-        export PYTHONPATH=$PYTHONPATH:/app
+        export PYTHONPATH="$${PYTHONPATH}:/app"
         alembic upgrade head
         uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
     environment:

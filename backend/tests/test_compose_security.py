@@ -60,12 +60,23 @@ def test_grafana_requires_authentik_and_least_privilege_roles():
     assert "GF_AUTH_BASIC_ENABLED=false" in grafana
     assert "GF_AUTH_GENERIC_OAUTH_ENABLED=true" in grafana
     assert "GF_AUTH_GENERIC_OAUTH_NAME=Authentik" in grafana
-    assert "GF_AUTH_GENERIC_OAUTH_CLIENT_ID=${GRAFANA_OIDC_CLIENT_ID" in grafana
-    assert "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=${GRAFANA_OIDC_CLIENT_SECRET" in grafana
+    assert "GF_AUTH_GENERIC_OAUTH_CLIENT_ID=${GRAFANA_OIDC_CLIENT_ID:-}" in grafana
+    assert "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=${GRAFANA_OIDC_CLIENT_SECRET:-}" in grafana
     assert "contains(groups[*], 'Grafana Admins') && 'Admin' || 'Viewer'" in grafana
     assert "GF_AUTH_OAUTH_AUTO_LOGIN=true" in grafana
     bootstrap = _service_block(compose_text, "authentik-bootstrap")
     assert "--grafana-sso" in bootstrap
+    assert "GRAFANA_OIDC_CLIENT_ID=${GRAFANA_OIDC_CLIENT_ID:-}" in bootstrap
+    assert "GRAFANA_OIDC_CLIENT_SECRET=${GRAFANA_OIDC_CLIENT_SECRET:-}" in bootstrap
+
+
+def test_compose_defers_pythonpath_expansion_to_the_backend_container():
+    """Host PYTHONPATH is unrelated to the backend container command."""
+    compose_text = (REPOSITORY_ROOT / "compose.yml").read_text(encoding="utf-8")
+    backend = _service_block(compose_text, "backend")
+
+    assert 'export PYTHONPATH="$${PYTHONPATH}:/app"' in backend
+    assert "export PYTHONPATH=$PYTHONPATH:/app" not in backend
 
 
 def test_development_grafana_break_glass_stays_on_loopback():
@@ -142,6 +153,54 @@ def test_deploy_jobs_receive_and_preflight_environment_scoped_grafana_secrets():
         assert "Validate Grafana OIDC deployment secrets" in job
         assert 'if [ -z "$GRAFANA_OIDC_CLIENT_ID" ]' in job
         assert 'if [ -z "$GRAFANA_OIDC_CLIENT_SECRET" ]' in job
+        assert job.index("Validate Grafana OIDC deployment secrets") < job.index(
+            "Assemble env from base and overlay"
+        )
+        assert job.index("Validate Grafana OIDC deployment secrets") < job.index(
+            "Validate compose config"
+        )
+
+
+def test_dev_reconciles_infrastructure_before_app_only_restart():
+    """Dependency changes must use the full reconcile path before app restarts."""
+    workflow_text = (REPOSITORY_ROOT / ".github/workflows/ci-cd.yml").read_text(
+        encoding="utf-8"
+    )
+    dev_job = workflow_text.split("  deploy-dev:\n", maxsplit=1)[1].split(
+        "  deploy-prod:\n", maxsplit=1
+    )[0]
+    restart_step = dev_job.split(
+        "      - name: Restart changed app services\n", maxsplit=1
+    )[1].split("\n      - name:", maxsplit=1)[0]
+
+    assert dev_job.index("Reconcile complete dev runtime") < dev_job.index(
+        "Restart changed app services"
+    )
+    for service in ("postgres", "influxdb", "grafana", "cloudflared"):
+        assert f"steps.changes.outputs.{service}_changed != 'true'" in restart_step
+
+
+def test_dev_failure_diagnostics_are_non_secret_and_non_masking():
+    """A failed deployment reports service state without dumping environments."""
+    workflow_text = (REPOSITORY_ROOT / ".github/workflows/ci-cd.yml").read_text(
+        encoding="utf-8"
+    )
+    dev_job = workflow_text.split("  deploy-dev:\n", maxsplit=1)[1].split(
+        "  deploy-prod:\n", maxsplit=1
+    )[0]
+    diagnostics = dev_job.split(
+        "      - name: Capture dev deployment failure diagnostics\n", maxsplit=1
+    )[1].split("\n      - name:", maxsplit=1)[0]
+
+    assert "if: failure()" in diagnostics
+    assert "continue-on-error: true" in diagnostics
+    assert 'docker compose --env-file "$ENV_FILE" ps --all' in diagnostics
+    assert "logs --no-color --tail=200" in diagnostics
+    assert "runtrainer-postgres" in diagnostics
+    assert "authentik-server" in diagnostics
+    assert "authentik-worker" in diagnostics
+    assert "docker inspect --format" in diagnostics
+    assert ".Config.Env" not in diagnostics
 
 
 def test_explicit_branch_dispatch_deploys_complete_dev_runtime_only():
@@ -177,7 +236,7 @@ def test_explicit_branch_dispatch_deploys_complete_dev_runtime_only():
 
 
 def test_ci_renders_both_compose_deployment_variants():
-    """PR CI must validate Compose interpolation with non-production credentials."""
+    """PR CI proves Compose inspection needs no Grafana credentials or PYTHONPATH."""
     workflow_text = (REPOSITORY_ROOT / ".github/workflows/ci-cd.yml").read_text(
         encoding="utf-8"
     )
@@ -185,8 +244,11 @@ def test_ci_renders_both_compose_deployment_variants():
         "  deploy-dev:\n", maxsplit=1
     )[0]
 
-    assert "GRAFANA_OIDC_CLIENT_ID: ci-grafana-client" in test_job
-    assert "GRAFANA_OIDC_CLIENT_SECRET: ci-grafana-secret" in test_job
+    assert "GRAFANA_OIDC_CLIENT_ID: ci-grafana-client" not in test_job
+    assert "GRAFANA_OIDC_CLIENT_SECRET: ci-grafana-secret" not in test_job
     assert "Validate deployment Compose configurations" in test_job
+    assert "env -u PYTHONPATH" in test_job
+    assert "GRAFANA_OIDC_CLIENT_ID=" in test_job
+    assert "GRAFANA_OIDC_CLIENT_SECRET=" in test_job
     assert "docker compose --env-file .env.production config -q" in test_job
     assert "COMPOSE_FILE=compose.yml:compose.dev.yml" in test_job

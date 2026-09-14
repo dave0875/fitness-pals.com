@@ -498,6 +498,9 @@ def test_missing_google_credentials_fail_clearly(monkeypatch):
     monkeypatch.delenv("AUTHENTIK_GOOGLE_CLIENT_ID", raising=False)
     monkeypatch.delenv("AUTHENTIK_GOOGLE_CLIENT_SECRET", raising=False)
 
+Failed to create stream fd: Operation not permitted
+Failed to create stream fd: Operation not permitted
+Failed to create stream fd: Operation not permitted
     config = bootstrap.load_google_source_config()
     assert config.client_id is None
     assert config.client_secret is None
@@ -732,4 +735,13 @@ def test_grafana_oidc_credentials_are_required_as_a_pair(monkeypatch):
     monkeypatch.delenv("GRAFANA_OIDC_CLIENT_SECRET", raising=False)
 
     with pytest.raises(SystemExit, match="must be set together"):
+        bootstrap.load_grafana_oidc_config()
+
+
+def test_grafana_oidc_credentials_cannot_both_be_absent(monkeypatch):
+    """Compose inspection may omit credentials, but bootstrap must fail closed."""
+    monkeypatch.delenv("GRAFANA_OIDC_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GRAFANA_OIDC_CLIENT_SECRET", raising=False)
+
+    with pytest.raises(SystemExit, match="Missing Grafana OIDC credentials"):
         bootstrap.load_grafana_oidc_config()
