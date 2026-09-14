@@ -498,9 +498,6 @@ def test_missing_google_credentials_fail_clearly(monkeypatch):
     monkeypatch.delenv("AUTHENTIK_GOOGLE_CLIENT_ID", raising=False)
     monkeypatch.delenv("AUTHENTIK_GOOGLE_CLIENT_SECRET", raising=False)
 
-Failed to create stream fd: Operation not permitted
-Failed to create stream fd: Operation not permitted
-Failed to create stream fd: Operation not permitted
     config = bootstrap.load_google_source_config()
     assert config.client_id is None
     assert config.client_secret is None
