@@ -180,6 +180,41 @@ services:
     volumes:
       - ./scripts/bootstrap_authentik.py:/bootstrap/bootstrap_authentik.py:ro
 
+  network-preflight:
+    image: alpine@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659
+    profiles:
+      - diagnostics
+    restart: "no"
+    read_only: true
+    cap_drop:
+      - ALL
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        getent hosts runtrainer-postgres >/dev/null || {
+          echo "Network preflight failed: database DNS lookup." >&2
+          exit 1
+        }
+        nc -zvw5 runtrainer-postgres 5432 || {
+          echo "Network preflight failed: database peer connection." >&2
+          exit 1
+        }
+        nc -zvw5 influxdb 8086 || {
+          echo "Network preflight failed: metrics peer connection." >&2
+          exit 1
+        }
+        nc -zvw5 authentik-server 9000 || {
+          echo "Network preflight failed: identity peer connection." >&2
+          exit 1
+        }
+        wget -q -T 10 -O /dev/null \
+          https://accounts.google.com/.well-known/openid-configuration || {
+          echo "Network preflight failed: outbound HTTPS." >&2
+          exit 1
+        }
+        echo "Container peer traffic and outbound HTTPS are healthy."
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared
