@@ -6,4 +6,4 @@ PyJWT[crypto]==2.13.0
 python-multipart
 prometheus_client==0.21.1
 SQLAlchemy==2.0.44
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.11
