@@ -59,7 +59,7 @@ def make_sleep(user_id, calendar_date, seconds=27000):
     return SleepSession(
         id=uuid.uuid4(),
         user_id=user_id,
-        provider="pulsai",
+        provider="garmin",
         daily_sleep_id=int(calendar_date.strftime("%Y%m%d")),
         calendar_date=calendar_date,
         summary_json={"sleepTimeSeconds": seconds},
@@ -78,11 +78,11 @@ def test_journey_totals_reconcile_with_visible_filtered_activities():
     duplicate_source = ActivitySource(
         id=uuid.uuid4(),
         activity_id=run.id,
-        provider="pulsai",
+        provider="garmin",
         provider_activity_id="same-canonical-run",
         decision="duplicate",
         chosen_fields={"upstream_provider": "garmin"},
-        raw_payload={"private_url": "https://private.pulsai.me/secret"},
+        raw_payload={"access_token": "secret-token"},
     )
     db = FakeSession([run, ride, old_run, other, duplicate_source])
 
@@ -176,17 +176,17 @@ def test_journey_activity_detail_is_private_and_redacts_raw_provenance():
     source = ActivitySource(
         id=uuid.uuid4(),
         activity_id=activity.id,
-        provider="pulsai",
+        provider="garmin",
         provider_activity_id="garmin-private-id",
         decision="merged",
         chosen_fields={
             "upstream_provider": "garmin",
             "source_timestamp": "2026-08-02T12:00:00+00:00",
-            "private_url": "https://private.pulsai.me/secret",
+            "internal_note": "secret-provider-detail",
         },
         raw_payload={
             "access_token": "secret-token",
-            "private_url": "https://private.pulsai.me/secret",
+            "internal_note": "secret-provider-detail",
         },
     )
 
@@ -200,13 +200,13 @@ def test_journey_activity_detail_is_private_and_redacts_raw_provenance():
     assert result["activity"]["id"] == str(activity.id)
     assert result["provenance"] == [
         {
-            "provider": "pulsai",
+            "provider": "garmin",
             "upstream_provider": "garmin",
             "source_timestamp": "2026-08-02T12:00:00+00:00",
         }
     ]
     assert "secret-token" not in serialized
-    assert "private.pulsai.me" not in serialized
+    assert "secret-provider-detail" not in serialized
     assert "garmin-private-id" not in serialized
 
 
@@ -232,7 +232,7 @@ def make_goal_job(user_id, selected_at, goal):
     return SyncJob(
         id=uuid.uuid4(),
         user_id=user_id,
-        provider="pulsai",
+        provider="garmin",
         status="completed",
         trigger="manual",
         test_run=False,

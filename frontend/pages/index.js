@@ -99,11 +99,11 @@ function renderHeroCtas(sessionState, authWelcomeHref) {
     return <CtaSkeleton />;
   }
 
-  if (sessionState === "authenticatedNoPulsai") {
+  if (sessionState === "authenticatedNoGarmin") {
     return (
       <>
         <a href="/welcome" style={ctaButtonStyle("primary")}>
-          Connect through PulsAI
+          Connect Garmin
         </a>
         <a href="#trust" style={ctaButtonStyle("secondary")}>
           How your data is used
@@ -164,11 +164,11 @@ function renderNavCtas(sessionState, authWelcomeHref) {
     return <CtaSkeleton compact />;
   }
 
-  if (sessionState === "authenticatedNoPulsai") {
+  if (sessionState === "authenticatedNoGarmin") {
     return (
       <>
         <a href="/welcome" style={navButtonStyle("primary")}>
-          Connect through PulsAI
+          Connect Garmin
         </a>
         <a href={HERO_DOSSIER_URL} style={navButtonStyle("secondary")}>
           View sample coach dossier
@@ -252,7 +252,7 @@ export default function Home() {
         }
 
         if (!onboardingResponse.ok) {
-          setSessionState("authenticatedNoPulsai");
+          setSessionState("authenticatedNoGarmin");
           return;
         }
 
@@ -261,8 +261,8 @@ export default function Home() {
           return;
         }
 
-        if (!onboardingStatus.pulsai_connected) {
-          setSessionState("authenticatedNoPulsai");
+        if (!onboardingStatus.garmin_connected && !onboardingStatus.latest_activities?.length) {
+          setSessionState("authenticatedNoGarmin");
           return;
         }
 
@@ -441,7 +441,7 @@ export default function Home() {
           >
             {[
               ["1. Sign in", "Use the Fitness Pals sign-in screen and continue with Gmail to create an app-backed session."],
-              ["2. Connect through PulsAI", "Link Garmin in PulsAI, then securely add your private bridge URL."],
+              ["2. Add Garmin data", "Connect Garmin or import your Garmin archive directly."],
               ["3. Sync your data", "Queue your first import and let the product build context."],
               ["4. Get coaching value", "See readiness, recent activity patterns, and next actions."],
             ].map(([title, body]) => (

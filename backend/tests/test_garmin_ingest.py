@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
 from sqlalchemy.sql import operators
 from sqlalchemy.sql.elements import BinaryExpression, BooleanClauseList, BindParameter
 
@@ -167,6 +170,31 @@ def test_fetch_garmin_recent_tolerates_read_only_client_username(monkeypatch):
         "sleep_daily": 0,
         "test_run": False,
     }
+
+
+def test_fetch_garmin_recent_rejects_expired_connection_lease(monkeypatch):
+    """The browser-issued Garmin grant must be renewed after 30 days."""
+    monkeypatch.setenv("GARMIN_MODE", "scraper")
+    db = FakeSession()
+    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    save_user_provider_token(
+        db,
+        ProviderTokenDetails(
+            user_id=user.id,
+            tenant_id=None,
+            provider="garmin_scraper",
+            access_token="access-token",
+            refresh_token="refresh-token",
+            expires_at=datetime.now(timezone.utc) - timedelta(seconds=1),
+            metadata={"auth_scheme": "garmin_connect_sso"},
+        ),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        garmin_ingest.fetch_garmin_recent(db, user)
+
+    assert exc.value.status_code == 410
+    assert "reauth" in str(exc.value.detail).lower()
 
 
 def test_persist_activity_summaries_does_not_store_raw_garmin_payload_in_metadata():

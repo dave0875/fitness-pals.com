@@ -19,7 +19,7 @@ from app.routes.onboarding import router as onboarding_router
 from app.routes.athlete_home import router as athlete_home_router
 from app.routes.journey import router as journey_router
 from app.routes.dossiers import router as dossiers_router
-from app.routes import providers_garmin, providers_pulsai
+from app.routes import providers_garmin
 from app.routes.ingest import router as ingest_router
 from app.routes.archive_imports import router as archive_imports_router
 from app.config import get_settings
@@ -61,7 +61,6 @@ app.include_router(metrics_router)
 app.include_router(chat_router)
 app.include_router(provider_router.router)
 app.include_router(providers_garmin.router)
-app.include_router(providers_pulsai.router)
 app.include_router(auth_status.router)
 app.include_router(onboarding_router)
 app.include_router(athlete_home_router)

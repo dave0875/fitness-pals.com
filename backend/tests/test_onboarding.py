@@ -117,16 +117,16 @@ def _activity(user_id, days_ago, distance_m, sport="run"):
     )
 
 
-def _pulsai_token(user_id):
+def _garmin_token(user_id):
     return UserProviderToken(
         user_id=user_id,
         tenant_id=None,
-        provider="pulsai",
+        provider="garmin",
         access_token_encrypted=b"x",
         refresh_token_encrypted=b"y",
         scope="activity",
         expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
-        provider_user_id="pulsai-user",
+        provider_user_id="garmin-user",
         metadata_json={},
     )
 
@@ -134,7 +134,7 @@ def _pulsai_token(user_id):
 def _sync_job(user_id, status="queued", goal="marathon"):
     return SyncJob(
         user_id=user_id,
-        provider="pulsai",
+        provider="garmin",
         status=status,
         trigger="manual",
         test_run=False,
@@ -142,19 +142,59 @@ def _sync_job(user_id, status="queued", goal="marathon"):
     )
 
 
-def test_onboarding_status_requires_pulsai_connection():
-    """Users without PulsAI should be prompted to connect PulsAI."""
+def test_onboarding_status_requires_garmin_connection():
+    """Users without Garmin should be prompted to connect Garmin."""
     user = _fake_user()
     db = FakeSession()
 
     result = onboarding.status(request=SimpleNamespace(cookies={}), user=user, db=db)
 
-    assert result["pulsai_connected"] is False
+    assert result["garmin_connected"] is False
     assert result["first_sync"]["state"] == "not_started"
     assert result["latest_activities"] == []
     assert result["readiness_preview"] is None
     assert result["coach_insight"] is None
     assert result["next_action"] is None
+
+
+def test_onboarding_status_requires_reconnect_after_garmin_grant_expires(monkeypatch):
+    """An expired 30-day grant returns the athlete to Garmin sign-in."""
+    user = _fake_user()
+    token = _garmin_token(user.id)
+    token.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    monkeypatch.setattr(
+        onboarding,
+        "get_user_provider_token",
+        lambda *_args, **_kwargs: token,
+    )
+
+    result = onboarding.status(
+        request=SimpleNamespace(cookies={}),
+        user=user,
+        db=FakeSession([token]),
+    )
+
+    assert result["garmin_connected"] is False
+    assert result["first_sync"]["state"] == "not_started"
+
+
+def test_archive_data_completes_onboarding_without_live_garmin_connection(monkeypatch):
+    """Archive-only athletes can reach first value without granting live access."""
+    user = _fake_user()
+    activity = _activity(user.id, 1, 12000.0)
+    activity.start_time = datetime.now(timezone.utc) - timedelta(days=1)
+    monkeypatch.setattr(onboarding, "_latest_sync_job", lambda *_args, **_kwargs: None)
+
+    result = onboarding.status(
+        request=SimpleNamespace(cookies={}),
+        user=user,
+        db=FakeSession([activity]),
+    )
+
+    assert result["garmin_connected"] is False
+    assert result["first_sync"]["state"] == "completed"
+    assert len(result["latest_activities"]) == 1
+    assert result["readiness_preview"] is not None
 
 
 def test_onboarding_status_returns_sync_queued_with_selected_goal(monkeypatch):
@@ -163,16 +203,16 @@ def test_onboarding_status_returns_sync_queued_with_selected_goal(monkeypatch):
     monkeypatch.setattr(
         onboarding,
         "get_user_provider_token",
-        lambda *_args, **_kwargs: _pulsai_token(user.id),
+        lambda *_args, **_kwargs: _garmin_token(user.id),
     )
     job = _sync_job(user.id, status="queued", goal="half")
     monkeypatch.setattr(onboarding, "_latest_sync_job", lambda *_args, **_kwargs: job)
     monkeypatch.setattr(onboarding, "_latest_activities", lambda *_args, **_kwargs: [])
-    db = FakeSession([_pulsai_token(user.id), job])
+    db = FakeSession([_garmin_token(user.id), job])
 
     result = onboarding.status(request=SimpleNamespace(cookies={}), user=user, db=db)
 
-    assert result["pulsai_connected"] is True
+    assert result["garmin_connected"] is True
     assert result["first_sync"]["state"] == "queued"
     assert result["selected_goal"] == "half"
 
@@ -184,7 +224,7 @@ def test_onboarding_status_returns_sync_queued_with_selected_goal(monkeypatch):
         (
             {
                 "status_code": 401,
-                "message": "authorization failed for https://private.pulsai.me/mcp/secret",
+                "message": "authorization failed for secret-token",
             },
             "authorization_required",
             "authorization",
@@ -192,7 +232,7 @@ def test_onboarding_status_returns_sync_queued_with_selected_goal(monkeypatch):
         (
             {
                 "type": "TimeoutError",
-                "message": "upstream timed out at https://private.pulsai.me/mcp/secret",
+                "message": "upstream timed out after sending secret-token",
             },
             "failed",
             "upstream",
@@ -207,7 +247,7 @@ def test_onboarding_status_redacts_failed_sync_details(
     monkeypatch.setattr(
         onboarding,
         "get_user_provider_token",
-        lambda *_args, **_kwargs: _pulsai_token(user.id),
+        lambda *_args, **_kwargs: _garmin_token(user.id),
     )
     job = _sync_job(user.id, status="failed")
     job.error_json = error_payload
@@ -217,12 +257,12 @@ def test_onboarding_status_redacts_failed_sync_details(
     result = onboarding.status(
         request=SimpleNamespace(cookies={}),
         user=user,
-        db=FakeSession([_pulsai_token(user.id), job]),
+        db=FakeSession([_garmin_token(user.id), job]),
     )
 
     assert result["first_sync"]["state"] == expected_state
     assert result["first_sync"]["failure_category"] == expected_category
-    assert "private.pulsai.me" not in json.dumps(result)
+    assert "secret-token" not in json.dumps(result)
 
 
 def test_onboarding_status_reports_partial_completed_sync(monkeypatch):
@@ -231,7 +271,7 @@ def test_onboarding_status_reports_partial_completed_sync(monkeypatch):
     monkeypatch.setattr(
         onboarding,
         "get_user_provider_token",
-        lambda *_args, **_kwargs: _pulsai_token(user.id),
+        lambda *_args, **_kwargs: _garmin_token(user.id),
     )
     job = _sync_job(user.id, status="completed")
     job.finished_at = datetime.now(timezone.utc)
@@ -241,7 +281,7 @@ def test_onboarding_status_reports_partial_completed_sync(monkeypatch):
     result = onboarding.status(
         request=SimpleNamespace(cookies={}),
         user=user,
-        db=FakeSession([_pulsai_token(user.id), job]),
+        db=FakeSession([_garmin_token(user.id), job]),
     )
 
     assert result["first_sync"]["state"] == "partial"
@@ -254,7 +294,7 @@ def test_onboarding_status_reports_stale_completed_sync(monkeypatch):
     monkeypatch.setattr(
         onboarding,
         "get_user_provider_token",
-        lambda *_args, **_kwargs: _pulsai_token(user.id),
+        lambda *_args, **_kwargs: _garmin_token(user.id),
     )
     job = _sync_job(user.id, status="completed")
     job.finished_at = datetime.now(timezone.utc) - timedelta(hours=73)
@@ -277,7 +317,7 @@ def test_onboarding_status_reports_stale_completed_sync(monkeypatch):
     result = onboarding.status(
         request=SimpleNamespace(cookies={}),
         user=user,
-        db=FakeSession([_pulsai_token(user.id), job, activity]),
+        db=FakeSession([_garmin_token(user.id), job, activity]),
     )
 
     assert result["first_sync"]["state"] == "stale"
@@ -289,7 +329,7 @@ def test_onboarding_status_returns_first_win_preview_when_synced(monkeypatch):
     monkeypatch.setattr(
         onboarding,
         "get_user_provider_token",
-        lambda *_args, **_kwargs: _pulsai_token(user.id),
+        lambda *_args, **_kwargs: _garmin_token(user.id),
     )
     job = _sync_job(user.id, status="completed", goal="marathon")
     activities = [_activity(user.id, 1, 12000.0), _activity(user.id, 3, 8000.0)]
@@ -310,7 +350,7 @@ def test_onboarding_status_returns_first_win_preview_when_synced(monkeypatch):
     )
     db = FakeSession(
         [
-            _pulsai_token(user.id),
+            _garmin_token(user.id),
             job,
             *activities,
         ]
@@ -335,7 +375,7 @@ def test_first_sync_persists_goal_in_sync_job_payload(monkeypatch):
     monkeypatch.setattr(
         onboarding,
         "get_user_provider_token",
-        lambda *_args, **_kwargs: _pulsai_token(user.id),
+        lambda *_args, **_kwargs: _garmin_token(user.id),
     )
 
     def fake_enqueue(db, user, goal):  # pylint: disable=unused-argument,redefined-outer-name
@@ -343,21 +383,21 @@ def test_first_sync_persists_goal_in_sync_job_payload(monkeypatch):
         captured["goal"] = goal
         return SimpleNamespace(id=uuid.uuid4())
 
-    monkeypatch.setattr(onboarding, "_enqueue_pulsai_sync_job", fake_enqueue)
+    monkeypatch.setattr(onboarding, "_enqueue_garmin_sync_job", fake_enqueue)
 
     result = onboarding.first_sync(
         body=onboarding.FirstSyncRequest(goal="recovery"),
         response=Response(),
         user=user,
-        db=FakeSession([_pulsai_token(user.id)]),
+        db=FakeSession([_garmin_token(user.id)]),
     )
 
     assert result["state"] == "queued"
     assert captured["user_id"] == user.id
     assert captured["goal"] == "recovery"
 
-def test_first_sync_requires_pulsai_connection():
-    """First sync cannot be queued until the current user has a PulsAI endpoint."""
+def test_first_sync_requires_garmin_connection():
+    """First sync cannot be queued until the current user has a Garmin grant."""
     user = _fake_user()
 
     with pytest.raises(HTTPException) as exc_info:
@@ -369,30 +409,30 @@ def test_first_sync_requires_pulsai_connection():
         )
 
     assert exc_info.value.status_code == 409
-    assert "PulsAI" in str(exc_info.value.detail)
+    assert "Garmin" in str(exc_info.value.detail)
 
 
-def test_first_sync_reuses_inflight_pulsai_job(monkeypatch):
-    """Repeated first-sync requests do not enqueue duplicate PulsAI work."""
+def test_first_sync_reuses_inflight_garmin_job(monkeypatch):
+    """Repeated first-sync requests do not enqueue duplicate Garmin work."""
     user = _fake_user()
     job = _sync_job(user.id, status="running", goal="half")
     monkeypatch.setattr(
         onboarding,
         "get_user_provider_token",
-        lambda *_args, **_kwargs: _pulsai_token(user.id),
+        lambda *_args, **_kwargs: _garmin_token(user.id),
     )
     monkeypatch.setattr(onboarding, "_latest_sync_job", lambda *_args, **_kwargs: job)
 
     def fail_enqueue(*_args, **_kwargs):
         raise AssertionError("in-flight first sync must be reused")
 
-    monkeypatch.setattr(onboarding, "_enqueue_pulsai_sync_job", fail_enqueue)
+    monkeypatch.setattr(onboarding, "_enqueue_garmin_sync_job", fail_enqueue)
 
     result = onboarding.first_sync(
         body=onboarding.FirstSyncRequest(goal="half"),
         response=Response(),
         user=user,
-        db=FakeSession([_pulsai_token(user.id), job]),
+        db=FakeSession([_garmin_token(user.id), job]),
     )
 
     assert result["state"] == "running"

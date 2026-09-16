@@ -1,4 +1,4 @@
-"""Garmin OAuth connect/callback endpoints (OAuth-only, no credentials)."""
+"""Garmin browser sign-in and legacy OAuth connection endpoints."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 import garth
+from garminconnect.client import Client as GarminConnectClient
 
 from app.deps import get_current_user
 from app.db import get_db
@@ -37,6 +38,39 @@ router = APIRouter(prefix="/api/providers/garmin", tags=["garmin"])
 logger = logging.getLogger("garmin.routes")
 logger.setLevel(logging.INFO)
 GARMIN_NEXT_COOKIE = "garmin_oauth_next"
+GARMIN_STATE_COOKIE = "garmin_oauth_state"
+GARMIN_CONNECT_SIGNIN_URL = "https://connect.garmin.com/signin/"
+GARMIN_CONNECTION_LEASE = timedelta(days=30)
+
+
+class GarminConnectSSOClient:
+    """Small adapter around Garmin Connect's service-ticket client."""
+
+    def __init__(self) -> None:
+        self._client = GarminConnectClient()
+
+    @property
+    def di_token(self) -> Optional[str]:
+        return self._client.di_token
+
+    @property
+    def di_refresh_token(self) -> Optional[str]:
+        return self._client.di_refresh_token
+
+    @property
+    def di_client_id(self) -> Optional[str]:
+        return self._client.di_client_id
+
+    def exchange_service_ticket(self, ticket: str, service_url: str) -> None:
+        """Exchange the one-time CAS ticket using its exact callback service."""
+        self._client._exchange_service_ticket(  # pylint: disable=protected-access
+            ticket,
+            service_url=service_url,
+        )
+
+    def connectapi(self, path: str):
+        """Call Garmin Connect with the newly issued DI token."""
+        return self._client.connectapi(path)
 
 
 def _user_uuid(user: CurrentUserLike) -> UUID:
@@ -62,6 +96,27 @@ def _safe_next_path(
     if not candidate.startswith("/") or candidate.startswith("//"):
         return default
     return candidate
+
+
+def _garmin_mode() -> str:
+    return (os.environ.get("GARMIN_MODE") or "scraper").lower()
+
+
+def _garmin_provider_key() -> str:
+    return "garmin" if _garmin_mode() == "oauth" else "garmin_scraper"
+
+
+def _provider_user_id(profile: object) -> Optional[str]:
+    if not isinstance(profile, dict):
+        return None
+    value = (
+        profile.get("userId")
+        or profile.get("displayName")
+        or profile.get("userName")
+        or profile.get("username")
+        or profile.get("id")
+    )
+    return str(value) if value else None
 
 def _config():
     return {
@@ -149,7 +204,38 @@ def garmin_login(
     request: Request,
     _: Annotated[Any, Depends(get_current_user)]
 ):
-    """Redirect the authenticated user to Garmin OAuth."""
+    """Redirect the athlete to Garmin's own sign-in surface."""
+    if _garmin_mode() != "oauth":
+        state = secrets.token_urlsafe(24)
+        callback_url = str(request.url_for("garmin_sso_callback", state=state))
+        prepped = requests.Request(
+            "GET",
+            GARMIN_CONNECT_SIGNIN_URL,
+            params={"service": callback_url},
+        ).prepare()
+        if prepped.url is None:
+            raise HTTPException(status_code=500, detail="Failed to build Garmin SSO URL")
+        response = RedirectResponse(prepped.url)
+        response.set_cookie(
+            GARMIN_STATE_COOKIE,
+            state,
+            max_age=10 * 60,
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            path="/",
+        )
+        response.set_cookie(
+            GARMIN_NEXT_COOKIE,
+            _safe_next_path(request.query_params.get("next")),
+            max_age=10 * 60,
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            path="/",
+        )
+        return response
+
     cfg = _require_env()
     state = secrets.token_urlsafe(16)
     params = {
@@ -165,7 +251,7 @@ def garmin_login(
         raise HTTPException(status_code=500, detail="Failed to build Garmin auth URL")
     resp = RedirectResponse(url)
     resp.set_cookie(
-        "garmin_oauth_state",
+        GARMIN_STATE_COOKIE,
         state,
         max_age=300,
         httponly=True,
@@ -184,6 +270,66 @@ def garmin_login(
         path="/",
     )
     return resp
+
+
+@router.get("/sso/callback/{state}", name="garmin_sso_callback")
+def garmin_sso_callback(
+    request: Request,
+    state: str,
+    ticket: str,
+    user: CurrentUserLike = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Exchange a Garmin Connect service ticket for a 30-day encrypted grant."""
+    stored_state = request.cookies.get(GARMIN_STATE_COOKIE)
+    if not stored_state or not secrets.compare_digest(state, stored_state):
+        raise HTTPException(status_code=400, detail="Invalid state for Garmin auth")
+
+    callback_url = str(request.url_for("garmin_sso_callback", state=state))
+    client = GarminConnectSSOClient()
+    try:
+        client.exchange_service_ticket(ticket, callback_url)
+        profile = client.connectapi("/userprofile-service/socialProfile")
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("Garmin SSO ticket exchange failed", exc_info=True)
+        raise HTTPException(
+            status_code=400,
+            detail="Garmin sign-in could not be completed. Please try again.",
+        ) from exc
+
+    access_token = client.di_token
+    refresh_token = client.di_refresh_token
+    client_id = client.di_client_id
+    if not access_token or not refresh_token or not client_id:
+        raise HTTPException(status_code=400, detail="Garmin returned incomplete tokens")
+
+    now = datetime.now(timezone.utc)
+    save_user_provider_token(
+        db,
+        ProviderTokenDetails(
+            user_id=_user_uuid(user),
+            tenant_id=_resolve_tenant(user),
+            provider=_garmin_provider_key(),
+            access_token=access_token,
+            refresh_token=refresh_token,
+            scope="garmin_connect",
+            provider_user_id=_provider_user_id(profile),
+            expires_at=now + GARMIN_CONNECTION_LEASE,
+            metadata={
+                "auth_scheme": "garmin_connect_sso",
+                "di_client_id": client_id,
+                "token_received_at": now.isoformat(),
+                "lease_days": GARMIN_CONNECTION_LEASE.days,
+            },
+        ),
+    )
+    response = RedirectResponse(
+        url=_safe_next_path(request.cookies.get(GARMIN_NEXT_COOKIE)),
+        status_code=303,
+    )
+    response.delete_cookie(GARMIN_STATE_COOKIE, path="/")
+    response.delete_cookie(GARMIN_NEXT_COOKIE, path="/")
+    return response
 
 
 def _resolve_tenant(user: CurrentUserLike) -> Optional[UUID]:
@@ -208,7 +354,7 @@ def garmin_callback(
         raise HTTPException(status_code=400, detail="Missing authorization code")
     stored_state = None
     try:
-        stored_state = request.cookies.get("garmin_oauth_state")
+        stored_state = request.cookies.get(GARMIN_STATE_COOKIE)
     except Exception:
         stored_state = None
     if not state or not stored_state or state != stored_state:
@@ -260,7 +406,7 @@ def garmin_callback(
         ),
         status_code=303,
     )
-    response.delete_cookie("garmin_oauth_state", path="/")
+    response.delete_cookie(GARMIN_STATE_COOKIE, path="/")
     response.delete_cookie(GARMIN_NEXT_COOKIE, path="/")
     return response
 
@@ -387,7 +533,7 @@ def garmin_token_status(
 ):
     """Return metadata about the stored Garmin token for the current user."""
     tenant_id = _resolve_tenant(user)
-    env_mode = (os.environ.get("GARMIN_MODE") or "oauth").lower()
+    env_mode = _garmin_mode()
     provider_key = provider or ("garmin" if env_mode == "oauth" else "garmin_scraper")
     user_uuid = _user_uuid(user)
     token = get_user_provider_token(db, user_uuid, provider_key, tenant_id)
@@ -526,7 +672,7 @@ def garmin_acquire_token(
     db: Session = Depends(get_db),
 ):
     """Exchange Garmin credentials for tokens without storing credentials."""
-    mode = (os.environ.get("GARMIN_MODE") or "oauth").lower()
+    mode = _garmin_mode()
     provider_name = "garmin" if mode == "oauth" else "garmin_scraper"
     client = garth.Client()
     username = body.username

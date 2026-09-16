@@ -19,7 +19,7 @@ def fetch_all(db: Session) -> dict:
     """Iterate over all users with Garmin tokens and trigger ingestion."""
     queued = 0
     errors = 0
-    provider_key = "garmin" if (os.environ.get("GARMIN_MODE") or "oauth").lower() == "oauth" else "garmin_scraper"
+    provider_key = "garmin" if (os.environ.get("GARMIN_MODE") or "scraper").lower() == "oauth" else "garmin_scraper"
     tokens = db.query(UserProviderToken).filter(UserProviderToken.provider == provider_key).all()
     for token in tokens:
         try:

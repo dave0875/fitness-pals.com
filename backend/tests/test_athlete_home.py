@@ -90,7 +90,7 @@ def test_athlete_home_uses_sleep_and_sync_freshness():
     sleep = SleepSession(
         id=uuid.uuid4(),
         user_id=athlete_id,
-        provider="pulsai",
+        provider="garmin",
         daily_sleep_id=20260802,
         calendar_date=date(2026, 8, 2),
         summary_json={
@@ -102,7 +102,7 @@ def test_athlete_home_uses_sleep_and_sync_freshness():
     checkpoint = SyncCheckpoint(
         id=uuid.uuid4(),
         user_id=athlete_id,
-        provider="pulsai",
+        provider="garmin",
         status="succeeded",
         last_synced_at=now - timedelta(hours=2),
     )
