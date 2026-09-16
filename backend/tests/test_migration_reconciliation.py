@@ -30,14 +30,17 @@ def test_revision_ids_fit_production_alembic_version_column():
     )
 
 
-def test_migration_branches_have_one_head_after_refresh_sessions():
+def test_migration_branches_have_one_head_after_provider_removal():
     """Existing branch histories and the user-role migration must converge."""
     backend_root = Path(__file__).resolve().parents[1]
     config = Config(str(backend_root / "alembic.ini"))
     config.set_main_option("script_location", str(backend_root / "migrations"))
     scripts = ScriptDirectory.from_config(config)
 
-    assert scripts.get_heads() == ["0014_refresh_sessions"]
+    assert scripts.get_heads() == ["0015_remove_pulsai"]
+    removal_revision = scripts.get_revision("0015_remove_pulsai")
+    assert removal_revision is not None
+    assert removal_revision.down_revision == "0014_refresh_sessions"
     merge_revision = scripts.get_revision("0010_merge_dossier_heads")
     assert merge_revision is not None
     assert set(merge_revision._normalized_down_revisions) == {

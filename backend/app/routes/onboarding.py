@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -24,6 +25,27 @@ GOAL_COOKIE = "runtrainer_goal_handshake"
 FRESHNESS_WINDOW = timedelta(hours=72)
 
 
+def _garmin_provider_key() -> str:
+    """Return the credential key used by the configured Garmin integration."""
+    return (
+        "garmin"
+        if (os.environ.get("GARMIN_MODE") or "scraper").lower() == "oauth"
+        else "garmin_scraper"
+    )
+
+
+def _garmin_token_active(token, now: datetime | None = None) -> bool:
+    """Treat an expired 30-day Garmin grant as disconnected."""
+    if token is None:
+        return False
+    expires_at = getattr(token, "expires_at", None)
+    if expires_at is None:
+        return True
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return expires_at > (now or datetime.now(timezone.utc))
+
+
 class GoalHandshakeRequest(BaseModel):
     """Goal selection captured during first-run onboarding."""
 
@@ -31,21 +53,21 @@ class GoalHandshakeRequest(BaseModel):
 
 
 class FirstSyncRequest(BaseModel):
-    """Payload used to queue the user's first PulsAI sync."""
+    """Payload used to queue the user's first Garmin sync."""
 
     goal: str
 
 
-def _enqueue_pulsai_sync_job(
+def _enqueue_garmin_sync_job(
     db: Session, user: CurrentUserLike, goal: str
 ) -> SyncJob:
-    """Queue PulsAI work lazily to avoid provider-service import cycles."""
+    """Queue Garmin work lazily to avoid provider-service import cycles."""
     from app.services.sync_jobs import enqueue_sync_job
 
     return enqueue_sync_job(
         db,
         user_id=user.id,
-        provider="pulsai",
+        provider="garmin",
         trigger="manual",
         test_run=False,
         payload={"goal": goal},
@@ -75,10 +97,10 @@ def _selected_goal(job: SyncJob | None, request: Request) -> str | None:
 
 
 def _latest_sync_job(db: Session, user: CurrentUserLike) -> SyncJob | None:
-    """Return the most recent PulsAI sync job for the user."""
+    """Return the most recent Garmin sync job for the user."""
     return (
         db.query(SyncJob)
-        .filter(SyncJob.user_id == user.id, SyncJob.provider == "pulsai")
+        .filter(SyncJob.user_id == user.id, SyncJob.provider == "garmin")
         .order_by(SyncJob.created_at.desc())
         .first()
     )
@@ -289,21 +311,20 @@ def status(
     db: Session = Depends(get_db),
 ):
     """Return the welcome-flow onboarding state for the current user."""
-    pulsai_connected = (
-        get_user_provider_token(
-            db,
-            user.id,
-            "pulsai",
-            getattr(user, "tenant_id", None),
-        )
-        is not None
+    provider_key = _garmin_provider_key()
+    garmin_token = get_user_provider_token(
+        db,
+        user.id,
+        provider_key,
+        getattr(user, "tenant_id", None),
     )
+    garmin_connected = _garmin_token_active(garmin_token)
     latest_job = _latest_sync_job(db, user)
     selected_goal = _selected_goal(latest_job, request)
     latest_activities = _latest_activities(db, user)
 
     first_sync_state, failure_category = _first_sync_state(
-        pulsai_connected,
+        garmin_connected or bool(latest_activities),
         latest_job,
         latest_activities,
         datetime.now(timezone.utc),
@@ -315,7 +336,7 @@ def status(
 
     return {
         "authenticated": True,
-        "pulsai_connected": pulsai_connected,
+        "garmin_connected": garmin_connected,
         "selected_goal": selected_goal,
         "first_sync": {
             "state": first_sync_state,
@@ -338,15 +359,16 @@ def first_sync(
     user: CurrentUserLike = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Queue a first PulsAI sync and persist the selected goal to the job payload."""
-    pulsai_token = get_user_provider_token(
+    """Queue a first Garmin sync and persist the selected goal to the job payload."""
+    provider_key = _garmin_provider_key()
+    garmin_token = get_user_provider_token(
         db,
         user.id,
-        "pulsai",
+        provider_key,
         getattr(user, "tenant_id", None),
     )
-    if pulsai_token is None:
-        raise HTTPException(status_code=409, detail="PulsAI must be connected first")
+    if not _garmin_token_active(garmin_token):
+        raise HTTPException(status_code=409, detail="Garmin must be connected first")
 
     existing_job = _latest_sync_job(db, user)
     if existing_job and existing_job.status in {"queued", "running"}:
@@ -359,7 +381,7 @@ def first_sync(
             "reused": True,
         }
 
-    job = _enqueue_pulsai_sync_job(db, user, body.goal)
+    job = _enqueue_garmin_sync_job(db, user, body.goal)
     _set_goal_cookie(response, body.goal)
     return {
         "state": "queued",

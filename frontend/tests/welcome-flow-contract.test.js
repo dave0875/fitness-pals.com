@@ -8,13 +8,13 @@ const welcomeSource = fs.readFileSync(path.join(__dirname, "..", "pages", "welco
 test("welcome page includes the core onboarding states", () => {
   assert.match(
     welcomeSource,
-    /connect_pulsai|ready_to_sync|sync_queued|synced/i,
+    /connect_garmin|ready_to_sync|sync_queued|synced/i,
     "expected welcome page to define honest onboarding states"
   );
 });
 
 test("welcome page supports connect, first sync, and first-win copy", () => {
-  assert.ok(welcomeSource.includes("Connect PulsAI"), 'expected "Connect PulsAI" state');
+  assert.ok(welcomeSource.includes("Connect Garmin"), 'expected "Connect Garmin" state');
   assert.ok(
     welcomeSource.includes("Import my training history"),
     'expected "Import my training history" state'
@@ -50,12 +50,8 @@ test("welcome page calls onboarding and sync endpoints", () => {
     "expected welcome page to POST /api/onboarding/first-sync"
   );
   assert.ok(
-    welcomeSource.includes("/api/providers/pulsai/connection"),
-    "expected welcome page to save the private PulsAI connection"
-  );
-  assert.ok(
-    !welcomeSource.includes("/api/providers/garmin/login"),
-    "expected welcome page to avoid the retired direct Garmin login"
+    welcomeSource.includes("/api/providers/garmin/login?next=/welcome"),
+    "expected welcome page to start direct Garmin authorization"
   );
   assert.ok(
     welcomeSource.includes("/auth/login?next=/welcome"),
@@ -74,7 +70,7 @@ test("welcome page removes direct Google login copy", () => {
   );
 });
 
-test("welcome page presents recoverable PulsAI sync states", () => {
+test("welcome page presents recoverable Garmin sync states", () => {
   for (const state of [
     "authorization_required",
     "sync_failed",
@@ -87,7 +83,7 @@ test("welcome page presents recoverable PulsAI sync states", () => {
     );
   }
 
-  assert.match(welcomeSource, /Update PulsAI connection/i);
+  assert.match(welcomeSource, /Reconnect Garmin/i);
   assert.match(welcomeSource, /Try sync again/i);
   assert.match(welcomeSource, /Refresh fitness data/i);
   assert.ok(

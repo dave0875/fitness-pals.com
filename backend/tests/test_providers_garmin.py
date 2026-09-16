@@ -6,6 +6,7 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 import requests_mock
@@ -109,6 +110,110 @@ def test_login_persists_safe_next_redirect(monkeypatch):
     assert resp.status_code in (302, 307)
     cookies = resp.headers.getlist("set-cookie")
     assert any("garmin_oauth_next=" in cookie and "welcome" in cookie for cookie in cookies)
+
+
+def test_scraper_login_redirects_to_garmin_connect_sso(monkeypatch):
+    """Connect must hand credentials directly to Garmin's own SSO page."""
+    monkeypatch.setenv("GARMIN_MODE", "scraper")
+    fake_request = SimpleNamespace(
+        query_params={"next": "/welcome"},
+        url_for=lambda name, state: (
+            f"https://fitness-pals.com/api/providers/garmin/sso/callback/{state}"
+        ),
+    )
+
+    response = providers_garmin.garmin_login(fake_request, _fake_user())
+
+    location = urlparse(response.headers["location"])
+    assert location.scheme == "https"
+    assert location.netloc == "connect.garmin.com"
+    assert location.path == "/signin/"
+    callback = parse_qs(location.query)["service"][0]
+    assert callback.startswith(
+        "https://fitness-pals.com/api/providers/garmin/sso/callback/"
+    )
+    cookies = response.headers.getlist("set-cookie")
+    assert any("garmin_oauth_state=" in cookie for cookie in cookies)
+    assert any("garmin_oauth_next=" in cookie and "welcome" in cookie for cookie in cookies)
+
+
+def test_sso_callback_stores_encrypted_thirty_day_garmin_grant(monkeypatch):
+    """A Garmin service ticket becomes an encrypted, 30-day connection grant."""
+    monkeypatch.setenv("GARMIN_MODE", "scraper")
+    db = FakeSession()
+    user = _fake_user()
+
+    class FakeGarminConnectClient:  # pylint: disable=too-few-public-methods
+        def __init__(self):
+            self.di_token = None
+            self.di_refresh_token = None
+            self.di_client_id = None
+
+        def exchange_service_ticket(self, ticket, service_url):
+            assert ticket == "ST-one-time-ticket"
+            assert service_url.endswith("/sso/callback/expected-state")
+            self.di_token = "garmin-access-token"
+            self.di_refresh_token = "garmin-refresh-token"
+            self.di_client_id = "garmin-client"
+
+        def connectapi(self, path):
+            assert path == "/userprofile-service/socialProfile"
+            return {"displayName": "athlete-42"}
+
+    monkeypatch.setattr(
+        providers_garmin, "GarminConnectSSOClient", FakeGarminConnectClient
+    )
+    request = SimpleNamespace(
+        cookies={
+            "garmin_oauth_state": "expected-state",
+            "garmin_oauth_next": "/welcome",
+        },
+        url_for=lambda name, state: (
+            f"https://fitness-pals.com/api/providers/garmin/sso/callback/{state}"
+        ),
+    )
+
+    response = providers_garmin.garmin_sso_callback(
+        request=request,
+        state="expected-state",
+        ticket="ST-one-time-ticket",
+        user=user,
+        db=db,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/welcome"
+    stored = db.provider_tokens[0]
+    assert stored.provider == "garmin_scraper"
+    assert stored.access_token_encrypted != b"garmin-access-token"
+    assert stored.refresh_token_encrypted != b"garmin-refresh-token"
+    assert stored.provider_user_id == "athlete-42"
+    assert stored.metadata_json["auth_scheme"] == "garmin_connect_sso"
+    assert stored.metadata_json["di_client_id"] == "garmin-client"
+    remaining = stored.expires_at - datetime.now(timezone.utc)
+    assert timedelta(days=29, hours=23) < remaining <= timedelta(days=30)
+
+
+def test_sso_callback_rejects_state_mismatch(monkeypatch):
+    """A service ticket cannot be linked through a forged callback."""
+    monkeypatch.setenv("GARMIN_MODE", "scraper")
+    request = SimpleNamespace(
+        cookies={"garmin_oauth_state": "expected-state"},
+        url_for=lambda name, state: (
+            f"https://fitness-pals.com/api/providers/garmin/sso/callback/{state}"
+        ),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        providers_garmin.garmin_sso_callback(
+            request=request,
+            state="forged-state",
+            ticket="ST-one-time-ticket",
+            user=_fake_user(),
+            db=FakeSession(),
+        )
+
+    assert exc.value.status_code == 400
 
 
 def test_callback_happy_path(monkeypatch):

@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from typing import Any, Optional, cast
 
 import garth
 from garth.auth_tokens import OAuth1Token
+from garminconnect.client import Client as GarminConnectClient
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from types import SimpleNamespace
@@ -43,7 +44,7 @@ logger.propagate = True
 
 
 def _mode() -> str:
-    return (os.environ.get("GARMIN_MODE") or "oauth").lower()
+    return (os.environ.get("GARMIN_MODE") or "scraper").lower()
 
 
 def _redact_token(token: Optional[str]) -> str:
@@ -128,6 +129,64 @@ def _build_garth_client(access_token: str, token_secret: Optional[str] = None) -
         domain="garmin.com",
     )
     return client
+
+
+def _build_di_client(
+    access_token: str,
+    refresh_token: str,
+    client_id: str,
+) -> GarminConnectClient:
+    """Restore a Garmin Connect SSO client from encrypted per-user tokens."""
+    client = GarminConnectClient()
+    client.di_token = access_token
+    client.di_refresh_token = refresh_token
+    client.di_client_id = client_id
+    return client
+
+
+def _connection_lease_expired(token_row) -> bool:
+    expires_at = getattr(token_row, "expires_at", None)
+    if expires_at is None:
+        return False
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return expires_at <= datetime.now(timezone.utc)
+
+
+def _persist_refreshed_di_tokens(
+    db: Session,
+    user: CurrentUserLike,
+    token_row,
+    client: GarminConnectClient,
+    original_access_token: str,
+    original_refresh_token: Optional[str],
+) -> None:
+    """Persist token rotation performed automatically by the Garmin client."""
+    if (
+        client.di_token == original_access_token
+        and client.di_refresh_token == original_refresh_token
+    ):
+        return
+    if not client.di_token or not client.di_refresh_token:
+        return
+    metadata = dict(token_row.metadata_json or {})
+    if client.di_client_id:
+        metadata["di_client_id"] = client.di_client_id
+    metadata["token_refreshed_at"] = datetime.now(timezone.utc).isoformat()
+    save_user_provider_token(
+        db,
+        ProviderTokenDetails(
+            user_id=user.id,
+            tenant_id=getattr(user, "tenant_id", None),
+            provider=token_row.provider,
+            access_token=client.di_token,
+            refresh_token=client.di_refresh_token,
+            scope=token_row.scope,
+            provider_user_id=token_row.provider_user_id,
+            expires_at=token_row.expires_at,
+            metadata=metadata,
+        ),
+    )
 
 
 def _ensure_provider_user_id(db: Session, token_row, client) -> Optional[str]:
@@ -243,6 +302,8 @@ def fetch_garmin_recent(db: Session, user: CurrentUserLike, test_run: bool = Fal
     token_row = get_user_provider_token(db, user.id, provider_key, getattr(user, "tenant_id", None))
     if not token_row:
         raise HTTPException(status_code=410, detail="Garmin reauth required")
+    if _connection_lease_expired(token_row):
+        raise HTTPException(status_code=410, detail="Garmin reauth required")
     if mode == "oauth":
         tokens = _ensure_fresh_tokens(db, user, token_row)
     else:
@@ -263,14 +324,28 @@ def fetch_garmin_recent(db: Session, user: CurrentUserLike, test_run: bool = Fal
             "test_run": test_run,
         },
     )
-    token_secret = None
-    if mode == "scraper":
-        meta_secret = tokens.get("metadata", {}).get("token_secret") if isinstance(tokens.get("metadata"), dict) else None
-        token_secret = meta_secret or tokens.get("refresh_token")
+    metadata = tokens.get("metadata", {}) if isinstance(tokens.get("metadata"), dict) else {}
+    refresh_token = tokens.get("refresh_token")
+    if metadata.get("auth_scheme") == "garmin_connect_sso":
+        client_id = metadata.get("di_client_id")
+        if not refresh_token or not client_id:
+            raise HTTPException(status_code=410, detail="Garmin reauth required")
+        client = _build_di_client(access_token, refresh_token, client_id)
     else:
-        token_secret = tokens.get("metadata", {}).get("token_secret") if isinstance(tokens.get("metadata"), dict) else None
-    client = _build_garth_client(access_token, token_secret)
+        token_secret = metadata.get("token_secret")
+        if mode == "scraper":
+            token_secret = token_secret or refresh_token
+        client = _build_garth_client(access_token, token_secret)
     provider_user_id = _ensure_provider_user_id(db, token_row, client)
+    if metadata.get("auth_scheme") == "garmin_connect_sso":
+        _persist_refreshed_di_tokens(
+            db,
+            user,
+            token_row,
+            client,
+            access_token,
+            refresh_token,
+        )
     _set_client_username_if_supported(client, provider_user_id)
 
     run = dedupe.record_ingest_run(db, provider="garmin", user_id=getattr(user, "id", None))
@@ -397,6 +472,15 @@ def fetch_garmin_recent(db: Session, user: CurrentUserLike, test_run: bool = Fal
     sleep_daily_count = _persist_sleep_sessions_from_bundle(
         db, user, run, bundle, provider_key=provider_key, test_run=test_run
     )
+    if metadata.get("auth_scheme") == "garmin_connect_sso":
+        _persist_refreshed_di_tokens(
+            db,
+            user,
+            token_row,
+            client,
+            access_token,
+            refresh_token,
+        )
     aggregate_summary = build_aggregate_summary(bundle)
     aggregate_summary.update(
         {

@@ -14,7 +14,6 @@ from sqlalchemy.orm import Session
 from app.models import SyncCheckpoint, SyncJob, User
 from app.providers.base import FitnessProvider
 from app.providers.garmin import GarminProvider
-from app.providers.pulsai import PulsaiProvider
 from app.services import garmin_ingest as garmin_ingest  # noqa: F401
 from app.services.garmin import activity as garmin_activity
 from app.types import CurrentUserLike
@@ -246,8 +245,6 @@ def get_provider_adapter(provider: str) -> FitnessProvider:
     """Resolve the provider adapter used by sync orchestration."""
     if provider == "garmin":
         return GarminProvider()
-    if provider == "pulsai":
-        return PulsaiProvider()
     raise HTTPException(
         status_code=400, detail=f"Unsupported sync provider: {provider}"
     )

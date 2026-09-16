@@ -429,7 +429,7 @@ def build_activity_detail(
         chosen = source.chosen_fields if isinstance(source.chosen_fields, dict) else {}
         upstream = chosen.get("upstream_provider")
         if not isinstance(upstream, str):
-            upstream = "garmin" if source.provider == "pulsai" else None
+            upstream = None
         source_timestamp = chosen.get("source_timestamp")
         provenance.append(
             {
