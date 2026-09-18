@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime, timezone
 import os
 from uuid import uuid4
@@ -13,6 +14,7 @@ from fastapi import HTTPException
 
 from app.models import IngestRun, Activity, ActivitySource
 from app.services.garmin import activity_fit
+from app.services.activity_quality import valid_distance_m
 from app.services.garmin import garmin_fit_download
 from app.types import CurrentUserLike, InfluxClientLike
 
@@ -351,6 +353,13 @@ def persist_activity_summaries(
                 except Exception:
                     duration_s = None
                 break
+        sport = item.get("activityType") or item.get("activityName") or None
+        source_distance_m = distance_m
+        distance_m = valid_distance_m(distance_m, sport)
+        if source_distance_m is not None and distance_m is None:
+            meta["distance_quality"] = "invalid"
+            if math.isfinite(source_distance_m):
+                meta["source_distance_m"] = source_distance_m
         fingerprint = str(item.get("canonicalFingerprint") or provider_activity_id)
         activity = _find_existing_activity(db, user.id, fingerprint)
         if activity is None:
@@ -361,7 +370,7 @@ def persist_activity_summaries(
                 start_time=start_time or now,
                 duration_seconds=int(duration_s) if duration_s is not None else None,
                 distance_m=distance_m,
-                sport=item.get("activityName") or item.get("activityType") or None,
+                sport=sport,
                 status="completed",
                 fingerprint_hash=fingerprint,
                 metadata_json=meta,
@@ -374,6 +383,8 @@ def persist_activity_summaries(
         else:
             activity.ingest_run_id = run.id  # type: ignore[assignment]
             activity.updated_at = now  # type: ignore[assignment]
+            if distance_m is None and valid_distance_m(activity.distance_m, activity.sport) is None:
+                activity.distance_m = None  # type: ignore[assignment]
             if activity.metadata_json is None:
                 activity.metadata_json = meta  # type: ignore[assignment]
 

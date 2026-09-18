@@ -26,8 +26,8 @@ test("welcome page supports connect, first sync, and first-win copy", () => {
   );
   assert.match(
     welcomeSource,
-    /readiness preview|readiness insight/i,
-    "expected readiness preview copy"
+    /training-volume preview/i,
+    "expected honest training-volume preview copy"
   );
   assert.match(
     welcomeSource,

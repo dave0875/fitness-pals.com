@@ -30,7 +30,7 @@ test("athlete home presents trustworthy data states", () => {
   for (const state of [
     "Loading your athlete home",
     "No training history yet",
-    "Some signals are still unknown",
+    "Some signals are missing or stale",
     "Your data needs a refresh",
     "We could not load your athlete home",
     "Data through",

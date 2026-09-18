@@ -186,7 +186,7 @@ export default function Journey() {
               {journey.freshness.state === "stale"
                 ? "This window needs a data refresh"
                 : journey.freshness.state === "partial"
-                  ? "Some journey signals are still unknown"
+                  ? "Some journey signals are missing or stale"
                   : journey.freshness.state === "empty"
                     ? "No data is available in this window"
                     : "Journey data is current"}
@@ -194,6 +194,7 @@ export default function Journey() {
             <span>
               Data through {formatDate(journey.freshness.data_through)}
             </span>
+            <span>Workouts: {journey.freshness.signals.activities.state}. Sleep: {journey.freshness.signals.sleep.state}. Intensity: {journey.freshness.signals.intensity.state}.</span>
           </div>
 
           <section className={styles.summaryGrid} aria-label="Selected journey totals">

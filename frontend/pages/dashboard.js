@@ -129,7 +129,7 @@ export default function Dashboard() {
         <>
           <div className={styles.freshnessRow}>
             {home.freshness.state === "partial" && (
-              <StatusNotice tone="warning">Some signals are still unknown</StatusNotice>
+              <StatusNotice tone="warning">Some signals are missing or stale</StatusNotice>
             )}
             {home.freshness.state === "stale" && (
               <StatusNotice tone="warning">Your data needs a refresh</StatusNotice>
@@ -166,6 +166,8 @@ export default function Dashboard() {
                 {readiness.score === null ? "Unknown" : `${readiness.score}/100`}
               </p>
               <p>{readiness.explanation}</p>
+              <p>Training consistency: {home.training_consistency.score === null ? "Unknown" : `${home.training_consistency.score}/100`}. {home.training_consistency.explanation}</p>
+              <p>Workout data: {home.freshness.signals.activities.state}. Sleep data: {home.freshness.signals.sleep.state}. Intensity: {home.freshness.signals.intensity.state}.</p>
               <div className={styles.signalGrid}>
                 <Signal
                   label="Sleep"

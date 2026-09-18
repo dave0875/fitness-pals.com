@@ -18,7 +18,9 @@ def run_coach_prompt(message: str, metrics: Dict) -> str:
     client = cast(Any, OpenAI(api_key=settings.openai_api_key))
     prompt = (
         "You are a multi-user running coach. Use only data provided by tool calls. "
-        "Never hallucinate running activities. Provide concise, actionable guidance.\n"
+        "Never hallucinate running activities. Invalid or missing distance is unknown, not zero. "
+        "Do not call training volume readiness or give recovery-based recommendations when recovery "
+        "and intensity are unavailable. Provide concise, cautious guidance.\n"
         f"User metrics: {metrics}\nUser message: {message}"
     )
     try:

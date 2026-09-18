@@ -140,6 +140,16 @@ def journey_snapshot(activity_count=2, freshness="fresh"):
     }
 
 
+def test_dossier_never_turns_unknown_distance_into_zero_miles():
+    snapshot = journey_snapshot()
+    snapshot["totals"]["distance_m"] = None
+    snapshot["activities"][0]["distance_m"] = None
+    content = build_dossier_content(snapshot, version=1)
+    assert "distance unknown" in content["summary"]
+    assert "distance unknown" in content["evidence"][0]["summary"]
+    assert "0.0 miles" not in content["summary"]
+
+
 def test_dossier_content_is_deterministic_and_explains_reasoning_boundaries():
     """Generation produces stable coach-readable evidence and uncertainty sections."""
     snapshot = journey_snapshot(freshness="partial")

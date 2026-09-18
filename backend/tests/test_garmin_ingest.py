@@ -255,6 +255,25 @@ def test_persist_activity_summaries_persists_activity_source_identity():
     assert sources[0].provider_activity_id == "garmin-act-456"
 
 
+def test_persist_activity_summaries_marks_sentinel_and_missing_distance_unknown():
+    db = FakeSession()
+    user = SimpleNamespace(id=uuid.uuid4())
+    run = SimpleNamespace(id=uuid.uuid4())
+    payload = [
+        {"id": "strength-sentinel", "activityType": "strength_training", "distance": 21474836},
+        {"id": "run-missing", "activityType": "running"},
+        {"id": "run-valid", "activityType": "running", "distance": 5000},
+    ]
+    garmin_activity.persist_activity_summaries(db, user, run, payload)
+    activities = {item.fingerprint_hash: item for item in db.items if isinstance(item, Activity)}
+    assert activities["strength-sentinel"].distance_m is None
+    assert activities["run-missing"].distance_m is None
+    assert activities["run-valid"].distance_m == 5000
+    sources = [item for item in db.items if isinstance(item, ActivitySource)]
+    assert len(sources) == 3
+    assert sources[0].chosen_fields["source_distance_m"] == 21474836
+
+
 def test_persist_activity_summaries_is_idempotent_for_replayed_payload_window():
     """Replaying the same Garmin payload/window should not create duplicate canonical rows."""
     db = FakeSession()

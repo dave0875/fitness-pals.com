@@ -79,11 +79,18 @@ def _snapshot_hash(snapshot: dict[str, Any]) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def _distance_miles(value: Any) -> float:
+def _distance_miles(value: Any) -> float | None:
+    if value is None:
+        return None
     try:
-        return round(float(value or 0) / 1609.344, 1)
+        return round(float(value) / 1609.344, 1)
     except (TypeError, ValueError):
-        return 0.0
+        return None
+
+
+def _distance_text(value: Any) -> str:
+    miles = _distance_miles(value)
+    return f"{miles:.1f} miles" if miles is not None else "distance unknown"
 
 
 def build_dossier_content(
@@ -111,7 +118,7 @@ def build_dossier_content(
             }.get(goal_key, goal_key.replace("_", " ").title()),
         }
     goal_label = goal.get("label") if isinstance(goal, dict) else None
-    distance_miles = _distance_miles(totals.get("distance_m"))
+    distance_text = _distance_text(totals.get("distance_m"))
     activity_count = int(totals.get("activity_count") or 0)
     active_days = int(totals.get("active_days") or 0)
 
@@ -120,7 +127,7 @@ def build_dossier_content(
             "label": item.get("title") or item.get("sport") or "Activity",
             "occurred_at": item.get("start_time"),
             "summary": (
-                f"{_distance_miles(item.get('distance_m')):.1f} miles · "
+                f"{_distance_text(item.get('distance_m'))} · "
                 f"{round(float(item.get('duration_seconds') or 0) / 60)} minutes"
             ),
             "activity_href": f"/activities/{item.get('id')}",
@@ -130,7 +137,7 @@ def build_dossier_content(
     ]
     evidence_finding = (
         f"{activity_count} activities across {active_days} active days produced "
-        f"{distance_miles:.1f} miles in the selected window."
+        f"{distance_text} in the selected window."
     )
     if activity_count >= 8:
         inference = (
