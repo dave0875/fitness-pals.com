@@ -267,7 +267,6 @@ def test_explicit_branch_dispatch_deploys_complete_dev_runtime_only():
         "runtrainer-postgres",
         "influxdb",
         "grafana",
-        "authentik-redis",
         "authentik-server",
         "authentik-worker",
         "backend",
