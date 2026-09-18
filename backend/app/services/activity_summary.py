@@ -114,11 +114,13 @@ def build_canonical_summary(
         return sum(known) if known else None
 
     mileage_totals = {window: _window_distance(window) for window in (30, 60, 90)}
-    long_run_distances = [
-        valid_distance_m(activity.distance_m, activity.sport)
-        for activity in known_runs
-        if current_time - timedelta(days=90) <= _utc(activity.start_time) <= current_time
-    ]
+    long_run_distances: list[float] = []
+    for activity in known_runs:
+        if not current_time - timedelta(days=90) <= _utc(activity.start_time) <= current_time:
+            continue
+        distance = valid_distance_m(activity.distance_m, activity.sport)
+        if distance is not None:
+            long_run_distances.append(distance)
     long_run_max = max(long_run_distances, default=None)
     distance_state = run_state if mileage_totals[30] is not None else "unknown"
 
