@@ -157,6 +157,30 @@ def test_onboarding_status_requires_garmin_connection():
     assert result["next_action"] is None
 
 
+def test_scraper_onboarding_does_not_offer_unusable_browser_authorization(monkeypatch):
+    monkeypatch.setenv("GARMIN_MODE", "scraper")
+    result = onboarding.status(
+        request=SimpleNamespace(cookies={}), user=_fake_user(), db=FakeSession()
+    )
+    assert result["garmin_authorization_available"] is False
+
+
+def test_official_grant_is_not_misreported_as_import_ready(monkeypatch):
+    monkeypatch.setenv("GARMIN_MODE", "oauth")
+    user = _fake_user()
+    token = _garmin_token(user.id)
+    token.metadata_json = {"auth_scheme": "garmin_official_oauth2"}
+    db = FakeSession([token])
+    result = onboarding.status(request=SimpleNamespace(cookies={}), user=user, db=db)
+    assert result["garmin_connected"] is True
+    assert result["garmin_sync_available"] is False
+    with pytest.raises(HTTPException) as exc:
+        onboarding.first_sync(
+            onboarding.FirstSyncRequest(goal="marathon"), Response(), user, db
+        )
+    assert exc.value.status_code == 503
+
+
 def test_onboarding_status_requires_reconnect_after_garmin_grant_expires(monkeypatch):
     """An expired 30-day grant returns the athlete to Garmin sign-in."""
     user = _fake_user()

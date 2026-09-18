@@ -337,6 +337,18 @@ def status(
     return {
         "authenticated": True,
         "garmin_connected": garmin_connected,
+        "garmin_authorization_available": (
+            (os.environ.get("GARMIN_MODE") or "scraper").lower() == "oauth"
+            and all(os.environ.get(key) for key in (
+                "GARMIN_CLIENT_ID", "GARMIN_CLIENT_SECRET", "GARMIN_REDIRECT_URI"
+            ))
+        ),
+        # The existing scheduled importer calls private Connect endpoints and cannot
+        # consume tokens issued to a registered Garmin partner application.
+        "garmin_sync_available": not (
+            garmin_token is not None
+            and (garmin_token.metadata_json or {}).get("auth_scheme") == "garmin_official_oauth2"
+        ),
         "selected_goal": selected_goal,
         "first_sync": {
             "state": first_sync_state,
@@ -369,6 +381,11 @@ def first_sync(
     )
     if not _garmin_token_active(garmin_token):
         raise HTTPException(status_code=409, detail="Garmin must be connected first")
+    if (garmin_token.metadata_json or {}).get("auth_scheme") == "garmin_official_oauth2":
+        raise HTTPException(
+            status_code=503,
+            detail="Official Garmin activity import is not yet configured. Import a Garmin archive instead.",
+        )
 
     existing_job = _latest_sync_job(db, user)
     if existing_job and existing_job.status in {"queued", "running"}:

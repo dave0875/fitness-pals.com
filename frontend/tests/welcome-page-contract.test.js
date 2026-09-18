@@ -14,4 +14,7 @@ test("welcome page source contract includes guided onboarding states", () => {
   assert.match(source, /latest 5 activities|last 5 activities|recent 5 activities/i);
   assert.match(source, /readiness preview/i);
   assert.match(source, /connect_garmin|ready_to_sync|sync_queued|synced/i);
+  assert.match(source, /garmin_authorization_available/);
+  assert.match(source, /garmin_sync_available === false/);
+  assert.match(source, /Import Garmin archive/);
 });
