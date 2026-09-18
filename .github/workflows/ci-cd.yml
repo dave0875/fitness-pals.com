@@ -545,7 +545,6 @@ jobs:
             runtrainer-postgres \
             influxdb \
             grafana \
-            authentik-redis \
             authentik-server \
             authentik-worker \
             backend \
@@ -843,7 +842,6 @@ jobs:
             runtrainer-postgres \
             influxdb \
             grafana \
-            authentik-redis \
             authentik-server \
             authentik-worker \
             backend \
