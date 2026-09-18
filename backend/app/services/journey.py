@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models import Activity, ActivitySource, SleepSession, SyncJob
+from app.services.activity_quality import valid_distance_m
 
 
 WINDOW_DAYS = {"30d": 30, "90d": 90, "365d": 365}
@@ -90,7 +91,7 @@ def _activity_payload(activity: Activity, goal: str | None = None) -> dict[str, 
         "title": _activity_title(activity),
         "sport": activity.sport or "unknown",
         "start_time": _utc(activity.start_time).isoformat(),
-        "distance_m": float(activity.distance_m) if activity.distance_m is not None else None,
+        "distance_m": valid_distance_m(activity.distance_m, activity.sport),
         "duration_seconds": activity.duration_seconds,
         "intensity": _activity_intensity(activity),
         "status": activity.status,
@@ -159,6 +160,7 @@ def _period_summaries(
         lambda: {
             "activity_count": 0,
             "distance_m": 0.0,
+            "known_distance_count": 0,
             "duration_seconds": 0,
             "active_days": set(),
             "sleep_hours": [],
@@ -174,7 +176,10 @@ def _period_summaries(
     for activity in activities:
         bucket = buckets[key_for(activity.start_time)]
         bucket["activity_count"] += 1
-        bucket["distance_m"] += float(activity.distance_m or 0)
+        distance = valid_distance_m(activity.distance_m, activity.sport)
+        if distance is not None:
+            bucket["distance_m"] += distance
+            bucket["known_distance_count"] += 1
         bucket["duration_seconds"] += int(activity.duration_seconds or 0)
         bucket["active_days"].add(_utc(activity.start_time).date())
 
@@ -191,7 +196,7 @@ def _period_summaries(
             {
                 "period_start": period_start.isoformat(),
                 "activity_count": bucket["activity_count"],
-                "distance_m": round(bucket["distance_m"], 2),
+                "distance_m": round(bucket["distance_m"], 2) if bucket["known_distance_count"] else None,
                 "duration_seconds": bucket["duration_seconds"],
                 "active_days": len(bucket["active_days"]),
                 "average_sleep_hours": (
@@ -292,6 +297,21 @@ def build_journey(
         *(_utc(cast(date, session.calendar_date)) for session in sleep_sessions[:1]),
     ]
     data_through = max(data_candidates) if data_candidates else None
+    def signal(value: datetime | None) -> dict[str, Any]:
+        return {
+            "state": "unknown" if value is None else ("stale" if current_time - value > timedelta(hours=72) else "fresh"),
+            "data_through": value.isoformat() if value else None,
+        }
+    signals = {
+        "activities": signal(_utc(activities[0].start_time) if activities else None),
+        "sleep": signal(_utc(cast(date, sleep_sessions[0].calendar_date)) if sleep_sessions else None),
+        "intensity": signal(
+            max(
+                (_utc(activity.start_time) for activity in activities if _activity_intensity(activity) is not None),
+                default=None,
+            )
+        ),
+    }
     missing = []
     if not activities:
         missing.append("activities")
@@ -304,7 +324,7 @@ def build_journey(
         freshness_state = "empty"
     elif current_time - data_through > timedelta(hours=72):
         freshness_state = "stale"
-    elif missing:
+    elif missing or any(item["state"] != "fresh" for item in signals.values()):
         freshness_state = "partial"
     else:
         freshness_state = "fresh"
@@ -313,8 +333,10 @@ def build_journey(
     monthly = _period_summaries(activities, sleep_sessions, "month")
     totals = {
         "activity_count": len(activity_payloads),
-        "distance_m": round(
-            sum(item["distance_m"] or 0 for item in activity_payloads), 2
+        "distance_m": (
+            round(sum(item["distance_m"] or 0 for item in activity_payloads), 2)
+            if any(item["distance_m"] is not None for item in activity_payloads)
+            else None
         ),
         "duration_seconds": sum(
             item["duration_seconds"] or 0 for item in activity_payloads
@@ -327,17 +349,20 @@ def build_journey(
 
     milestones = []
     if activities:
-        longest = max(activities, key=lambda item: float(item.distance_m or 0))
+        valid_activities = [item for item in activities if valid_distance_m(item.distance_m, item.sport) is not None]
+    if activities and valid_activities:
+        longest = max(valid_activities, key=lambda item: valid_distance_m(item.distance_m, item.sport) or 0)
         milestones.append(
             {
                 "kind": "longest_activity",
                 "label": "Longest activity in this window",
                 "activity_id": str(longest.id),
-                "distance_m": float(longest.distance_m or 0),
+                "distance_m": valid_distance_m(longest.distance_m, longest.sport),
             }
         )
-    if weekly:
-        strongest = max(weekly, key=lambda item: item["distance_m"])
+    weeks_with_distance = [item for item in weekly if item["distance_m"] is not None]
+    if weeks_with_distance:
+        strongest = max(weeks_with_distance, key=lambda item: item["distance_m"])
         milestones.append(
             {
                 "kind": "highest_volume_week",
@@ -366,6 +391,7 @@ def build_journey(
             "state": freshness_state,
             "data_through": data_through.isoformat() if data_through else None,
             "missing": missing,
+            "signals": signals,
         },
         "goal": goal_payload,
         "available_goals": available_goals,

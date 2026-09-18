@@ -123,3 +123,16 @@ def test_chat_assembles_context_from_canonical_read_model():
     assert stored_conversation.metadata_json["metrics"]["mileage"]["30d"] == 18000.0
     assert stored_conversation.metadata_json["metrics"]["state"] == "fresh"
     assert stored_conversation.metadata_json["metrics"]["data_through"]
+
+
+def test_chat_never_passes_strength_sentinel_to_coach():
+    user_id = uuid.uuid4()
+    user = SimpleNamespace(id=user_id)
+    sentinel = _make_activity(user_id, 1, 21474836)
+    sentinel.sport = "strength_training"
+    db = FakeSession([sentinel])
+    captured = {}
+    with patch("app.routes.chat.run_coach_prompt", side_effect=lambda _message, metrics: captured.update(metrics) or "safe"):
+        chat(ChatRequest(message="How far was my run?"), user=user, db=db)
+    assert captured["long_run_max"] is None
+    assert captured["mileage"]["30d"] is None

@@ -168,6 +168,34 @@ def test_journey_marks_missing_signals_unknown_and_stale():
     assert result["weekly_summaries"][0]["average_sleep_hours"] is None
 
 
+def test_journey_and_detail_mask_invalid_distance_but_keep_activity():
+    now = datetime(2026, 9, 18, 12, tzinfo=timezone.utc)
+    athlete_id = uuid.uuid4()
+    strength = make_activity(athlete_id, now, 1, 21474836, "strength_training")
+    run = make_activity(athlete_id, now, 2, 5000)
+    result = build_journey(FakeSession([strength, run]), athlete_id, now=now)
+    assert result["totals"]["activity_count"] == 2
+    assert result["totals"]["distance_m"] == 5000
+    assert result["activities"][0]["distance_m"] is None
+    assert build_activity_detail(FakeSession([strength]), athlete_id, strength.id)["activity"]["distance_m"] is None
+    only_invalid = build_journey(FakeSession([strength]), athlete_id, now=now)
+    assert only_invalid["totals"]["distance_m"] is None
+    assert only_invalid["weekly_summaries"][0]["distance_m"] is None
+
+
+def test_journey_does_not_call_old_sleep_fresh_because_workout_is_fresh():
+    now = datetime(2026, 9, 18, 12, tzinfo=timezone.utc)
+    athlete_id = uuid.uuid4()
+    sleep = make_sleep(athlete_id, date(2026, 9, 2))
+    result = build_journey(
+        FakeSession([make_activity(athlete_id, now, 1, 5000), sleep]),
+        athlete_id, now=now,
+    )
+    assert result["freshness"]["state"] == "partial"
+    assert result["freshness"]["signals"]["activities"]["state"] == "fresh"
+    assert result["freshness"]["signals"]["sleep"]["state"] == "stale"
+
+
 def test_journey_activity_detail_is_private_and_redacts_raw_provenance():
     """Detail returns safe source labels without raw payloads or credentials."""
     now = datetime(2026, 8, 3, 12, tzinfo=timezone.utc)

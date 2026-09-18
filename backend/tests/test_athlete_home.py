@@ -61,7 +61,8 @@ def test_athlete_home_isolates_canonical_data_by_user():
     assert len(result["recent_activities"]) == 1
     assert result["recent_activities"][0]["distance_m"] == 10000
     assert result["goal"]["label"] == "Marathon"
-    assert result["readiness"]["state"] == "available"
+    assert result["readiness"]["state"] == "unknown"
+    assert result["training_consistency"]["state"] == "available"
 
 
 def test_athlete_home_marks_missing_recovery_unknown_not_zero():
@@ -81,6 +82,35 @@ def test_athlete_home_marks_missing_recovery_unknown_not_zero():
     }
     assert result["freshness"]["state"] == "partial"
     assert "sleep" in result["freshness"]["missing"]
+
+
+def test_fresh_workout_does_not_mask_stale_sleep_or_enable_readiness():
+    now = datetime(2026, 9, 18, 12, tzinfo=timezone.utc)
+    athlete_id = uuid.uuid4()
+    sleep = SleepSession(
+        id=uuid.uuid4(), user_id=athlete_id, provider="garmin",
+        daily_sleep_id=20260902, calendar_date=date(2026, 9, 2),
+        summary_json={"sleepTimeSeconds": 27000, "sleepScores": {"overall": 82}},
+    )
+    result = build_athlete_home(
+        FakeSession([make_activity(athlete_id, now, 1, 10000), sleep]),
+        athlete_id, goal="marathon", now=now,
+    )
+    assert result["freshness"]["signals"]["activities"]["state"] == "fresh"
+    assert result["freshness"]["signals"]["sleep"]["state"] == "stale"
+    assert result["freshness"]["state"] == "partial"
+    assert result["recovery"]["state"] == "stale"
+    assert result["readiness"]["score"] is None
+    assert result["training_consistency"]["score"] is not None
+
+
+def test_strength_sentinel_does_not_become_zero_mile_consistency_score():
+    now = datetime(2026, 9, 18, 12, tzinfo=timezone.utc)
+    athlete_id = uuid.uuid4()
+    strength = make_activity(athlete_id, now, 1, 21474836, "strength_training")
+    result = build_athlete_home(FakeSession([strength]), athlete_id, goal=None, now=now)
+    assert result["recent_activities"][0]["distance_m"] is None
+    assert result["training_consistency"]["score"] is None
 
 
 def test_athlete_home_uses_sleep_and_sync_freshness():
@@ -107,6 +137,7 @@ def test_athlete_home_uses_sleep_and_sync_freshness():
         last_synced_at=now - timedelta(hours=2),
     )
     db = FakeSession([make_activity(athlete_id, now, 1, 12000), sleep, checkpoint])
+    db.items[0].metadata_json["intensity"] = "easy"
 
     result = build_athlete_home(db, athlete_id, goal="marathon", now=now)
 

@@ -15,6 +15,7 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.models import Activity, SyncJob
 from app.services.activity_summary import build_canonical_summary
+from app.services.activity_quality import valid_distance_m
 from app.services.providers import get_user_provider_token
 from app.types import CurrentUserLike
 
@@ -161,7 +162,7 @@ def _latest_activities(db: Session, user: CurrentUserLike, limit: int = 5) -> li
     """Return the newest canonical activities for preview on /welcome."""
     activities = (
         db.query(Activity)
-        .filter(Activity.user_id == user.id)
+        .filter(Activity.user_id == user.id, Activity.status != "conflict")
         .order_by(Activity.start_time.desc())
         .limit(limit)
         .all()
@@ -171,19 +172,21 @@ def _latest_activities(db: Session, user: CurrentUserLike, limit: int = 5) -> li
             "id": str(activity.id),
             "sport": activity.sport,
             "start_time": activity.start_time.isoformat(),
-            "distance_m": float(activity.distance_m or 0),
+            "distance_m": valid_distance_m(activity.distance_m, activity.sport),
             "duration_seconds": activity.duration_seconds,
         }
         for activity in activities
     ]
 
 
-def _readiness_preview(db: Session, user: CurrentUserLike, goal: str | None) -> dict | None:
-    """Return a small first-win readiness preview from canonical activity data."""
+def _training_volume_preview(db: Session, user: CurrentUserLike, goal: str | None) -> dict | None:
+    """Return a first-win running-volume preview, never a readiness estimate."""
     summary = build_canonical_summary(db, user.id)
+    if summary["mileage"]["30d"] is None:
+        return None
     mileage_30 = float(summary["mileage"]["30d"] or 0.0) / 1609.34
-    longest_run = float(summary["long_run_max"] or 0.0) / 1609.34
-    if mileage_30 <= 0 and longest_run <= 0:
+    longest_run = summary["long_run_max"]
+    if mileage_30 <= 0 and longest_run is None:
         return None
 
     score = min(100, max(0, round((mileage_30 / 40.0) * 100)))
@@ -201,12 +204,16 @@ def _readiness_preview(db: Session, user: CurrentUserLike, goal: str | None) -> 
         "consistency": "Consistency build",
     }.get((goal or "").lower(), "Training build")
 
+    run_clause = (
+        f", with a longest run of {longest_run / 1609.34:.1f} miles in the last 90 days"
+        if longest_run is not None else ""
+    )
     return {
         "score": score,
         "label": label,
         "summary": (
-            f"{goal_prefix}: {mileage_30:.1f} miles in the last 30 days, "
-            f"with a longest recent run of {longest_run:.1f} miles."
+            f"{goal_prefix}: {mileage_30:.1f} running miles in the last 30 days"
+            f"{run_clause}. This is training volume, not a recovery-based readiness score."
         ),
     }
 
@@ -214,6 +221,8 @@ def _readiness_preview(db: Session, user: CurrentUserLike, goal: str | None) -> 
 def _coach_insight(db: Session, user: CurrentUserLike, goal: str | None) -> dict | None:
     """Return a concise first-win coaching insight grounded in recent activity."""
     summary = build_canonical_summary(db, user.id)
+    if summary["mileage"]["30d"] is None:
+        return None
     mileage_30 = float(summary["mileage"]["30d"] or 0.0) / 1609.34
     longest_run = float(summary["long_run_max"] or 0.0) / 1609.34
     avg_weekly = float(summary["average_weekly_mileage"] or 0.0) / 1609.34
@@ -225,9 +234,8 @@ def _coach_insight(db: Session, user: CurrentUserLike, goal: str | None) -> dict
         return {
             "title": "Your endurance base is already visible",
             "explanation": (
-                f"You have {mileage_30:.1f} miles in the last 30 days and a recent long run of "
-                f"{longest_run:.1f} miles. The smart play now is to protect consistency while the "
-                "system learns how your load and recovery behave together."
+                f"You have {mileage_30:.1f} running miles in the last 30 days and a longest run in the last 90 days of "
+                f"{longest_run:.1f} miles. This describes training history, not recovery-based readiness."
             ),
         }
     if normalized_goal == "recovery":
@@ -250,8 +258,8 @@ def _coach_insight(db: Session, user: CurrentUserLike, goal: str | None) -> dict
         "title": "Your recent load is enough to shape decisions",
         "explanation": (
             f"You are carrying about {mileage_30:.1f} miles over the last 30 days with a "
-            f"{longest_run:.1f}-mile long run. That is enough signal for the product to start adjusting "
-            "guidance instead of offering generic coaching."
+            f"{longest_run:.1f}-mile run in the last 90 days. Recovery and intensity remain unknown "
+            "until their signals are current."
         ),
     }
 
@@ -259,6 +267,8 @@ def _coach_insight(db: Session, user: CurrentUserLike, goal: str | None) -> dict
 def _next_action(db: Session, user: CurrentUserLike, goal: str | None) -> dict | None:
     """Return the next best onboarding action after first sync completes."""
     summary = build_canonical_summary(db, user.id)
+    if summary["mileage"]["30d"] is None:
+        return None
     mileage_30 = float(summary["mileage"]["30d"] or 0.0) / 1609.34
     longest_run = float(summary["long_run_max"] or 0.0) / 1609.34
     if mileage_30 <= 0 and longest_run <= 0:
@@ -284,10 +294,9 @@ def _next_action(db: Session, user: CurrentUserLike, goal: str | None) -> dict |
             "href": "/dashboard",
         }
     return {
-        "label": "Open the dashboard and review your latest readiness",
+        "label": "Open the dashboard and review training history",
         "description": (
-            "Start with the latest readiness view, then decide whether the next session should build load "
-            "or preserve recovery."
+            "Start with your training history; recovery-based readiness remains unavailable without current signals."
         ),
         "href": "/dashboard",
     }
@@ -330,7 +339,7 @@ def status(
         datetime.now(timezone.utc),
     )
 
-    preview = _readiness_preview(db, user, selected_goal) if latest_activities else None
+    preview = _training_volume_preview(db, user, selected_goal) if latest_activities else None
     coach_insight = _coach_insight(db, user, selected_goal) if latest_activities else None
     next_action = _next_action(db, user, selected_goal) if latest_activities else None
 
@@ -346,7 +355,7 @@ def status(
             "retryable": first_sync_state in {"failed", "partial", "stale"},
         },
         "latest_activities": latest_activities,
-        "readiness_preview": preview,
+        "training_volume_preview": preview,
         "coach_insight": coach_insight,
         "next_action": next_action,
     }

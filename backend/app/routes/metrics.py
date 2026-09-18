@@ -48,6 +48,7 @@ def race_readiness(
         return {
             **response,
             "readiness": None,
+            "training_volume_score": None,
             "commentary": (
                 "Race readiness is unavailable because canonical fitness data "
                 "could not be read."
@@ -58,6 +59,7 @@ def race_readiness(
         return {
             **response,
             "readiness": None,
+            "training_volume_score": None,
             "commentary": (
                 "Race readiness is unknown until canonical activity history is "
                 "available."
@@ -65,13 +67,23 @@ def race_readiness(
             "error": None,
         }
 
-    distance_m = float(metrics["mileage"]["30d"] or 0.0)
+    distance_value = metrics["mileage"]["30d"]
+    if distance_value is None:
+        return {
+            **response,
+            "readiness": None,
+            "training_volume_score": None,
+            "commentary": "Running distance is unknown; race readiness cannot be estimated.",
+            "error": None,
+        }
+    distance_m = float(distance_value)
     miles_30 = distance_m / 1609.34
-    readiness = min(100, max(0, miles_30 / 400 * 100))
+    volume_score = min(100, max(0, miles_30 / 400 * 100))
     commentary = (
-        f"Based on {miles_30:.1f} miles in last 30d, your readiness for a "
-        f"{body.race_type} looks {readiness:.0f}/100."
+        f"Based on {miles_30:.1f} running miles in the last 30 days, training volume "
+        f"for a {body.race_type} is {volume_score:.0f}/100 on this volume-only scale. "
+        "Race readiness is unknown without current recovery and intensity signals."
     )
-    if metrics["state"] == "stale":
+    if metrics["metric_states"]["mileage"] == "stale":
         commentary += " The underlying data is stale; refresh before changing training."
-    return {**response, "readiness": readiness, "commentary": commentary, "error": None}
+    return {**response, "readiness": None, "training_volume_score": volume_score, "commentary": commentary, "error": None}
