@@ -11,6 +11,10 @@ This repo drives my personal fitness stack. It keeps my code (backend, frontend,
 - Vendored garmin-grafana source, dashboards, and provisioning files have been removed. The stack now uses the upstream image `ghcr.io/arpanghosh8453/garmin-fetch-data:latest` directly. Grafana dashboards can be imported from Grafana Cloud (code `23245`) or the upstream repo if desired, but are no longer stored here.
 
 ## Running the stack
+The repository-owned backend, worker, training-agent, and CI/deployment scripts use
+Python 3.14. The `.python-version` file configures compatible local version managers;
+the deployable services use the matching official slim image.
+
 Create a `.env` with the required variables (examples from the upstream docs still apply: InfluxDB credentials, Garmin Connect auth, Grafana admin, tunnel token, etc.). Production uses the private Compose network and publishes no application or datastore ports on the host:
 
 ```bash

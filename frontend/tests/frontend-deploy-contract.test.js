@@ -75,7 +75,6 @@ test("production always reconciles and verifies the complete public journey", ()
     "runtrainer-postgres",
     "influxdb",
     "grafana",
-    "authentik-redis",
     "authentik-server",
     "authentik-worker",
     "backend",

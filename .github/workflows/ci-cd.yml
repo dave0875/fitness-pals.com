@@ -61,7 +61,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: "3.14"
           cache: pip
           cache-dependency-path: |
             backend/requirements.txt
@@ -200,7 +200,7 @@ jobs:
             'env -u PYTHONPATH GRAFANA_OIDC_CLIENT_ID= GRAFANA_OIDC_CLIENT_SECRET= docker compose --env-file .env.production config -q && env -u PYTHONPATH GRAFANA_OIDC_CLIENT_ID= GRAFANA_OIDC_CLIENT_SECRET= COMPOSE_FILE=compose.yml:compose.dev.yml docker compose --env-file .env.production config -q && env -u PYTHONPATH GRAFANA_OIDC_CLIENT_ID= GRAFANA_OIDC_CLIENT_SECRET= COMPOSE_FILE=compose.yml:compose.dev.yml docker compose --env-file .env.production ps --all >/dev/null'
 
           run_cmd "Backend lint" backend_lint_status "ci-logs/backend-lint.log" \
-            bash -c "python -m compileall backend services/training_agent && ruff check --select=E9,F63,F7,F82 --target-version=py310 backend services/training_agent"
+            bash -c "python -m compileall backend services/training_agent && ruff check --select=E9,F63,F7,F82 --target-version=py314 backend services/training_agent"
 
           echo "=== Backend typecheck + migrations (offline) ==="
           bash -c "mypy --ignore-missing-imports --implicit-optional backend services/training_agent && cd backend && alembic upgrade head --sql >/dev/null" >"ci-logs/backend-typecheck.log" 2>&1
@@ -426,6 +426,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
       - name: Validate Grafana OIDC deployment secrets
         run: |
           if [ -z "$GRAFANA_OIDC_CLIENT_ID" ]; then
@@ -540,7 +545,6 @@ jobs:
             runtrainer-postgres \
             influxdb \
             grafana \
-            authentik-redis \
             authentik-server \
             authentik-worker \
             backend \
@@ -723,6 +727,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
       - name: Validate Grafana OIDC deployment secrets
         run: |
           if [ -z "$GRAFANA_OIDC_CLIENT_ID" ]; then
@@ -833,7 +842,6 @@ jobs:
             runtrainer-postgres \
             influxdb \
             grafana \
-            authentik-redis \
             authentik-server \
             authentik-worker \
             backend \
