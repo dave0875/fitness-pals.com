@@ -12,6 +12,7 @@ from app.models import Conversation
 from app.types import CurrentUserLike
 from app.routes.metrics import summary
 from app.llm.client import run_coach_prompt
+from app.services.today_plan import build_today_plan
 
 
 class ChatRequest(BaseModel):
@@ -31,6 +32,7 @@ def chat(
 ):
     """Call the LLM after fetching the latest metrics snapshot."""
     metrics = summary(user=user, db=db)
+    metrics["today_plan"] = build_today_plan(db, user.id)
     reply = run_coach_prompt(body.message, metrics)
     conv = Conversation(
         user_id=user.id,

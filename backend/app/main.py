@@ -22,6 +22,7 @@ from app.routes.dossiers import router as dossiers_router
 from app.routes import providers_garmin
 from app.routes.ingest import router as ingest_router
 from app.routes.archive_imports import router as archive_imports_router
+from app.routes.today_plan import router as today_plan_router
 from app.config import get_settings
 from app.db import engine
 
@@ -39,6 +40,8 @@ REQUIRED_TABLES = (
     "archive_import_jobs",
     "archive_import_objects",
     "refresh_token_sessions",
+    "athlete_goals",
+    "next_session_plans",
 )
 
 app.add_middleware(
@@ -68,6 +71,7 @@ app.include_router(journey_router)
 app.include_router(dossiers_router)
 app.include_router(ingest_router)
 app.include_router(archive_imports_router)
+app.include_router(today_plan_router)
 
 
 @app.get("/health")

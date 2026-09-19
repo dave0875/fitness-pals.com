@@ -199,50 +199,28 @@ def _training_consistency(activities: list[Activity], now: datetime) -> dict[str
 
 def _coaching(
     activities: list[Activity],
-    recovery: dict[str, Any],
     freshness_state: str,
-    now: datetime,
 ) -> dict[str, Any]:
-    """Choose one next action and explain it from signals shown on the page."""
-    recent_days = len(
-        {
-            _utc(activity.start_time).date()
-            for activity in activities
-            if _utc(activity.start_time) >= now - timedelta(days=7)
-        }
-    )
+    """Route the athlete to one goal-aware next-session decision."""
     if freshness_state == "stale":
         return {
             "insight": "Your training picture is out of date.",
             "explanation": "Refresh the connection before using older signals to change training.",
             "next_action": {"label": "Refresh fitness data", "href": "/welcome"},
         }
-    if recovery["state"] == "available" and recovery["sleep_score"] is not None:
-        if float(recovery["sleep_score"]) < 60:
-            return {
-                "insight": "Recovery should lead today.",
-                "explanation": (
-                    f"Your latest sleep score is {recovery['sleep_score']}; keep the next session "
-                    "easy enough to protect tomorrow's training."
-                ),
-                "next_action": {"label": "Ask coach for a recovery session", "href": "/dashboard#coach"},
-            }
-    if recent_days >= 4:
+    if activities:
         return {
-            "insight": "Protect the consistency you have built.",
+            "insight": "Make the next session serve your goal.",
             "explanation": (
-                f"You trained on {recent_days} of the last seven days. An easy day now helps "
-                "that consistency compound instead of becoming accumulated fatigue."
+                "Open one editable recommendation tied to your saved goal, phase, and recent "
+                "valid runs. Missing or stale recovery and intensity signals stay visible as uncertainty."
             ),
-            "next_action": {"label": "Plan an easy day", "href": "/dashboard#coach"},
+            "next_action": {"label": "Open today's run", "href": "/dashboard#todays-run"},
         }
     return {
-        "insight": "One calm training day adds useful signal.",
-        "explanation": (
-            f"You trained on {recent_days} of the last seven days. A conversational session "
-            "is the clearest next step while your fitness picture develops."
-        ),
-        "next_action": {"label": "Ask coach about the next session", "href": "/dashboard#coach"},
+        "insight": "Add a valid run before planning the next one.",
+        "explanation": "A known run duration or distance is needed to suggest a grounded range.",
+        "next_action": {"label": "Open today's run", "href": "/dashboard#todays-run"},
     }
 
 
@@ -433,9 +411,8 @@ def build_athlete_home(
         "explanation": "Training consistency alone cannot establish readiness; current recovery and intensity signals are needed.",
     }
     coaching = _coaching(
-        activities, recovery,
+        activities,
         "stale" if signals["activities"]["state"] == "stale" else freshness_state,
-        current_time,
     )
 
     return {
