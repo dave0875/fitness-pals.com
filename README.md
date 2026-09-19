@@ -213,25 +213,11 @@ To roll back the returning-user attribute update, remove only the binding for `f
 
 Rollback is to revert the repository change and stop invoking the `authentik-bootstrap` one-shot service. Do not switch or drop databases. Because the Google bootstrap only appends the source binding, an urgent UI rollback can disable the Google source or remove only its UUID from the Identification stage while leaving local login and the other OIDC clients intact. The Grafana provider/application can be disabled independently while break-glass access is used. Keep the direct Google route and callback configured until brokered login has been verified in production; do not restore anonymous Grafana Admin or the raw Docker socket as a routine rollback.
 
-## Garmin Connect SSO integration (current)
-- Endpoints: `/api/providers/garmin/login`, `/api/providers/garmin/sso/callback/{state}`, and `/api/providers/garmin/fetch`.
-- Security: the browser signs in on `connect.garmin.com`; Fitness Pals never receives Garmin credentials. The one-time Garmin service ticket is exchanged immediately, and the resulting tokens are encrypted via Fernet (`RUNTRAINER_FERNET_KEY`) with a 30-day connection lease.
-- Runtime mode: `GARMIN_MODE=scraper` uses the Garmin Connect SSO bridge until the official Garmin Health integration is approved. The older configured OAuth client flow remains available with `GARMIN_MODE=oauth`.
-- Fetch flow: the user triggers `/fetch`, the backend refreshes the encrypted Garmin token when needed, calls Garmin Connect, and records an ingest run.
-
-```mermaid
-sequenceDiagram
-  participant U as User
-  participant BE as Backend
-  participant G as Garmin Connect SSO
-  U->>BE: GET /api/providers/garmin/login
-  BE-->>U: Redirect to connect.garmin.com/signin
-  U->>G: Login + MFA (when required)
-  G-->>BE: Redirect with one-time service ticket
-  BE->>G: Exchange ticket for access + refresh tokens
-  BE-->>BE: Encrypt tokens with a 30-day lease
-  BE-->>U: Garmin connected
-```
+## Garmin authorization and activity import
+- `GARMIN_MODE=scraper` uses existing per-user scraper tokens for legacy imports; it cannot authorize a new user by sending their browser to the ordinary Garmin Connect sign-in page. `/api/providers/garmin/login` returns 503 in this mode and onboarding offers Garmin archive upload instead. Existing scraper connections and imports remain available.
+- With an approved Garmin Connect Developer Program application, configure `GARMIN_MODE=oauth`, `GARMIN_CLIENT_ID`, `GARMIN_CLIENT_SECRET`, and the registered `GARMIN_REDIRECT_URI` (the `/api/providers/garmin/callback` endpoint). `/api/providers/garmin/login` initiates Garmin OAuth2 PKCE consent; the callback checks state, verifier, and initiating user before exchanging the code and encrypting the access and refresh tokens. The normal Garmin Connect web login does **not** give third-party apps a grant.
+- OAuth token capture is **not** an end-to-end official Activity API integration. The current scheduled importer uses private Connect endpoints, which are not compatible with partner OAuth tokens. Its fetch routes reject these grants rather than reporting a successful sync; an approved Activity API adapter, notification/backfill configuration, and consent/disconnect handling are still required for automatic coaching imports. Archive upload already writes into the authenticated athlete's data stores.
+- Rollback: revert this change if needed; existing scraper tokens and imported activities are retained. Do not switch `GARMIN_MODE` in production solely to enable the consent button until the official ingestion path is implemented and tested.
 
 ```mermaid
 flowchart LR
@@ -258,9 +244,9 @@ When multiple providers surface the same workout, the backend keeps one canonica
 - Safety: Provider records are never deleted; decisions are logged for replay. Conflicts (multiple close matches with disagreements) should be flagged as `conflict` and surfaced for review rather than silently merged.
 
 ### Garmin Connect bridge (temporary multi-tenant bridge)
-- Official Garmin Health API is the long-term solution. Until approved, users authenticate directly on Garmin Connect SSO and Fitness Pals stores only encrypted, time-limited tokens. A scraper adapter (`backend/app/providers/garmin_scraper.py`) remains as a compatibility bridge and will be swapped for Garmin Health when available.
+- Official Garmin Activity/Health APIs are the long-term solution. The scraper adapter (`backend/app/providers/garmin_scraper.py`) remains for existing tokens; it does not provide a supported browser authorization flow for new users.
 - The legacy `GARMINCONNECT_*` env values support only a single shared account; plan to retire them once per-user ingestion is wired up end-to-end.
-- The bridge uses `garminconnect` for service-ticket exchange and Garmin API access. It remains unofficial; expect occasional breakage if Garmin changes private endpoints.
+- Existing scraper ingestion uses unofficial Garmin Connect endpoints; expect occasional breakage if Garmin changes them. The legacy `/sso/callback/{state}` endpoint is not part of the new-user flow.
 
 ## Updating garmin-grafana
 Because we rely on published images, updating is as simple as pulling new tags:

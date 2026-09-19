@@ -304,6 +304,11 @@ def fetch_garmin_recent(db: Session, user: CurrentUserLike, test_run: bool = Fal
         raise HTTPException(status_code=410, detail="Garmin reauth required")
     if _connection_lease_expired(token_row):
         raise HTTPException(status_code=410, detail="Garmin reauth required")
+    if (token_row.metadata_json or {}).get("auth_scheme") == "garmin_official_oauth2":
+        raise HTTPException(
+            status_code=503,
+            detail="Official Garmin activity import is not yet configured. Import a Garmin archive instead.",
+        )
     if mode == "oauth":
         tokens = _ensure_fresh_tokens(db, user, token_row)
     else:

@@ -338,29 +338,32 @@ export default function Welcome() {
             <div style={panelStyle()}>
               <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Connect Garmin</h2>
               <p style={{ marginTop: "0.9rem", color: "#526472", lineHeight: 1.7 }}>
-                Continue to the Garmin Connect sign-in page. Garmin handles your email, password,
-                and any verification step; Fitness Pals never receives your Garmin credentials.
+                {statusPayload?.garmin_authorization_available
+                  ? "Authorize Fitness Pals through Garmin’s consent page. Garmin handles your sign-in; Fitness Pals never receives your Garmin password."
+                  : "Garmin’s ordinary sign-in page cannot grant Fitness Pals access to your activities. Live connection requires an approved Garmin developer integration."}
               </p>
               <p style={{ color: "#526472", lineHeight: 1.7 }}>
-                After sign-in, Garmin returns a private access grant that Fitness Pals encrypts for
-                30 days. You will return here automatically to choose a goal and start your first
-                sync. You can also import a Garmin archive without granting live access.
+                {statusPayload?.garmin_authorization_available
+                  ? "Your grant is stored encrypted. Automatic import through Garmin’s official Activity API is not yet configured; use an archive to start coaching now."
+                  : "Import your Garmin export archive to start coaching from your own activities now, without granting live access."}
               </p>
               <div style={{ display: "flex", gap: "0.9rem", flexWrap: "wrap" }}>
-                <a
-                  href="/api/providers/garmin/login?next=/welcome"
-                  style={{
-                    display: "inline-block",
-                    textDecoration: "none",
-                    background: "#0d5a55",
-                    color: "#fff",
-                    padding: "0.85rem 1.2rem",
-                    borderRadius: "999px",
-                    fontWeight: 800,
-                  }}
-                >
-                  Continue to Garmin Connect
-                </a>
+                {statusPayload?.garmin_authorization_available && (
+                  <a
+                    href="/api/providers/garmin/login?next=/welcome"
+                    style={{
+                      display: "inline-block",
+                      textDecoration: "none",
+                      background: "#0d5a55",
+                      color: "#fff",
+                      padding: "0.85rem 1.2rem",
+                      borderRadius: "999px",
+                      fontWeight: 800,
+                    }}
+                  >
+                    Authorize with Garmin
+                  </a>
+                )}
                 <a
                   href="/import/garmin-archive"
                   style={{
@@ -388,25 +391,30 @@ export default function Welcome() {
             <div style={panelStyle()}>
               <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Import my training history</h2>
               <p style={{ marginTop: "0.9rem", color: "#526472", lineHeight: 1.7 }}>
-                Garmin is connected. Queue the first sync to turn your training data into a useful
-                coaching view.
+                {statusPayload?.garmin_sync_available === false
+                  ? "Garmin authorization succeeded, but automatic import through the official Activity API is not configured yet. Import a Garmin archive to start coaching."
+                  : "Garmin is connected. Queue the first sync to turn your training data into a useful coaching view."}
               </p>
               <div style={{ display: "flex", gap: "0.9rem", marginTop: "1rem", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={queueFirstSync}
-                  style={{
-                    border: 0,
-                    background: "#0d5a55",
-                    color: "#fff",
-                    padding: "0.95rem 1.3rem",
-                    borderRadius: "999px",
-                    fontWeight: 800,
-                    cursor: "pointer",
-                  }}
-                >
-                  Import my training history
-                </button>
+                {statusPayload?.garmin_sync_available === false ? (
+                  <a href="/import/garmin-archive">Import Garmin archive</a>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={queueFirstSync}
+                    style={{
+                      border: 0,
+                      background: "#0d5a55",
+                      color: "#fff",
+                      padding: "0.95rem 1.3rem",
+                      borderRadius: "999px",
+                      fontWeight: 800,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Import my training history
+                  </button>
+                )}
                 <a
                   href="/#how-it-works"
                   style={{

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import uuid
+import base64
+import hashlib
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
@@ -80,7 +82,7 @@ def _fake_user(tenant_id=None) -> CurrentUserLike:
     return FakeUser(tenant_id)
 
 
-GARMIN_DEFAULT_TOKEN_URL = "https://connect.garmin.com/oauth/token"
+GARMIN_DEFAULT_TOKEN_URL = "https://connectapi.garmin.com/di-oauth2-service/oauth/token"
 
 
 def _test_token_url():
@@ -98,6 +100,17 @@ def test_login_builds_redirect(monkeypatch):
     assert "response_type=code" in resp.headers["location"]
     assert "client_id=cid" in resp.headers["location"]
     assert "redirect_uri=https%3A%2F%2Fexample.com%2Fcallback" in resp.headers["location"]
+    assert urlparse(resp.headers["location"]).path == "/oauth2Confirm"
+    query = parse_qs(urlparse(resp.headers["location"]).query)
+    assert query["code_challenge_method"] == ["S256"]
+    verifier = next(
+        cookie.split(";", 1)[0].split("=", 1)[1]
+        for cookie in resp.headers.getlist("set-cookie")
+        if cookie.startswith("garmin_pkce_verifier=")
+    )
+    expected = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    assert query["code_challenge"] == [expected]
+    assert "scope" not in query
 
 
 def test_login_persists_safe_next_redirect(monkeypatch):
@@ -112,29 +125,12 @@ def test_login_persists_safe_next_redirect(monkeypatch):
     assert any("garmin_oauth_next=" in cookie and "welcome" in cookie for cookie in cookies)
 
 
-def test_scraper_login_redirects_to_garmin_connect_sso(monkeypatch):
-    """Connect must hand credentials directly to Garmin's own SSO page."""
+def test_scraper_login_does_not_redirect_to_unusable_web_signin(monkeypatch):
+    """Normal Connect sign-in does not authorize a third-party app."""
     monkeypatch.setenv("GARMIN_MODE", "scraper")
-    fake_request = SimpleNamespace(
-        query_params={"next": "/welcome"},
-        url_for=lambda name, state: (
-            f"https://fitness-pals.com/api/providers/garmin/sso/callback/{state}"
-        ),
-    )
-
-    response = providers_garmin.garmin_login(fake_request, _fake_user())
-
-    location = urlparse(response.headers["location"])
-    assert location.scheme == "https"
-    assert location.netloc == "connect.garmin.com"
-    assert location.path == "/signin/"
-    callback = parse_qs(location.query)["service"][0]
-    assert callback.startswith(
-        "https://fitness-pals.com/api/providers/garmin/sso/callback/"
-    )
-    cookies = response.headers.getlist("set-cookie")
-    assert any("garmin_oauth_state=" in cookie for cookie in cookies)
-    assert any("garmin_oauth_next=" in cookie and "welcome" in cookie for cookie in cookies)
+    with pytest.raises(HTTPException) as exc:
+        providers_garmin.garmin_login(SimpleNamespace(query_params={}), _fake_user())
+    assert exc.value.status_code == 503
 
 
 def test_sso_callback_stores_encrypted_thirty_day_garmin_grant(monkeypatch):
@@ -224,7 +220,10 @@ def test_callback_happy_path(monkeypatch):
     db = FakeSession()
     user = _fake_user()
     token_url = _test_token_url()
-    fake_request = SimpleNamespace(cookies={"garmin_oauth_state": "abc"})
+    fake_request = SimpleNamespace(cookies={
+        "garmin_oauth_state": "abc", "garmin_pkce_verifier": "verifier",
+        "garmin_oauth_user": str(user.id),
+    })
     with requests_mock.Mocker() as m:
         m.post(
             token_url,
@@ -239,6 +238,8 @@ def test_callback_happy_path(monkeypatch):
                 headers={"content-type": "application/json"},
             )
         result = providers_garmin.garmin_callback(request=fake_request, code="abc", state="abc", user=user, db=db)
+        assert m.last_request.text is not None
+        assert "code_verifier=verifier" in m.last_request.text
     assert result.status_code in (302, 303, 307)
     assert result.headers["location"] == "/welcome?garmin=connected"
     assert db.items, "Token should be saved"
@@ -261,6 +262,8 @@ def test_callback_redirects_to_safe_next_when_present(monkeypatch):
     fake_request = SimpleNamespace(
         cookies={
             "garmin_oauth_state": "abc",
+            "garmin_pkce_verifier": "verifier",
+            "garmin_oauth_user": str(user.id),
             "garmin_oauth_next": "/welcome?garmin=connected",
         }
     )
@@ -288,6 +291,33 @@ def test_callback_missing_code(monkeypatch):
         providers_garmin.garmin_callback(request=fake_request, code=None, state="abc", user=_fake_user(), db=FakeSession())
 
 
+def test_callback_requires_pkce_verifier(monkeypatch):
+    monkeypatch.setenv("GARMIN_CLIENT_ID", "cid")
+    monkeypatch.setenv("GARMIN_CLIENT_SECRET", "secret")
+    monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
+    with pytest.raises(HTTPException) as exc:
+        providers_garmin.garmin_callback(
+            request=SimpleNamespace(cookies={"garmin_oauth_state": "abc"}),
+            code="code", state="abc", user=_fake_user(), db=FakeSession(),
+        )
+    assert exc.value.status_code == 400
+
+
+def test_callback_rejects_different_signed_in_user(monkeypatch):
+    monkeypatch.setenv("GARMIN_CLIENT_ID", "cid")
+    monkeypatch.setenv("GARMIN_CLIENT_SECRET", "secret")
+    monkeypatch.setenv("GARMIN_REDIRECT_URI", "https://example.com/callback")
+    with pytest.raises(HTTPException) as exc:
+        providers_garmin.garmin_callback(
+            request=SimpleNamespace(cookies={
+                "garmin_oauth_state": "abc", "garmin_pkce_verifier": "verifier",
+                "garmin_oauth_user": str(uuid.uuid4()),
+            }),
+            code="code", state="abc", user=_fake_user(), db=FakeSession(),
+        )
+    assert exc.value.status_code == 400
+
+
 def test_refresh_happy_path(monkeypatch):
     """Refresh endpoint should rotate tokens when refresh token is present."""
     monkeypatch.setenv("GARMIN_CLIENT_ID", "cid")
@@ -304,6 +334,7 @@ def test_refresh_happy_path(monkeypatch):
             provider="garmin",
             access_token="old-at",
             refresh_token="old-rt",
+            metadata={"auth_scheme": "garmin_official_oauth2"},
         ),
     )
     token_url = _test_token_url()
@@ -318,6 +349,7 @@ def test_refresh_happy_path(monkeypatch):
     assert result["status"] == "refreshed"
     stored = db.items[0]
     assert stored.refresh_token_encrypted != b"old-rt"
+    assert stored.metadata_json["auth_scheme"] == "garmin_official_oauth2"
 
 
 def test_refresh_reauth_when_missing_refresh(monkeypatch):
@@ -509,6 +541,23 @@ def test_fetch_happy_path(monkeypatch):
     assert resp["sync_job_id"]
     assert resp["ingested"] == 0
     assert resp["test_run"] is False
+
+
+def test_fetch_rejects_official_grant_before_queueing(monkeypatch):
+    monkeypatch.setenv("GARMIN_MODE", "oauth")
+    db = FakeSession()
+    user = _fake_user()
+    save_user_provider_token(
+        db,
+        ProviderTokenDetails(
+            user_id=user.id, tenant_id=None, provider="garmin",
+            access_token="at", refresh_token="rt",
+            metadata={"auth_scheme": "garmin_official_oauth2"},
+        ),
+    )
+    with pytest.raises(HTTPException) as exc:
+        providers_garmin.garmin_fetch(user=user, db=db)
+    assert exc.value.status_code == 503
 
 
 def test_fetch_reauth_when_missing_token(monkeypatch):

@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import secrets
 import logging
+import base64
+import hashlib
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Annotated, Any, Dict, Optional, cast
@@ -39,7 +41,8 @@ logger = logging.getLogger("garmin.routes")
 logger.setLevel(logging.INFO)
 GARMIN_NEXT_COOKIE = "garmin_oauth_next"
 GARMIN_STATE_COOKIE = "garmin_oauth_state"
-GARMIN_CONNECT_SIGNIN_URL = "https://connect.garmin.com/signin/"
+GARMIN_PKCE_COOKIE = "garmin_pkce_verifier"
+GARMIN_USER_COOKIE = "garmin_oauth_user"
 GARMIN_CONNECTION_LEASE = timedelta(days=30)
 
 
@@ -124,10 +127,9 @@ def _config():
         "client_secret": os.environ.get("GARMIN_CLIENT_SECRET"),
         "redirect_uri": os.environ.get("GARMIN_REDIRECT_URI"),
         "auth_url": os.environ.get("GARMIN_AUTH_URL")
-        or "https://connect.garmin.com/oauth-confirm",
+        or "https://connect.garmin.com/oauth2Confirm",
         "token_url": os.environ.get("GARMIN_TOKEN_URL")
-        or "https://connect.garmin.com/oauth/token",
-        "scope": os.environ.get("GARMIN_SCOPE") or "activity profile",
+        or "https://connectapi.garmin.com/di-oauth2-service/oauth/token",
     }
 
 
@@ -202,47 +204,27 @@ def _require_env():
 @router.get("/login")
 def garmin_login(
     request: Request,
-    _: Annotated[Any, Depends(get_current_user)]
+    user: Annotated[Any, Depends(get_current_user)]
 ):
-    """Redirect the athlete to Garmin's own sign-in surface."""
+    """Start Garmin's registered OAuth2 PKCE consent flow."""
     if _garmin_mode() != "oauth":
-        state = secrets.token_urlsafe(24)
-        callback_url = str(request.url_for("garmin_sso_callback", state=state))
-        prepped = requests.Request(
-            "GET",
-            GARMIN_CONNECT_SIGNIN_URL,
-            params={"service": callback_url},
-        ).prepare()
-        if prepped.url is None:
-            raise HTTPException(status_code=500, detail="Failed to build Garmin SSO URL")
-        response = RedirectResponse(prepped.url)
-        response.set_cookie(
-            GARMIN_STATE_COOKIE,
-            state,
-            max_age=10 * 60,
-            httponly=True,
-            secure=True,
-            samesite="lax",
-            path="/",
+        raise HTTPException(
+            status_code=503,
+            detail="Garmin browser authorization is unavailable in scraper mode. Import a Garmin archive instead.",
         )
-        response.set_cookie(
-            GARMIN_NEXT_COOKIE,
-            _safe_next_path(request.query_params.get("next")),
-            max_age=10 * 60,
-            httponly=True,
-            secure=True,
-            samesite="lax",
-            path="/",
-        )
-        return response
 
     cfg = _require_env()
     state = secrets.token_urlsafe(16)
+    verifier = secrets.token_urlsafe(64)
+    challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(verifier.encode("ascii")).digest()
+    ).rstrip(b"=").decode("ascii")
     params = {
         "response_type": "code",
         "client_id": cfg["client_id"],
         "redirect_uri": cfg["redirect_uri"],
-        "scope": cfg["scope"],
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
         "state": state,
     }
     prepped = requests.Request("GET", cfg["auth_url"], params=params).prepare()
@@ -253,17 +235,36 @@ def garmin_login(
     resp.set_cookie(
         GARMIN_STATE_COOKIE,
         state,
-        max_age=300,
+        max_age=600,
         httponly=True,
         secure=True,
         samesite="lax",
+        path="/",
+    )
+    resp.set_cookie(
+        GARMIN_PKCE_COOKIE,
+        verifier,
+        max_age=600,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/",
+    )
+    resp.set_cookie(
+        GARMIN_USER_COOKIE,
+        str(_user_uuid(user)),
+        max_age=600,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/",
     )
     resp.set_cookie(
         GARMIN_NEXT_COOKIE,
         _safe_next_path(
             request.query_params.get("next"), "/welcome?garmin=connected"
         ),
-        max_age=300,
+        max_age=600,
         httponly=True,
         secure=True,
         samesite="lax",
@@ -346,24 +347,29 @@ def garmin_callback(
     user: CurrentUserLike = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Exchange Garmin auth code for tokens and persist them securely."""
+    """Exchange a Garmin authorization code with PKCE and store the grant."""
+    if _garmin_mode() != "oauth":
+        raise HTTPException(status_code=400, detail="Garmin OAuth mode is not enabled")
     cfg = _require_env()
     if error:
         raise HTTPException(status_code=400, detail=f"Garmin auth failed: {error}")
     if not code:
         raise HTTPException(status_code=400, detail="Missing authorization code")
-    stored_state = None
-    try:
-        stored_state = request.cookies.get(GARMIN_STATE_COOKIE)
-    except Exception:
-        stored_state = None
-    if not state or not stored_state or state != stored_state:
+    stored_state = request.cookies.get(GARMIN_STATE_COOKIE)
+    if not state or not stored_state or not secrets.compare_digest(state, stored_state):
         raise HTTPException(status_code=400, detail="Invalid state for Garmin auth")
+    verifier = request.cookies.get(GARMIN_PKCE_COOKIE)
+    if not verifier:
+        raise HTTPException(status_code=400, detail="Garmin authorization session expired")
+    original_user = request.cookies.get(GARMIN_USER_COOKIE)
+    if not original_user or not secrets.compare_digest(original_user, str(_user_uuid(user))):
+        raise HTTPException(status_code=400, detail="Garmin authorization started by another user")
 
     data = {
         "grant_type": "authorization_code",
         "code": code,
         "redirect_uri": cfg["redirect_uri"],
+        "code_verifier": verifier,
         "client_id": cfg["client_id"],
         "client_secret": cfg["client_secret"],
     }
@@ -397,7 +403,10 @@ def garmin_callback(
             scope=payload.get("scope"),
             provider_user_id=payload.get("user_id"),
             expires_at=expires_at,
-            metadata={"token_received_at": datetime.utcnow().isoformat()},
+            metadata={
+                "auth_scheme": "garmin_official_oauth2",
+                "token_received_at": datetime.now(timezone.utc).isoformat(),
+            },
         ),
     )
     response = RedirectResponse(
@@ -407,6 +416,8 @@ def garmin_callback(
         status_code=303,
     )
     response.delete_cookie(GARMIN_STATE_COOKIE, path="/")
+    response.delete_cookie(GARMIN_PKCE_COOKIE, path="/")
+    response.delete_cookie(GARMIN_USER_COOKIE, path="/")
     response.delete_cookie(GARMIN_NEXT_COOKIE, path="/")
     return response
 
@@ -454,6 +465,8 @@ def garmin_refresh(user: CurrentUserLike = Depends(get_current_user), db: Sessio
     if not result:
         raise HTTPException(status_code=410, detail="Garmin reauth required")
     access_token, new_refresh, expires_at, payload = result
+    metadata = dict(token.metadata_json or {})
+    metadata["token_refreshed_at"] = datetime.now(timezone.utc).isoformat()
     save_user_provider_token(
         db,
         ProviderTokenDetails(
@@ -465,7 +478,7 @@ def garmin_refresh(user: CurrentUserLike = Depends(get_current_user), db: Sessio
             scope=payload.get("scope"),
             provider_user_id=payload.get("user_id"),
             expires_at=expires_at,
-            metadata={"token_received_at": datetime.utcnow().isoformat()},
+            metadata=metadata,
         ),
     )
     return {"status": "refreshed"}
@@ -478,6 +491,14 @@ def garmin_fetch(
     test_run: bool = False,
 ):
     """Queue recent Garmin data for the current user."""
+    token = get_user_provider_token(
+        db, _user_uuid(user), _garmin_provider_key(), _resolve_tenant(user)
+    )
+    if token and (token.metadata_json or {}).get("auth_scheme") == "garmin_official_oauth2":
+        raise HTTPException(
+            status_code=503,
+            detail="Official Garmin activity import is not yet configured. Import a Garmin archive instead.",
+        )
     try:
         execution = run_garmin_sync_job(
             db,

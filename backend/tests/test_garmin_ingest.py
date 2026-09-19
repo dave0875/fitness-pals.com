@@ -197,6 +197,23 @@ def test_fetch_garmin_recent_rejects_expired_connection_lease(monkeypatch):
     assert "reauth" in str(exc.value.detail).lower()
 
 
+def test_fetch_garmin_recent_rejects_official_partner_token(monkeypatch):
+    monkeypatch.setenv("GARMIN_MODE", "oauth")
+    db = FakeSession()
+    user = SimpleNamespace(id=uuid.uuid4(), tenant_id=None)
+    save_user_provider_token(
+        db,
+        ProviderTokenDetails(
+            user_id=user.id, tenant_id=None, provider="garmin",
+            access_token="partner-access-token", refresh_token="partner-refresh-token",
+            metadata={"auth_scheme": "garmin_official_oauth2"},
+        ),
+    )
+    with pytest.raises(HTTPException) as exc:
+        garmin_ingest.fetch_garmin_recent(db, user)
+    assert exc.value.status_code == 503
+
+
 def test_persist_activity_summaries_does_not_store_raw_garmin_payload_in_metadata():
     """Canonical metadata should keep provider payloads trimmed, not verbatim."""
     db = FakeSession()

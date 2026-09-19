@@ -13,8 +13,8 @@ test("welcome connects the athlete directly to Garmin", () => {
   assert.ok(welcome.includes("/api/providers/garmin/login?next=/welcome"));
   assert.ok(welcome.includes("/import/garmin-archive"));
   assert.ok(welcome.includes("Connect Garmin"));
-  assert.ok(welcome.includes("Garmin Connect sign-in"));
-  assert.match(welcome, /30 days|one month/i);
+  assert.ok(welcome.includes("Authorize Fitness Pals through Garmin"));
+  assert.ok(welcome.includes("official Activity API is not yet configured"));
   assert.ok(!welcome.toLowerCase().includes("pulsai"));
 });
 
