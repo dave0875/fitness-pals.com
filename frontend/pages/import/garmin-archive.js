@@ -1,33 +1,55 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import AuthenticatedShell, { StatusNotice } from "../../components/AuthenticatedShell";
 import { authenticatedFetch } from "../../lib/authFetch.mjs";
+import { archiveState } from "../../lib/coreFlowStates.mjs";
 import styles from "../../styles/AthletePages.module.css";
 
-
-const POLL_INTERVAL_MS = 3000;
 
 export default function GarminArchiveImport() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [capabilities, setCapabilities] = useState(null);
+  const [job, setJob] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  async function poll(statusUrl) {
-    for (let attempt = 0; attempt < 120; attempt += 1) {
-      const response = await authenticatedFetch(statusUrl);
+  const loadCapabilities = useCallback(async () => {
+    try {
+      const response = await authenticatedFetch("/api/archive-imports/capabilities");
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.detail || "Archive status failed.");
-      if (payload.status === "completed") return payload;
-      if (payload.status === "failed") {
-        throw new Error(payload.error?.message || "Archive import failed.");
-      }
-      await new Promise((resolve) => window.setTimeout(resolve, POLL_INTERVAL_MS));
+      if (!response.ok) throw new Error(payload.detail || "Archive options could not be checked.");
+      setCapabilities(payload);
+      setJob(payload.latest_job || null);
+      setMessage("");
+    } catch (error) {
+      setMessage(error.message || "Archive options could not be checked.");
+    } finally {
+      setLoading(false);
     }
-    throw new Error("The import is still running. You can return to this page later.");
-  }
+  }, []);
+
+  useEffect(() => {
+    loadCapabilities();
+  }, [loadCapabilities]);
+
+  const flow = archiveState(capabilities, job);
+
+  useEffect(() => {
+    if (!flow.pending || !job?.status_url) return undefined;
+    const timer = window.setInterval(async () => {
+      try {
+        const response = await authenticatedFetch(job.status_url);
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "Archive status could not be checked.");
+        setJob(payload);
+      } catch (error) {
+        setMessage(error.message || "Archive status could not be checked.");
+      }
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [flow.pending, job?.status_url]);
 
   async function runDriveImport() {
-    setBusy(true);
     setMessage("Queueing your configured Google Drive archive…");
     try {
       const response = await authenticatedFetch("/api/archive-imports/google-drive", {
@@ -36,21 +58,16 @@ export default function GarminArchiveImport() {
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.detail || "Drive archive is not configured.");
-      const result = await poll(payload.status_url);
-      setMessage(
-        `Import complete: ${result.activities || 0} activities from ${result.objects_imported || 0} new objects; ${result.objects_skipped || 0} unchanged objects skipped.`
-      );
+      setJob(payload);
+      setMessage("Archive import queued. Progress will update here.");
     } catch (error) {
       setMessage(error.message || "Drive archive import failed.");
-    } finally {
-      setBusy(false);
     }
   }
 
   async function runUpload(event) {
     event.preventDefault();
     if (!selectedFile) return setMessage("Choose a Garmin export zip first.");
-    setBusy(true);
     setMessage("Preparing archive upload…");
     try {
       const startResponse = await authenticatedFetch("/api/archive-imports/uploads/start", {
@@ -77,12 +94,10 @@ export default function GarminArchiveImport() {
       });
       const complete = await completeResponse.json();
       if (!completeResponse.ok) throw new Error(complete.detail || "Archive could not be queued.");
-      const result = await poll(start.status_url);
-      setMessage(`Import complete: ${result.activities || 0} activities processed.`);
+      setJob({ ...complete, status_url: start.status_url });
+      setMessage("Archive uploaded and queued. Progress will update here.");
     } catch (error) {
       setMessage(error.message || "Archive import failed.");
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -92,32 +107,69 @@ export default function GarminArchiveImport() {
         <p className={styles.eyebrow}>Historical data</p>
         <h1>Import Garmin archive</h1>
         <p className={styles.lede}>
-          The Drive source is assigned to your athlete account on the server. Each file is
-          checkpointed with its Drive version and provenance, so retries skip unchanged history.
+          Use an available source below. Imports run in the background and this page resumes the
+          latest job when you return.
         </p>
       </header>
 
-      {message && <StatusNotice>{message}</StatusNotice>}
+      {loading && <StatusNotice>Checking archive availability…</StatusNotice>}
+      {message && <StatusNotice tone={job?.status === "failed" ? "warning" : "neutral"}>{message}</StatusNotice>}
+      {flow.pending && (
+        <StatusNotice>Import in progress: {String(job.status).replaceAll("_", " ")}.</StatusNotice>
+      )}
+      {job?.status === "failed" && (
+        <StatusNotice tone="warning">
+          Import failed: {job.error?.message || "The archive could not be processed."} Try import again below.
+        </StatusNotice>
+      )}
+      {job?.status === "completed" && (
+        <StatusNotice tone="success">
+          Import complete: {job.activities || 0} activities processed.{" "}
+          <a href="/journey#activities">Review imported activities</a>.
+        </StatusNotice>
+      )}
 
       <div className={styles.sectionGrid}>
         <section className={styles.card}>
           <h2>Google Drive source of truth</h2>
-          <p>Queue the private Garmin folder configured for your signed-in athlete account.</p>
-          <button type="button" onClick={runDriveImport} disabled={busy}>
-            {busy ? "Import running…" : "Import from Google Drive"}
-          </button>
+          {loading ? (
+            <p>Checking Drive availability…</p>
+          ) : capabilities?.drive?.available ? (
+            <>
+              <p>A private Garmin folder and read-only server credentials are configured.</p>
+              {flow.canDriveImport && (
+                <button className={styles.primaryButton} type="button" onClick={runDriveImport}>
+                  {job?.status === "failed" ? "Try import again" : "Import from Google Drive"}
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <strong>Drive import unavailable</strong>
+              <p>{flow.driveReason}</p>
+            </>
+          )}
         </section>
 
         <section className={styles.card}>
           <h2>Garmin export zip</h2>
-          <form onSubmit={runUpload}>
-            <input
-              type="file"
-              accept=".zip,application/zip"
-              onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
-            />
-            <button type="submit" disabled={busy}>Upload and import</button>
-          </form>
+          {loading ? (
+            <p>Checking upload availability…</p>
+          ) : capabilities?.upload?.available ? (
+            <form className={styles.form} onSubmit={runUpload}>
+              <input
+                type="file"
+                accept=".zip,application/zip"
+                disabled={!flow.canUpload}
+                onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
+              />
+              {flow.canUpload && (
+                <button className={styles.primaryButton} type="submit">Upload and import</button>
+              )}
+            </form>
+          ) : (
+            <p>{flow.uploadReason}</p>
+          )}
         </section>
       </div>
     </AuthenticatedShell>
