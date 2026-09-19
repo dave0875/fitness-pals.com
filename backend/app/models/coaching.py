@@ -1,0 +1,48 @@
+"""Persisted athlete goals and next-session coaching decisions."""
+
+from __future__ import annotations
+
+from datetime import date, datetime
+import uuid
+
+from sqlalchemy import Date, DateTime, ForeignKey, JSON, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db import Base
+from app.models.mixins import PrimaryUUIDMixin, TimestampMixin, UserOwnedMixin
+
+
+class AthleteGoal(PrimaryUUIDMixin, UserOwnedMixin, TimestampMixin, Base):  # pylint: disable=too-few-public-methods
+    """One explicit, account-owned coaching goal and phase."""
+
+    __tablename__ = "athlete_goals"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_athlete_goal_user"),
+    )
+
+    goal_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    phase: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+
+class NextSessionPlan(PrimaryUUIDMixin, UserOwnedMixin, TimestampMixin, Base):  # pylint: disable=too-few-public-methods
+    """A versioned next-session recommendation and its decision lifecycle."""
+
+    __tablename__ = "next_session_plans"
+
+    goal_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("athlete_goals.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    session_purpose: Mapped[str] = mapped_column(String(120), nullable=False)
+    scheduled_for: Mapped[date] = mapped_column(Date, nullable=False)
+    recommendation_json: Mapped[dict] = mapped_column("recommendation", JSON, nullable=False)
+    rationale_json: Mapped[dict] = mapped_column("rationale", JSON, nullable=False)
+    adjustment_json: Mapped[dict | None] = mapped_column("adjustment", JSON, nullable=True)
+    feedback_json: Mapped[dict | None] = mapped_column("feedback", JSON, nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

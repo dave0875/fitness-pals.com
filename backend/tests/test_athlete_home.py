@@ -166,6 +166,27 @@ def test_athlete_home_stale_and_empty_states_are_actionable():
     assert empty["dossier"]["state"] == "not_generated"
 
 
+def test_generic_coaching_cta_navigates_to_todays_run_decision():
+    """A recommendation CTA must open the plan instead of an empty chat box."""
+    now = datetime(2026, 9, 18, 12, tzinfo=timezone.utc)
+    athlete_id = uuid.uuid4()
+    activities = [
+        make_activity(athlete_id, now, days_ago, 5000)
+        for days_ago in (1, 2, 3, 4)
+    ]
+
+    result = build_athlete_home(
+        FakeSession(activities), athlete_id, goal="consistency", now=now
+    )
+
+    assert result["coaching"]["next_action"] == {
+        "label": "Open today's run",
+        "href": "/dashboard#todays-run",
+    }
+    assert result["coaching"]["insight"] == "Make the next session serve your goal."
+    assert "last seven days" not in result["coaching"]["explanation"]
+
+
 def test_athlete_home_links_latest_owned_dossier_and_ignores_other_athletes():
     """The home card must link only to the signed-in athlete's newest artifact."""
     now = datetime(2026, 8, 2, 12, tzinfo=timezone.utc)

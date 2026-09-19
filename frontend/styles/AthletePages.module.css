@@ -97,7 +97,9 @@
 }
 
 .chatForm textarea,
-.form input {
+.form input,
+.form select,
+.form textarea {
   width: 100%;
   min-height: 48px;
   padding: 0.8rem;
@@ -106,6 +108,11 @@
   border: 1px solid #bdcbbf;
   border-radius: 0.65rem;
   font: inherit;
+}
+
+.form textarea {
+  min-height: 96px;
+  resize: vertical;
 }
 
 .chatForm textarea {
@@ -164,6 +171,72 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.65rem;
+}
+
+.planLayout {
+  display: grid;
+  gap: 1.25rem;
+  margin-top: 1rem;
+}
+
+.planSummary {
+  padding: 1rem;
+  background: #f4f7f3;
+  border-radius: 0.85rem;
+}
+
+.planSummary h3 {
+  margin: 0.5rem 0 0;
+}
+
+.statusBadge {
+  display: inline-flex;
+  padding: 0.25rem 0.55rem;
+  color: #135a3c;
+  background: #d9ede0;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 900;
+  text-transform: capitalize;
+}
+
+.planFacts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0 0;
+}
+
+.planFacts div {
+  min-width: 0;
+}
+
+.planFacts dt {
+  color: #5a685f;
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.planFacts dd {
+  margin: 0.2rem 0 0;
+  color: #17211b;
+  font-weight: 800;
+}
+
+.evidenceList {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.5rem 0 1rem;
+  padding-left: 1.25rem;
+  color: #5a685f;
+  line-height: 1.5;
+}
+
+.rangeRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
 }
 
 .statusRow {
@@ -338,6 +411,11 @@
 
 @media (max-width: 720px) {
   .signalGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .planFacts,
+  .rangeRow {
     grid-template-columns: 1fr;
   }
 
