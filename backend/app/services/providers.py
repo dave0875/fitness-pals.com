@@ -30,6 +30,7 @@ class ProviderAppDetails:  # pylint: disable=too-many-instance-attributes
     display_name: Optional[str] = None
     auth_url: Optional[str] = None
     token_url: Optional[str] = None
+    redirect_uri: Optional[str] = None
     scopes: Optional[str] = None
 
 
@@ -64,6 +65,7 @@ def upsert_provider_app(db: Session, details: ProviderAppDetails) -> ProviderApp
         existing.display_name = details.display_name  # type: ignore[assignment]
         existing.auth_url = details.auth_url  # type: ignore[assignment]
         existing.token_url = details.token_url  # type: ignore[assignment]
+        existing.redirect_uri = details.redirect_uri  # type: ignore[assignment]
         existing.scopes = details.scopes  # type: ignore[assignment]
         if details.client_secret:
             existing.client_secret_encrypted = secret_encrypted  # type: ignore[assignment]
@@ -78,6 +80,7 @@ def upsert_provider_app(db: Session, details: ProviderAppDetails) -> ProviderApp
         display_name=details.display_name,
         auth_url=details.auth_url,
         token_url=details.token_url,
+        redirect_uri=details.redirect_uri,
         scopes=details.scopes,
     )
     db.add(app)

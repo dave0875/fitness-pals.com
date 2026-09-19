@@ -35,6 +35,7 @@ class ProviderAppRequest(BaseModel):
     display_name: Optional[str] = None
     auth_url: Optional[HttpUrl] = None
     token_url: Optional[HttpUrl] = None
+    redirect_uri: Optional[HttpUrl] = None
     scopes: Optional[str] = Field(None, description="Space- or comma-separated scopes")
 
 
@@ -76,6 +77,7 @@ def list_apps(
             "client_id": app.client_id,
             "auth_url": app.auth_url,
             "token_url": app.token_url,
+            "redirect_uri": app.redirect_uri,
             "scopes": app.scopes,
             "has_client_secret": bool(app.client_secret_encrypted),
             "created_at": app.created_at,
@@ -101,6 +103,7 @@ def create_or_update_app(
             display_name=body.display_name,
             auth_url=str(body.auth_url) if body.auth_url else None,
             token_url=str(body.token_url) if body.token_url else None,
+            redirect_uri=str(body.redirect_uri) if body.redirect_uri else None,
             scopes=body.scopes,
         ),
     )
@@ -200,6 +203,7 @@ def get_app(
         "client_id": app.client_id,
         "auth_url": app.auth_url,
         "token_url": app.token_url,
+        "redirect_uri": app.redirect_uri,
         "scopes": app.scopes,
         "has_client_secret": bool(app.client_secret_encrypted),
         # Secret is not exposed here to avoid accidental leakage.

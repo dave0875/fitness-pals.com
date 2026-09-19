@@ -27,6 +27,7 @@ class ProviderApp(PrimaryUUIDMixin, TimestampMixin, Base):  # pylint: disable=to
     client_secret_encrypted: Mapped[bytes | None] = mapped_column(BYTEA, nullable=True)
     auth_url: Mapped[str | None] = mapped_column(String, nullable=True)
     token_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    redirect_uri: Mapped[str | None] = mapped_column(String, nullable=True)
     scopes: Mapped[str | None] = mapped_column(String, nullable=True)
 
 

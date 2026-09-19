@@ -6,17 +6,40 @@ import json
 import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi import HTTPException
 from sqlalchemy.sql import operators
-from sqlalchemy.sql.elements import BinaryExpression, BooleanClauseList, BindParameter
+from sqlalchemy.sql.elements import (
+    BinaryExpression,
+    BindParameter,
+    BooleanClauseList,
+    Null,
+)
+from starlette.requests import Request
 
-from app.models import Activity, ArchiveImportJob, ArchiveImportObject, IngestRun, User
+from app.models import (
+    Activity,
+    ArchiveImportJob,
+    ArchiveImportObject,
+    IngestRun,
+    ProviderApp,
+    User,
+    UserProviderToken,
+)
 from app.services import archive_import_jobs
+from app.routes import archive_imports as archive_routes
 from app.services.garmin.activity import persist_activity_summaries
 from app.services.garmin_archive_import import ingest_archive_object
-from app.services.google_drive_archive import DriveArchiveObject, configured_folder_for_user
+from app.services.google_drive_archive import (
+    DRIVE_READONLY_SCOPE,
+    DriveArchiveObject,
+    configured_folder_for_user,
+    google_drive_authorization_url,
+    require_matching_google_account,
+)
+from app.utils.security import encrypt_token
 
 
 class FakeQuery:
@@ -36,8 +59,13 @@ class FakeQuery:
     def all(self):
         return list(self.items)
 
+    def order_by(self, *_criteria):
+        return self
+
     @staticmethod
     def _value(side, item):
+        if isinstance(side, Null):
+            return None
         if isinstance(side, BindParameter):
             return side.value
         key = getattr(side, "key", None) or getattr(side, "name", None)
@@ -48,7 +76,11 @@ class FakeQuery:
             clauses = [self._matches(part, item) for part in condition.clauses]
             return all(clauses) if condition.operator is operators.and_ else any(clauses)
         if isinstance(condition, BinaryExpression):
-            return condition.operator(self._value(condition.left, item), self._value(condition.right, item))
+            left = self._value(condition.left, item)
+            right = self._value(condition.right, item)
+            if condition.operator is operators.is_:
+                return left is right
+            return condition.operator(left, right)
         return True
 
 
@@ -83,6 +115,188 @@ def _user(email="runner@example.com"):
 
 def _settings(mapping):
     return SimpleNamespace(google_drive_archive_sources_json=json.dumps(mapping))
+
+
+def _oauth_app():
+    return ProviderApp(
+        id=uuid.uuid4(),
+        provider="google_drive",
+        display_name="Google Drive",
+        client_id="drive-client-id",
+        client_secret_encrypted=encrypt_token("drive-client-secret"),
+        auth_url="https://accounts.google.com/o/oauth2/v2/auth",
+        token_url="https://oauth2.googleapis.com/token",
+        redirect_uri="https://fitness-pals.com/api/archive-imports/google-drive/callback",
+        scopes=f"openid email {DRIVE_READONLY_SCOPE}",
+    )
+
+
+def test_drive_authorization_requests_read_only_offline_access_for_signed_in_email():
+    db = FakeSession([_oauth_app()])
+    url = google_drive_authorization_url(
+        db,
+        state="csrf-state",
+        login_hint="Runner@Example.com",
+    )
+
+    parsed = urlparse(url)
+    query = parse_qs(parsed.query)
+    assert parsed.netloc == "accounts.google.com"
+    assert query["client_id"] == ["drive-client-id"]
+    assert query["redirect_uri"] == [
+        "https://fitness-pals.com/api/archive-imports/google-drive/callback"
+    ]
+    assert query["state"] == ["csrf-state"]
+    assert query["access_type"] == ["offline"]
+    assert query["prompt"] == ["consent"]
+    assert query["login_hint"] == ["runner@example.com"]
+    assert DRIVE_READONLY_SCOPE in query["scope"][0].split()
+
+
+def test_drive_authorization_rejects_a_different_or_unverified_google_account():
+    user = _user("runner@example.com")
+
+    assert require_matching_google_account(
+        user, {"email": "RUNNER@example.com", "verified_email": True, "id": "google-123"}
+    ) == ("runner@example.com", "google-123")
+
+    with pytest.raises(HTTPException, match="same Google account"):
+        require_matching_google_account(
+            user, {"email": "other@example.com", "verified_email": True, "id": "google-456"}
+        )
+    with pytest.raises(HTTPException, match="verified email"):
+        require_matching_google_account(
+            user, {"email": "runner@example.com", "verified_email": False, "id": "google-123"}
+        )
+
+
+def test_archive_capabilities_offer_authorization_then_enable_the_user_grant(
+    monkeypatch,
+):
+    athlete = _user()
+    app = _oauth_app()
+    monkeypatch.setattr(
+        archive_routes,
+        "archive_capabilities",
+        lambda _user: {
+            "drive": {"available": False, "reason": "No private folder."},
+            "upload": {"available": True, "reason": None},
+        },
+    )
+
+    disconnected = archive_routes.capabilities(user=athlete, db=FakeSession([app]))
+
+    assert disconnected["drive"]["authorization_available"] is True
+    assert disconnected["drive"]["connected"] is False
+    assert disconnected["drive"]["available"] is False
+    assert "Authorize Google Drive" in disconnected["drive"]["reason"]
+
+    token = UserProviderToken(
+        id=uuid.uuid4(),
+        user_id=athlete.id,
+        tenant_id=None,
+        provider="google_drive",
+        provider_user_id="google-user",
+        access_token_encrypted=b"encrypted",
+        refresh_token_encrypted=b"encrypted-refresh",
+        scope=DRIVE_READONLY_SCOPE,
+        metadata_json={"email": athlete.email},
+    )
+    connected = archive_routes.capabilities(user=athlete, db=FakeSession([app, token]))
+
+    assert connected["drive"]["connected"] is True
+    assert connected["drive"]["available"] is True
+    assert connected["drive"]["account_email"] == athlete.email
+    assert connected["drive"]["reason"] is None
+
+
+def _request_with_session(session):
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/archive-imports/google-drive/callback",
+            "headers": [],
+            "session": session,
+        }
+    )
+
+
+def test_drive_callback_requires_state_and_persists_the_matching_grant(monkeypatch):
+    athlete = _user()
+    session = {
+        archive_routes.DRIVE_OAUTH_SESSION_KEY: {
+            "state": "expected-state",
+            "user_id": str(athlete.id),
+            "next": "/import/garmin-archive?drive=connected",
+        }
+    }
+    db = FakeSession([athlete])
+    saved = []
+    token = {
+        "access_token": "google-access",
+        "refresh_token": "google-refresh",
+        "scope": f"openid email {DRIVE_READONLY_SCOPE}",
+    }
+    profile = {
+        "email": athlete.email,
+        "email_verified": True,
+        "sub": "google-123",
+    }
+    monkeypatch.setattr(
+        archive_routes,
+        "exchange_google_drive_code",
+        lambda session_db, code: token,
+    )
+    monkeypatch.setattr(archive_routes, "fetch_google_profile", lambda access: profile)
+    monkeypatch.setattr(
+        archive_routes,
+        "save_google_drive_grant",
+        lambda session_db, user, payload, identity: saved.append(
+            (session_db, user, payload, identity)
+        ),
+    )
+
+    response = archive_routes.google_drive_callback(
+        _request_with_session(session),
+        state="expected-state",
+        code="authorization-code",
+        user=athlete,
+        db=db,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/import/garmin-archive?drive=connected"
+    assert saved == [(db, athlete, token, profile)]
+    assert archive_routes.DRIVE_OAUTH_SESSION_KEY not in session
+
+
+def test_drive_callback_rejects_csrf_state_before_token_exchange(monkeypatch):
+    athlete = _user()
+    exchanged = []
+    monkeypatch.setattr(
+        archive_routes,
+        "exchange_google_drive_code",
+        lambda session_db, code: exchanged.append(code),
+    )
+
+    with pytest.raises(HTTPException, match="Invalid Google Drive authorization state"):
+        archive_routes.google_drive_callback(
+            _request_with_session(
+                {
+                    archive_routes.DRIVE_OAUTH_SESSION_KEY: {
+                        "state": "expected-state",
+                        "user_id": str(athlete.id),
+                    }
+                }
+            ),
+            state="attacker-state",
+            code="authorization-code",
+            user=athlete,
+            db=FakeSession([athlete]),
+        )
+
+    assert exchanged == []
 
 
 def test_drive_folder_assignment_is_server_side_and_athlete_specific():
@@ -149,6 +363,44 @@ def test_drive_job_checkpoints_each_version_and_replay_is_idempotent(monkeypatch
     assert checkpoints[0].source_object_id == "drive-file-1"
     assert checkpoints[0].source_version == "md5-version-1"
     assert checkpoints[0].status == "completed"
+
+
+def test_user_authorized_drive_job_uses_athletes_encrypted_grant(monkeypatch):
+    athlete = _user()
+    token = UserProviderToken(
+        id=uuid.uuid4(),
+        user_id=athlete.id,
+        tenant_id=None,
+        provider="google_drive",
+        provider_user_id="google-user",
+        access_token_encrypted=b"encrypted",
+        refresh_token_encrypted=b"encrypted-refresh",
+        scope=DRIVE_READONLY_SCOPE,
+        metadata_json={"email": athlete.email},
+    )
+    db = FakeSession([athlete, token])
+    fake_drive = SimpleNamespace(list_supported_objects=lambda folder: [], download=lambda item: b"")
+    captured = []
+    monkeypatch.setattr(
+        archive_import_jobs.GoogleDriveArchiveClient,
+        "for_user",
+        lambda session, user: captured.append((session, user)) or fake_drive,
+    )
+
+    job = archive_import_jobs.create_drive_import_job(
+        db,
+        athlete,
+        folder_id="root",
+        authorization="user_oauth",
+    )
+    result = archive_import_jobs.process_archive_import_job(db, job)
+
+    assert result["objects_imported"] == 0
+    assert captured == [(db, athlete)]
+    assert job.source_metadata_json == {
+        "folder_id": "root",
+        "authorization": "user_oauth",
+    }
 
 
 def test_same_drive_object_isolated_per_athlete(monkeypatch):
