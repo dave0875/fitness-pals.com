@@ -66,8 +66,38 @@ Deploying this boundary intentionally invalidates legacy app access and refresh 
 
 ### Garmin archive sources
 
-Google Drive archives are registered server-side per athlete email; the browser never supplies a
-folder ID. Share each source folder read-only with the configured service account, then set:
+Signed-in athletes can authorize the same Google account for read-only Drive access. Create one
+platform-owned Google OAuth web client with this exact authorized redirect URI:
+
+```text
+https://fitness-pals.com/api/archive-imports/google-drive/callback
+```
+
+Register that shared app through the administrator-only provider-app API so its client secret is
+encrypted in Postgres rather than stored in an environment file:
+
+```json
+{
+  "provider": "google_drive",
+  "display_name": "Google Drive",
+  "client_id": "...",
+  "client_secret": "...",
+  "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+  "token_url": "https://oauth2.googleapis.com/token",
+  "redirect_uri": "https://fitness-pals.com/api/archive-imports/google-drive/callback",
+  "scopes": "openid email https://www.googleapis.com/auth/drive.readonly"
+}
+```
+
+The app requests `drive.readonly`, verifies that Google's returned email matches the signed-in
+athlete, and stores each athlete's access and refresh tokens separately and encrypted in
+`user_provider_tokens`. Imports search that Drive recursively from its root for FIT files, ZIP
+exports, and Garmin summarized-activity JSON. The worker refreshes expiring grants and saves each
+refreshed token encrypted. The shared OAuth app registration lives in `provider_apps`; it is not a
+user grant and is never exposed by the provider API.
+
+The older operator-assigned service-account mode remains available as a fallback. Share each
+source folder read-only with the configured service account, then set:
 
 ```dotenv
 RUNTRAINER_GOOGLE_DRIVE_ARCHIVE_SOURCES_JSON={"athlete@example.com":"drive-folder-id"}

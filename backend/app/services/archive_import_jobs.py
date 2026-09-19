@@ -68,16 +68,20 @@ def _job_payload(job: ArchiveImportJob) -> dict[str, Any]:
 
 
 def create_drive_import_job(
-    db: Session, user: Any, *, folder_id: str
+    db: Session,
+    user: Any,
+    *,
+    folder_id: str,
+    authorization: str = "service_account",
 ) -> ArchiveImportJob:
-    """Queue a server-configured Drive folder without accepting a client locator."""
+    """Queue an athlete-bound Drive source without accepting a client locator."""
     now = _now()
     job = ArchiveImportJob(
         user_id=user.id,
         provider="garmin_archive",
         source_type="google_drive",
         source_locator=folder_id,
-        source_metadata_json={"folder_id": folder_id},
+        source_metadata_json={"folder_id": folder_id, "authorization": authorization},
         status="queued",
         filename="Google Drive Garmin archive",
         content_type="application/vnd.google-apps.folder",
@@ -275,7 +279,12 @@ def process_archive_import_job(db: Session, job: ArchiveImportJob) -> dict[str, 
 
     downloads: Any
     if job.source_type == "google_drive":
-        drive = _drive_client()
+        authorization = (job.source_metadata_json or {}).get("authorization")
+        drive = (
+            GoogleDriveArchiveClient.for_user(db, user)
+            if authorization == "user_oauth"
+            else _drive_client()
+        )
         objects = drive.list_supported_objects(job.source_locator or "")
         downloads = ((item, lambda item=item: drive.download(item)) for item in objects)
     elif job.source_type == "upload":

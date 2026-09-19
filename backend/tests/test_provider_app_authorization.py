@@ -51,6 +51,7 @@ class FakeSession:
             client_secret_encrypted=b"encrypted",
             auth_url="https://example.com/authorize",
             token_url="https://example.com/token",
+            redirect_uri="https://example.com/callback",
             scopes="activity",
             created_at=None,
             updated_at=None,

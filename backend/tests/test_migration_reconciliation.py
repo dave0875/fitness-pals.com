@@ -30,14 +30,17 @@ def test_revision_ids_fit_production_alembic_version_column():
     )
 
 
-def test_migration_branches_have_one_head_after_today_plan():
+def test_migration_branches_have_one_head_after_provider_redirect_uri():
     """Existing branch histories and the coaching-loop migration must converge."""
     backend_root = Path(__file__).resolve().parents[1]
     config = Config(str(backend_root / "alembic.ini"))
     config.set_main_option("script_location", str(backend_root / "migrations"))
     scripts = ScriptDirectory.from_config(config)
 
-    assert scripts.get_heads() == ["0016_today_plan"]
+    assert scripts.get_heads() == ["0017_provider_redirect_uri"]
+    provider_redirect_revision = scripts.get_revision("0017_provider_redirect_uri")
+    assert provider_redirect_revision is not None
+    assert provider_redirect_revision.down_revision == "0016_today_plan"
     today_plan_revision = scripts.get_revision("0016_today_plan")
     assert today_plan_revision is not None
     assert today_plan_revision.down_revision == "0015_remove_pulsai"

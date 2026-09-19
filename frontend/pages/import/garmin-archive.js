@@ -50,7 +50,7 @@ export default function GarminArchiveImport() {
   }, [flow.pending, job?.status_url]);
 
   async function runDriveImport() {
-    setMessage("Queueing your configured Google Drive archive…");
+    setMessage("Searching your Google Drive for Garmin archive data…");
     try {
       const response = await authenticatedFetch("/api/archive-imports/google-drive", {
         method: "POST",
@@ -107,8 +107,8 @@ export default function GarminArchiveImport() {
         <p className={styles.eyebrow}>Historical data</p>
         <h1>Import Garmin archive</h1>
         <p className={styles.lede}>
-          Use an available source below. Imports run in the background and this page resumes the
-          latest job when you return.
+          Authorize read-only access to the same Google account you use for Fitness Pals, or upload
+          a Garmin export. Imports run in the background and resume here when you return.
         </p>
       </header>
 
@@ -133,10 +133,32 @@ export default function GarminArchiveImport() {
         <section className={styles.card}>
           <h2>Google Drive source of truth</h2>
           {loading ? (
-            <p>Checking Drive availability…</p>
-          ) : capabilities?.drive?.available ? (
+            <p>Checking Google Drive authorization…</p>
+          ) : capabilities?.drive?.connected ? (
             <>
-              <p>A private Garmin folder and read-only server credentials are configured.</p>
+              <p>
+                Connected to {capabilities.drive.account_email}. Fitness Pals can read Drive files
+                but cannot edit or delete them.
+              </p>
+              {flow.canDriveImport && (
+                <button className={styles.primaryButton} type="button" onClick={runDriveImport}>
+                  {job?.status === "failed" ? "Try import again" : "Search Drive for Garmin data"}
+                </button>
+              )}
+            </>
+          ) : capabilities?.drive?.authorization_available ? (
+            <>
+              <p>
+                Connect your Google Drive with read-only access. Google will ask you to confirm
+                the account and permission before Fitness Pals searches for Garmin exports.
+              </p>
+              <a className={styles.textLink} href={capabilities.drive.authorization_url}>
+                Authorize Google Drive
+              </a>
+            </>
+          ) : capabilities?.drive?.legacy_source_available ? (
+            <>
+              <p>Your private Garmin folder is ready to import.</p>
               {flow.canDriveImport && (
                 <button className={styles.primaryButton} type="button" onClick={runDriveImport}>
                   {job?.status === "failed" ? "Try import again" : "Import from Google Drive"}
