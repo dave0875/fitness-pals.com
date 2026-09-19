@@ -117,7 +117,7 @@ export default function Welcome() {
   const [syncMessage, setSyncMessage] = useState("");
 
   const latestActivities = statusPayload?.latest_activities ?? [];
-  const readinessPreview = statusPayload?.readiness_preview ?? null;
+  const trainingVolumePreview = statusPayload?.training_volume_preview ?? null;
   const coachInsight = statusPayload?.coach_insight ?? null;
   const nextAction = statusPayload?.next_action ?? null;
 
@@ -491,7 +491,7 @@ export default function Welcome() {
             <div style={panelStyle()}>
               <h2 style={{ margin: 0, fontSize: "1.6rem" }}>First win</h2>
               <p style={{ marginTop: "0.9rem", color: "#526472", lineHeight: 1.7 }}>
-                Here is your first value: the latest 5 activities and a readiness preview based on
+                Here is your first value: the latest 5 activities and a training-volume preview based on
                 the data already synced.
               </p>
               <div style={{ display: "flex", gap: "0.9rem", marginTop: "1rem", flexWrap: "wrap" }}>
@@ -524,7 +524,7 @@ export default function Welcome() {
                   Refresh fitness data
                 </button>
                 <a
-                  href="/dashboard#readiness"
+                  href="/dashboard"
                   style={{
                     textDecoration: "none",
                     border: "1px solid #c7d5df",
@@ -535,7 +535,7 @@ export default function Welcome() {
                     background: "#fff",
                   }}
                 >
-                  See my latest readiness
+                  See my training summary
                 </a>
               </div>
             </div>
@@ -558,20 +558,20 @@ export default function Welcome() {
             </div>
 
                 <div style={panelStyle()}>
-                  <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Readiness preview</h2>
-                  {readinessPreview ? (
+                  <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Training-volume preview</h2>
+                  {trainingVolumePreview ? (
                 <>
                   <div style={{ marginTop: "0.9rem", fontSize: "2rem", fontWeight: 800 }}>
-                    {readinessPreview.score}
+                    {trainingVolumePreview.score}
                   </div>
-                  <div style={{ marginTop: "0.4rem", fontWeight: 700 }}>{readinessPreview.label}</div>
+                  <div style={{ marginTop: "0.4rem", fontWeight: 700 }}>{trainingVolumePreview.label}</div>
                   <p style={{ marginTop: "0.9rem", color: "#526472", lineHeight: 1.7 }}>
-                    {readinessPreview.summary}
+                    {trainingVolumePreview.summary}
                   </p>
                 </>
               ) : (
                 <p style={{ marginTop: "0.9rem", color: "#526472" }}>
-                  Readiness preview coming next as more history is processed.
+                  Training-volume preview coming next as more history is processed.
                     </p>
                   )}
                 </div>

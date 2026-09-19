@@ -45,6 +45,8 @@ test("activity detail is athlete-facing and provenance-safe", () => {
   assert.ok(!source.includes("raw_payload"));
   assert.ok(!source.includes("metadata_json"));
   assert.ok(source.includes("<AuthenticatedShell active=\"activities\">"));
+  assert.ok(source.includes("formatDate(activity.start_time)"));
+  assert.ok(!source.includes("activity.started_at"));
 });
 
 test("journey layouts retain usable mobile controls", () => {

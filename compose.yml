@@ -89,28 +89,12 @@ services:
       - grafana_data:/var/lib/grafana
     image: 'grafana/grafana:latest'
 
-  # Added mandatory Redis cache for Authentik
-  authentik-redis:
-    image: redis:alpine
-    container_name: authentik-redis
-    restart: unless-stopped
-    command: --save 60 1 --loglevel warning
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
-    volumes:
-      - redis_data:/data
-
   authentik-server:
     image: ghcr.io/goauthentik/server:${AUTHENTIK_TAG:-2026.2.1}
     container_name: authentik-server
     restart: unless-stopped
     command: server
     environment:
-      - AUTHENTIK_REDIS__HOST=authentik-redis
       - AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY:?AUTHENTIK_SECRET_KEY is required}
       - AUTHENTIK_POSTGRESQL__HOST=runtrainer-postgres
       - AUTHENTIK_POSTGRESQL__NAME=${RUNTRAINER_POSTGRES_DB:?RUNTRAINER_POSTGRES_DB is required}
@@ -118,8 +102,6 @@ services:
       - AUTHENTIK_POSTGRESQL__PASSWORD=${RUNTRAINER_POSTGRES_PASSWORD:?RUNTRAINER_POSTGRES_PASSWORD is required}
     depends_on:
       runtrainer-postgres:
-        condition: service_healthy
-      authentik-redis:
         condition: service_healthy
     volumes:
       - authentik_data:/media
@@ -131,7 +113,6 @@ services:
     restart: unless-stopped
     command: worker
     environment:
-      - AUTHENTIK_REDIS__HOST=authentik-redis
       - AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY:?AUTHENTIK_SECRET_KEY is required}
       - AUTHENTIK_POSTGRESQL__HOST=runtrainer-postgres
       - AUTHENTIK_POSTGRESQL__NAME=${RUNTRAINER_POSTGRES_DB:?RUNTRAINER_POSTGRES_DB is required}
@@ -142,8 +123,6 @@ services:
       - AUTHENTIK_BOOTSTRAP_TOKEN=${AUTHENTIK_BOOTSTRAP_TOKEN:?AUTHENTIK_BOOTSTRAP_TOKEN is required}
     depends_on:
       runtrainer-postgres:
-        condition: service_healthy
-      authentik-redis:
         condition: service_healthy
     volumes:
       - authentik_data:/media
@@ -426,4 +405,3 @@ volumes:
   postgres_data:
     external: true
     name: ${RUNTRAINER_POSTGRES_VOLUME_NAME:-fitness-palscom_postgres_data}
-  redis_data:

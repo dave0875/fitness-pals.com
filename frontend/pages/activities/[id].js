@@ -105,7 +105,7 @@ export default function ActivityDetailPage() {
               <div>
                 <p className={styles.eyebrow}>Personal activity</p>
                 <h1>{activity.title || activity.sport || "Activity details"}</h1>
-                <p>{formatDate(activity.started_at)}</p>
+                <p>{formatDate(activity.start_time)}</p>
               </div>
               <span className={styles.goalPill}>{activity.sport || "Unclassified"}</span>
             </header>

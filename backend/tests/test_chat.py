@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.models import Activity, Conversation
+from app.models import Activity, AthleteGoal, Conversation, NextSessionPlan
 from app.routes.chat import ChatRequest, chat
 
 
@@ -123,3 +123,56 @@ def test_chat_assembles_context_from_canonical_read_model():
     assert stored_conversation.metadata_json["metrics"]["mileage"]["30d"] == 18000.0
     assert stored_conversation.metadata_json["metrics"]["state"] == "fresh"
     assert stored_conversation.metadata_json["metrics"]["data_through"]
+
+
+def test_chat_receives_persisted_goal_phase_and_current_plan_context():
+    """Coach chat should share the ongoing decision context, not only aggregates."""
+    user_id = uuid.uuid4()
+    user = SimpleNamespace(id=user_id)
+    goal = AthleteGoal(
+        id=uuid.uuid4(),
+        user_id=user_id,
+        goal_type="marathon",
+        phase="recovery",
+        target_date=datetime(2026, 8, 22).date(),
+    )
+    plan = NextSessionPlan(
+        id=uuid.uuid4(),
+        user_id=user_id,
+        goal_id=goal.id,
+        status="accepted",
+        session_purpose="Recovery movement",
+        scheduled_for=datetime(2026, 9, 19).date(),
+        recommendation_json={
+            "duration_minutes": {"min": 20, "max": 25},
+            "distance_miles": None,
+            "effort_range": "Easy and conversational",
+        },
+        rationale_json={"evidence": [], "rationale": [], "uncertainty": []},
+    )
+    db = FakeSession([_make_activity(user_id, 2, 6000.0), goal, plan])
+    captured = {}
+
+    def fake_run_coach_prompt(message, metrics):
+        captured.update(metrics)
+        return "coach-response"
+
+    with patch("app.routes.chat.run_coach_prompt", side_effect=fake_run_coach_prompt):
+        chat(ChatRequest(message="Can I move this session?"), user=user, db=db)
+
+    assert captured["today_plan"]["goal"]["phase"] == "recovery"
+    assert captured["today_plan"]["plan"]["status"] == "accepted"
+    assert captured["today_plan"]["plan"]["session_purpose"] == "Recovery movement"
+
+
+def test_chat_never_passes_strength_sentinel_to_coach():
+    user_id = uuid.uuid4()
+    user = SimpleNamespace(id=user_id)
+    sentinel = _make_activity(user_id, 1, 21474836)
+    sentinel.sport = "strength_training"
+    db = FakeSession([sentinel])
+    captured = {}
+    with patch("app.routes.chat.run_coach_prompt", side_effect=lambda _message, metrics: captured.update(metrics) or "safe"):
+        chat(ChatRequest(message="How far was my run?"), user=user, db=db)
+    assert captured["long_run_max"] is None
+    assert captured["mileage"]["30d"] is None

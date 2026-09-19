@@ -152,7 +152,7 @@ def test_onboarding_status_requires_garmin_connection():
     assert result["garmin_connected"] is False
     assert result["first_sync"]["state"] == "not_started"
     assert result["latest_activities"] == []
-    assert result["readiness_preview"] is None
+    assert result["training_volume_preview"] is None
     assert result["coach_insight"] is None
     assert result["next_action"] is None
 
@@ -218,7 +218,7 @@ def test_archive_data_completes_onboarding_without_live_garmin_connection(monkey
     assert result["garmin_connected"] is False
     assert result["first_sync"]["state"] == "completed"
     assert len(result["latest_activities"]) == 1
-    assert result["readiness_preview"] is not None
+    assert result["training_volume_preview"] is not None
 
 
 def test_onboarding_status_returns_sync_queued_with_selected_goal(monkeypatch):
@@ -357,6 +357,8 @@ def test_onboarding_status_returns_first_win_preview_when_synced(monkeypatch):
     )
     job = _sync_job(user.id, status="completed", goal="marathon")
     activities = [_activity(user.id, 1, 12000.0), _activity(user.id, 3, 8000.0)]
+    for activity in activities:
+        activity.start_time = datetime.now(timezone.utc) - timedelta(days=1)
     monkeypatch.setattr(onboarding, "_latest_sync_job", lambda *_args, **_kwargs: job)
     monkeypatch.setattr(
         onboarding,
@@ -385,7 +387,7 @@ def test_onboarding_status_returns_first_win_preview_when_synced(monkeypatch):
     assert result["first_sync"]["state"] == "completed"
     assert result["selected_goal"] == "marathon"
     assert len(result["latest_activities"]) == 2
-    assert result["readiness_preview"]["summary"]
+    assert result["training_volume_preview"]["summary"]
     assert result["coach_insight"]["title"]
     assert result["coach_insight"]["explanation"]
     assert result["next_action"]["label"]

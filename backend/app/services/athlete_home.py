@@ -13,6 +13,7 @@ from app.models import (
     SleepSession,
     SyncCheckpoint,
 )
+from app.services.activity_quality import valid_distance_m
 
 METERS_PER_MILE = 1609.344
 
@@ -62,7 +63,7 @@ def _activity_payload(activity: Activity) -> dict[str, Any]:
         "title": title,
         "sport": activity.sport,
         "start_time": _utc(activity.start_time).isoformat(),
-        "distance_m": float(activity.distance_m) if activity.distance_m is not None else None,
+        "distance_m": valid_distance_m(activity.distance_m, activity.sport),
         "duration_seconds": activity.duration_seconds,
     }
 
@@ -105,12 +106,12 @@ def _trend(activities: list[Activity], now: datetime) -> dict[str, Any]:
     current_start = now - timedelta(days=7)
     previous_start = now - timedelta(days=14)
     current_m = sum(
-        float(activity.distance_m or 0)
+        valid_distance_m(activity.distance_m, activity.sport) or 0
         for activity in activities
         if _utc(activity.start_time) >= current_start
     )
     previous_m = sum(
-        float(activity.distance_m or 0)
+        valid_distance_m(activity.distance_m, activity.sport) or 0
         for activity in activities
         if previous_start <= _utc(activity.start_time) < current_start
     )
@@ -145,8 +146,8 @@ def _trend(activities: list[Activity], now: datetime) -> dict[str, Any]:
     }
 
 
-def _readiness(activities: list[Activity], now: datetime) -> dict[str, Any]:
-    """Create an explainable readiness view from visible canonical training signals."""
+def _training_consistency(activities: list[Activity], now: datetime) -> dict[str, Any]:
+    """Score observed training volume and active days, not physiological readiness."""
     recent = [
         activity
         for activity in activities
@@ -156,12 +157,24 @@ def _readiness(activities: list[Activity], now: datetime) -> dict[str, Any]:
         return {
             "state": "unknown",
             "score": None,
-            "label": "Readiness unavailable",
-            "explanation": "Recent activity history is needed before readiness can be estimated.",
+            "label": "Training consistency unavailable",
+            "explanation": "Recent activity history is needed before consistency can be estimated.",
         }
 
-    mileage = sum(float(activity.distance_m or 0) for activity in recent) / METERS_PER_MILE
+    known_distances = [
+        distance
+        for activity in recent
+        if (distance := valid_distance_m(activity.distance_m, activity.sport)) is not None
+    ]
     active_days = len({_utc(activity.start_time).date() for activity in recent})
+    if not known_distances:
+        return {
+            "state": "unknown",
+            "score": None,
+            "label": "Training consistency unavailable",
+            "explanation": f"{active_days} active days are recorded, but measured distance is unknown.",
+        }
+    mileage = sum(known_distances) / METERS_PER_MILE
     volume_component = min(mileage / 40.0, 1.0) * 55
     consistency_component = min(active_days / 12.0, 1.0) * 45
     score = round(volume_component + consistency_component)
@@ -186,50 +199,28 @@ def _readiness(activities: list[Activity], now: datetime) -> dict[str, Any]:
 
 def _coaching(
     activities: list[Activity],
-    recovery: dict[str, Any],
     freshness_state: str,
-    now: datetime,
 ) -> dict[str, Any]:
-    """Choose one next action and explain it from signals shown on the page."""
-    recent_days = len(
-        {
-            _utc(activity.start_time).date()
-            for activity in activities
-            if _utc(activity.start_time) >= now - timedelta(days=7)
-        }
-    )
+    """Route the athlete to one goal-aware next-session decision."""
     if freshness_state == "stale":
         return {
             "insight": "Your training picture is out of date.",
             "explanation": "Refresh the connection before using older signals to change training.",
             "next_action": {"label": "Refresh fitness data", "href": "/welcome"},
         }
-    if recovery["state"] == "available" and recovery["sleep_score"] is not None:
-        if float(recovery["sleep_score"]) < 60:
-            return {
-                "insight": "Recovery should lead today.",
-                "explanation": (
-                    f"Your latest sleep score is {recovery['sleep_score']}; keep the next session "
-                    "easy enough to protect tomorrow's training."
-                ),
-                "next_action": {"label": "Ask coach for a recovery session", "href": "/dashboard#coach"},
-            }
-    if recent_days >= 4:
+    if activities:
         return {
-            "insight": "Protect the consistency you have built.",
+            "insight": "Make the next session serve your goal.",
             "explanation": (
-                f"You trained on {recent_days} of the last seven days. An easy day now helps "
-                "that consistency compound instead of becoming accumulated fatigue."
+                "Open one editable recommendation tied to your saved goal, phase, and recent "
+                "valid runs. Missing or stale recovery and intensity signals stay visible as uncertainty."
             ),
-            "next_action": {"label": "Plan an easy day", "href": "/dashboard#coach"},
+            "next_action": {"label": "Open today's run", "href": "/dashboard#todays-run"},
         }
     return {
-        "insight": "One calm training day adds useful signal.",
-        "explanation": (
-            f"You trained on {recent_days} of the last seven days. A conversational session "
-            "is the clearest next step while your fitness picture develops."
-        ),
-        "next_action": {"label": "Ask coach about the next session", "href": "/dashboard#coach"},
+        "insight": "Add a valid run before planning the next one.",
+        "explanation": "A known run duration or distance is needed to suggest a grounded range.",
+        "next_action": {"label": "Open today's run", "href": "/dashboard#todays-run"},
     }
 
 
@@ -321,6 +312,7 @@ def build_athlete_home(
             activity
             for activity in db.query(Activity).all()
             if getattr(activity, "user_id", None) == user_id
+            and getattr(activity, "status", None) != "conflict"
         ],
         key=lambda activity: _utc(activity.start_time),
         reverse=True,
@@ -381,9 +373,47 @@ def build_athlete_home(
         freshness_state = "fresh"
         freshness_label = "Fitness data is current"
 
+    activity_time = _utc(activities[0].start_time) if activities else None
+    sleep_time = _utc(latest_sleep.calendar_date) if latest_sleep else None
+    intensity_activity = next(
+        (
+            activity for activity in activities
+            if isinstance(activity.metadata_json, dict)
+            and str(activity.metadata_json.get("intensity", "")).lower() in {"easy", "moderate", "hard"}
+        ),
+        None,
+    )
+    def signal(value: datetime | None) -> dict[str, Any]:
+        return {
+            "state": "unknown" if value is None else ("stale" if current_time - value > timedelta(hours=72) else "fresh"),
+            "data_through": value.isoformat() if value else None,
+        }
+    signals = {
+        "activities": signal(activity_time),
+        "sleep": signal(sleep_time),
+        "intensity": signal(_utc(intensity_activity.start_time) if intensity_activity else None),
+    }
+    if activities and intensity_activity is None:
+        missing.append("intensity")
+    if freshness_state == "fresh" and any(item["state"] != "fresh" for item in signals.values()):
+        freshness_state = "partial"
+        freshness_label = "Some signals need a refresh"
+    if signals["sleep"]["state"] == "stale":
+        missing.append("current_sleep")
+
     recovery = _recovery(latest_sleep)
-    readiness = _readiness(activities, current_time)
-    coaching = _coaching(activities, recovery, freshness_state, current_time)
+    if recovery["state"] == "available" and signals["sleep"]["state"] == "stale":
+        recovery["state"] = "stale"
+        recovery["label"] = "Latest recovery is stale"
+    training_consistency = _training_consistency(activities, current_time)
+    readiness = {
+        "state": "unknown", "score": None, "label": "Readiness unavailable",
+        "explanation": "Training consistency alone cannot establish readiness; current recovery and intensity signals are needed.",
+    }
+    coaching = _coaching(
+        activities,
+        "stale" if signals["activities"]["state"] == "stale" else freshness_state,
+    )
 
     return {
         "state": "ready" if activities else "empty",
@@ -393,9 +423,11 @@ def build_athlete_home(
             "state": freshness_state,
             "label": freshness_label,
             "missing": missing,
+            "signals": signals,
         },
         "goal": _goal(goal),
         "readiness": readiness,
+        "training_consistency": training_consistency,
         "recovery": recovery,
         "trend": _trend(activities, current_time),
         "recent_activities": [_activity_payload(activity) for activity in activities[:5]],

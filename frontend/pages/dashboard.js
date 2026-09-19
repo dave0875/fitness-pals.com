@@ -39,15 +39,37 @@ function Signal({ label, value, detail }) {
 export default function Dashboard() {
   const router = useRouter();
   const [home, setHome] = useState(null);
+  const [todayPlan, setTodayPlan] = useState(null);
   const [viewState, setViewState] = useState("loading");
   const [message, setMessage] = useState("");
   const [chat, setChat] = useState("");
   const [sending, setSending] = useState(false);
+  const [planBusy, setPlanBusy] = useState(false);
+  const [planNotice, setPlanNotice] = useState("");
+  const [editingPlan, setEditingPlan] = useState(false);
+  const [goalDraft, setGoalDraft] = useState({
+    goal_type: "consistency",
+    phase: "maintenance",
+    target_date: "",
+  });
+  const [adjustment, setAdjustment] = useState(null);
+  const [feedback, setFeedback] = useState({ perceived_effort: "as_expected", note: "" });
 
   const loadHome = useCallback(() => {
     setViewState("loading");
-    authenticatedJson("/api/athlete-home").then((data) => {
-        setHome(data);
+    Promise.all([
+      authenticatedJson("/api/athlete-home"),
+      authenticatedJson("/api/today-plan"),
+    ]).then(([homeData, planData]) => {
+        setHome(homeData);
+        setTodayPlan(planData);
+        if (planData.goal) {
+          setGoalDraft({
+            goal_type: planData.goal.type,
+            phase: planData.goal.phase,
+            target_date: planData.goal.target_date || "",
+          });
+        }
         setViewState("ready");
       })
       .catch((error) => {
@@ -88,8 +110,92 @@ export default function Dashboard() {
     }
   };
 
+  const saveGoal = async () => {
+    setPlanBusy(true);
+    setPlanNotice("");
+    try {
+      const data = await authenticatedJson("/api/today-plan/goal", {
+        method: "PUT",
+        json: { ...goalDraft, target_date: goalDraft.target_date || null },
+      });
+      setTodayPlan(data);
+      setEditingPlan(false);
+      setPlanNotice("Goal saved. Your next decision is ready.");
+    } catch (_error) {
+      setPlanNotice("Your goal could not be saved just now.");
+    } finally {
+      setPlanBusy(false);
+    }
+  };
+
+  const updatePlan = async (request) => {
+    if (!todayPlan?.plan) return;
+    setPlanBusy(true);
+    setPlanNotice("");
+    try {
+      const data = await authenticatedJson(`/api/today-plan/${todayPlan.plan.id}`, {
+        method: "PATCH",
+        json: request,
+      });
+      setTodayPlan(data);
+      setEditingPlan(false);
+      setPlanNotice(`Plan ${data.state}.`);
+    } catch (_error) {
+      setPlanNotice("That plan update could not be saved just now.");
+    } finally {
+      setPlanBusy(false);
+    }
+  };
+
+  const acceptPlan = () => updatePlan({ action: "accept", payload: {} });
+  const skipPlan = () => updatePlan({ action: "skip", payload: { note: "Skipped by athlete" } });
+  const adjustPlan = () => updatePlan({
+    action: "adjust",
+    payload: {
+      scheduled_for: adjustment.scheduled_for,
+      duration_minutes: adjustment.duration_min && adjustment.duration_max ? {
+        min: Number(adjustment.duration_min),
+        max: Number(adjustment.duration_max),
+      } : null,
+      distance_miles: adjustment.distance_min && adjustment.distance_max ? {
+        min: Number(adjustment.distance_min),
+        max: Number(adjustment.distance_max),
+      } : null,
+      effort_range: adjustment.effort_range,
+    },
+  });
+  const completePlan = () => updatePlan({ action: "complete", payload: feedback });
+
+  const startAdjustment = () => {
+    const plan = todayPlan.plan;
+    setAdjustment({
+      scheduled_for: plan.scheduled_for,
+      duration_min: plan.duration_minutes?.min ?? "",
+      duration_max: plan.duration_minutes?.max ?? "",
+      distance_min: plan.distance_miles?.min ?? "",
+      distance_max: plan.distance_miles?.max ?? "",
+      effort_range: plan.effort_range,
+    });
+    setEditingPlan(true);
+  };
+
+  const requestNextPlan = async () => {
+    setPlanBusy(true);
+    setPlanNotice("");
+    try {
+      const data = await authenticatedJson("/api/today-plan/next", { method: "POST" });
+      setTodayPlan(data);
+      setPlanNotice("Your next decision is ready.");
+    } catch (_error) {
+      setPlanNotice("The next decision could not be created just now.");
+    } finally {
+      setPlanBusy(false);
+    }
+  };
+
   const recovery = home?.recovery;
   const readiness = home?.readiness;
+  const displayedGoal = todayPlan?.goal || home?.goal;
   return (
     <AuthenticatedShell active="home">
       <header className={styles.pageHeader}>
@@ -98,7 +204,13 @@ export default function Dashboard() {
         <p className={styles.lede}>
           See what changed, understand where you are now, and leave with one useful next step.
         </p>
-        {home?.goal && <p className={styles.goalPill}>Current focus: {home.goal.label}</p>}
+        {displayedGoal && (
+          <p className={styles.goalPill}>
+            Current focus: {displayedGoal.label}
+            {displayedGoal.phase_label ? ` · ${displayedGoal.phase_label}` : ""}
+            {displayedGoal.target_date ? ` · ${formatDate(displayedGoal.target_date)}` : ""}
+          </p>
+        )}
       </header>
 
       {viewState === "loading" && (
@@ -129,7 +241,7 @@ export default function Dashboard() {
         <>
           <div className={styles.freshnessRow}>
             {home.freshness.state === "partial" && (
-              <StatusNotice tone="warning">Some signals are still unknown</StatusNotice>
+              <StatusNotice tone="warning">Some signals are missing or stale</StatusNotice>
             )}
             {home.freshness.state === "stale" && (
               <StatusNotice tone="warning">Your data needs a refresh</StatusNotice>
@@ -166,6 +278,8 @@ export default function Dashboard() {
                 {readiness.score === null ? "Unknown" : `${readiness.score}/100`}
               </p>
               <p>{readiness.explanation}</p>
+              <p>Training consistency: {home.training_consistency.score === null ? "Unknown" : `${home.training_consistency.score}/100`}. {home.training_consistency.explanation}</p>
+              <p>Workout data: {home.freshness.signals.activities.state}. Sleep data: {home.freshness.signals.sleep.state}. Intensity: {home.freshness.signals.intensity.state}.</p>
               <div className={styles.signalGrid}>
                 <Signal
                   label="Sleep"
@@ -180,9 +294,168 @@ export default function Dashboard() {
               <p className={styles.questionLabel}>What to do next</p>
               <h2>{home.coaching.insight}</h2>
               <p>{home.coaching.explanation}</p>
-              <a className={styles.primaryButton} href={home.coaching.next_action.href}>
+              <a className={styles.primaryButton} href="/dashboard#todays-run">
                 {home.coaching.next_action.label}
               </a>
+            </section>
+
+            <section className={styles.wideCard} id="todays-run">
+              <p className={styles.questionLabel}>One decision at a time</p>
+              <h2>Today&apos;s run</h2>
+              <p>
+                A coaching suggestion grounded in your account&apos;s valid run history. It is not a medical readiness score.
+              </p>
+
+              {todayPlan?.state === "goal_required" && (
+                <div className={styles.statePanel}>
+                  <strong>Choose the goal this session should serve</strong>
+                  <p>No goal is assumed from a past race or activity title.</p>
+                </div>
+              )}
+
+              {(todayPlan?.state === "goal_required" || todayPlan?.goal) && (
+                <details className={styles.details} open={todayPlan?.state === "goal_required"}>
+                  <summary>{todayPlan?.goal ? "Change goal or phase" : "Set goal and phase"}</summary>
+                  <div className={styles.form}>
+                    <label>
+                      Goal
+                      <select
+                        value={goalDraft.goal_type}
+                        onChange={(event) => setGoalDraft({ ...goalDraft, goal_type: event.target.value })}
+                      >
+                        <option value="consistency">Consistency</option>
+                        <option value="marathon">Marathon</option>
+                        <option value="half">Half marathon</option>
+                        <option value="recovery">Recovery</option>
+                      </select>
+                    </label>
+                    <label>
+                      Phase
+                      <select
+                        value={goalDraft.phase}
+                        onChange={(event) => setGoalDraft({ ...goalDraft, phase: event.target.value })}
+                      >
+                        <option value="build">Training / build</option>
+                        <option value="maintenance">Maintenance</option>
+                        <option value="recovery">Post-race / recovery</option>
+                      </select>
+                    </label>
+                    <label>
+                      Race or target date (optional)
+                      <input
+                        type="date"
+                        value={goalDraft.target_date}
+                        onChange={(event) => setGoalDraft({ ...goalDraft, target_date: event.target.value })}
+                      />
+                    </label>
+                    <button className={styles.primaryButton} type="button" onClick={saveGoal} disabled={planBusy}>
+                      {planBusy ? "Saving…" : "Save goal and show my run"}
+                    </button>
+                  </div>
+                </details>
+              )}
+
+              {todayPlan?.state === "history_required" && (
+                <StatusNotice tone="warning">
+                  A valid run with a known duration or distance is needed before suggesting a range.
+                </StatusNotice>
+              )}
+
+              {todayPlan?.plan && (
+                <div className={styles.planLayout}>
+                  <div className={styles.planSummary}>
+                    <span className={styles.statusBadge}>{todayPlan.plan.status.replaceAll("_", " ")}</span>
+                    <h3>{todayPlan.plan.session_purpose}</h3>
+                    <dl className={styles.planFacts}>
+                      <div>
+                        <dt>Session purpose</dt>
+                        <dd>{todayPlan.plan.session_purpose}</dd>
+                      </div>
+                      <div>
+                        <dt>When</dt>
+                        <dd>{formatDate(todayPlan.plan.scheduled_for)}</dd>
+                      </div>
+                      <div>
+                        <dt>Time or distance</dt>
+                        <dd>
+                          {todayPlan.plan.duration_minutes
+                            ? `${todayPlan.plan.duration_minutes.min}–${todayPlan.plan.duration_minutes.max} min`
+                            : "Time unknown"}
+                          {todayPlan.plan.distance_miles
+                            ? ` or ${todayPlan.plan.distance_miles.min}–${todayPlan.plan.distance_miles.max} mi`
+                            : ""}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Effort</dt>
+                        <dd>{todayPlan.plan.effort_range}</dd>
+                      </div>
+                    </dl>
+                  </div>
+
+                  <div>
+                    <h3>Why this session</h3>
+                    <ul className={styles.evidenceList}>
+                      {todayPlan.plan.evidence.map((item) => <li key={item.activity_id}>{item.summary}</li>)}
+                      {todayPlan.plan.rationale.map((item) => <li key={item}>{item}</li>)}
+                    </ul>
+                    <h3>What is uncertain</h3>
+                    <ul className={styles.evidenceList}>
+                      {todayPlan.plan.uncertainty.map((item) => <li key={item}>{item}</li>)}
+                    </ul>
+                  </div>
+
+                  {editingPlan && adjustment && (
+                    <div className={styles.form}>
+                      <label>When<input type="date" value={adjustment.scheduled_for} onChange={(event) => setAdjustment({ ...adjustment, scheduled_for: event.target.value })} /></label>
+                      <div className={styles.rangeRow}>
+                        <label>Minimum minutes<input type="number" min="5" value={adjustment.duration_min} onChange={(event) => setAdjustment({ ...adjustment, duration_min: event.target.value })} /></label>
+                        <label>Maximum minutes<input type="number" min="5" value={adjustment.duration_max} onChange={(event) => setAdjustment({ ...adjustment, duration_max: event.target.value })} /></label>
+                      </div>
+                      <div className={styles.rangeRow}>
+                        <label>Minimum miles<input type="number" min="0.5" step="0.5" value={adjustment.distance_min} onChange={(event) => setAdjustment({ ...adjustment, distance_min: event.target.value })} /></label>
+                        <label>Maximum miles<input type="number" min="0.5" step="0.5" value={adjustment.distance_max} onChange={(event) => setAdjustment({ ...adjustment, distance_max: event.target.value })} /></label>
+                      </div>
+                      <label>Effort guidance<input value={adjustment.effort_range} onChange={(event) => setAdjustment({ ...adjustment, effort_range: event.target.value })} /></label>
+                      <div className={styles.buttonRow}>
+                        <button className={styles.primaryButton} type="button" onClick={adjustPlan} disabled={planBusy}>Save adjustment</button>
+                        <button className={styles.secondaryButton} type="button" onClick={() => setEditingPlan(false)}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {todayPlan.plan.status === "accepted" && (
+                    <div className={styles.form}>
+                      <h3>Report completion</h3>
+                      <label>
+                        How did the effort feel?
+                        <select value={feedback.perceived_effort} onChange={(event) => setFeedback({ ...feedback, perceived_effort: event.target.value })}>
+                          <option value="easier">Easier than expected</option>
+                          <option value="as_expected">As expected</option>
+                          <option value="harder">Harder than expected</option>
+                        </select>
+                      </label>
+                      <label>Optional note<textarea value={feedback.note} onChange={(event) => setFeedback({ ...feedback, note: event.target.value })} /></label>
+                      <button className={styles.primaryButton} type="button" onClick={completePlan} disabled={planBusy}>Mark complete</button>
+                    </div>
+                  )}
+
+                  {todayPlan.next_decision_available ? (
+                    <button className={styles.primaryButton} type="button" onClick={requestNextPlan} disabled={planBusy}>
+                      Plan the next session
+                    </button>
+                  ) : !editingPlan && (
+                    <div className={styles.buttonRow}>
+                      {todayPlan.plan.status !== "accepted" && (
+                        <button className={styles.primaryButton} type="button" onClick={acceptPlan} disabled={planBusy}>Accept</button>
+                      )}
+                      <button className={styles.secondaryButton} type="button" onClick={startAdjustment} disabled={planBusy}>Adjust</button>
+                      <button className={styles.secondaryButton} type="button" onClick={skipPlan} disabled={planBusy}>Skip</button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {planNotice && <StatusNotice tone="neutral">{planNotice}</StatusNotice>}
             </section>
 
             <section className={styles.wideCard} id="activities">

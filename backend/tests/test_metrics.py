@@ -191,5 +191,60 @@ def test_race_readiness_uses_only_canonical_postgres():
     assert result["source"] == "canonical_postgres"
     assert result["state"] == "fresh"
     assert result["data_through"] == (now - timedelta(days=2)).isoformat()
-    assert result["readiness"] == pytest.approx(miles_30 / 400 * 100)
-    assert "24.9 miles" in result["commentary"]
+    assert result["readiness"] is None
+    assert result["training_volume_score"] == pytest.approx(miles_30 / 400 * 100)
+    assert "24.9 running miles" in result["commentary"]
+
+
+def test_summary_rejects_sentinel_and_non_running_distance_and_bounds_long_run():
+    now = datetime(2026, 9, 18, 12, tzinfo=timezone.utc)
+    athlete_id = uuid.uuid4()
+    rows = [
+        _make_activity(athlete_id, now, 1, 10000),
+        _make_activity(athlete_id, now, 2, 21474836),
+        _make_activity(athlete_id, now, 3, None),
+        _make_activity(athlete_id, now, 100, 42000),
+        _make_activity(uuid.uuid4(), now, 1, 90000),
+    ]
+    rows[1].sport = "strength_training"
+    rows[3].sport = "run"
+    result = build_canonical_summary(FakeSession(rows), athlete_id, now=now)
+    assert result["mileage"]["30d"] == 10000
+    assert result["long_run_max"] == 10000
+    assert result["metric_states"]["long_run_max"] == "fresh"
+
+
+def test_summary_keeps_missing_run_distance_unknown():
+    now = datetime(2026, 9, 18, 12, tzinfo=timezone.utc)
+    athlete_id = uuid.uuid4()
+    result = build_canonical_summary(
+        FakeSession([_make_activity(athlete_id, now, 1, None)]), athlete_id, now=now
+    )
+    assert result["mileage"]["30d"] is None
+    assert result["long_run_max"] is None
+    assert result["metric_states"]["long_run_max"] == "unknown"
+
+
+def test_race_readiness_does_not_turn_strength_sentinel_into_volume_score():
+    now = datetime.now(timezone.utc)
+    user_id = uuid.uuid4()
+    strength = _make_activity(user_id, now, 1, 21474836)
+    strength.sport = "strength_training"
+    result = race_readiness(
+        RaceReadinessRequest(race_type="marathon", race_date=now + timedelta(days=30)),
+        user=SimpleNamespace(id=user_id), db=FakeSession([strength]),
+    )
+    assert result["readiness"] is None
+    assert result["training_volume_score"] is None
+
+
+def test_fresh_strength_activity_does_not_refresh_old_running_metric():
+    now = datetime(2026, 9, 18, 12, tzinfo=timezone.utc)
+    user_id = uuid.uuid4()
+    strength = _make_activity(user_id, now, 1, 21474836)
+    strength.sport = "strength_training"
+    old_run = _make_activity(user_id, now, 10, 10000)
+    result = build_canonical_summary(FakeSession([strength, old_run]), user_id, now=now)
+    assert result["state"] == "fresh"
+    assert result["metric_states"]["mileage"] == "stale"
+    assert result["metric_states"]["long_run_max"] == "stale"
