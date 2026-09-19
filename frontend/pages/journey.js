@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 
 import AuthenticatedShell, { StatusNotice } from "../components/AuthenticatedShell";
 import { authenticatedJson } from "../lib/authFetch.mjs";
+import { paginateActivities } from "../lib/coreFlowStates.mjs";
 import styles from "../styles/Journey.module.css";
 
 const JOURNEY_API = "/api/journey";
@@ -20,6 +21,7 @@ const SPORTS = [
   ["walk", "Walking"],
   ["strength", "Strength"],
 ];
+const ACTIVITY_PAGE_SIZE = 25;
 
 function formatDate(value) {
   if (!value) return "Unknown";
@@ -59,6 +61,7 @@ export default function Journey() {
   const [windowValue, setWindowValue] = useState("90d");
   const [sportValue, setSportValue] = useState("all");
   const [goalValue, setGoalValue] = useState("all");
+  const [activityPage, setActivityPage] = useState(1);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -86,6 +89,7 @@ export default function Journey() {
     authenticatedJson(`${JOURNEY_API}?${params.toString()}`)
       .then((data) => {
         setJourney(data);
+        setActivityPage(1);
         setViewState("ready");
       })
       .catch((error) => {
@@ -102,7 +106,23 @@ export default function Journey() {
     });
   }
 
-  const filterQuery = `window=${encodeURIComponent(windowValue)}&sport=${encodeURIComponent(sportValue)}&goal=${encodeURIComponent(goalValue)}`;
+  const appliedFilters = journey?.filters || {
+    window: windowValue,
+    sport: sportValue,
+    goal: goalValue,
+  };
+  const filterQuery = `window=${encodeURIComponent(appliedFilters.window)}&sport=${encodeURIComponent(appliedFilters.sport)}&goal=${encodeURIComponent(appliedFilters.goal)}`;
+  const activityPagination = paginateActivities(
+    journey?.activities || [],
+    activityPage,
+    ACTIVITY_PAGE_SIZE
+  );
+  const appliedWindow = WINDOWS.find(
+    ([value]) => value === journey?.filters?.window
+  )?.[1] || journey?.filters?.window;
+  const appliedSport = SPORTS.find(
+    ([value]) => value === journey?.filters?.sport
+  )?.[1] || journey?.filters?.sport;
 
   return (
     <AuthenticatedShell active="journey">
@@ -160,6 +180,13 @@ export default function Journey() {
         </label>
         <button type="submit">Apply filters</button>
       </form>
+
+      {viewState === "ready" && journey && (
+        <p className={styles.appliedFilters} role="status">
+          <strong>Applied filters:</strong> {appliedWindow} · {appliedSport} ·{" "}
+          {journey.filters.goal === "all" ? "All recorded goals" : journey.filters.goal}
+        </p>
+      )}
 
       {viewState === "loading" && (
         <div className={styles.statePanel} role="status">
@@ -332,13 +359,15 @@ export default function Journey() {
                 <p className={styles.eyebrow}>Selected record</p>
                 <h2>Activities</h2>
               </div>
-              <span>{journey.activities.length} shown</span>
+              <span>
+                {activityPagination.from}–{activityPagination.to} of {journey.activities.length} shown
+              </span>
             </div>
             {journey.activities.length === 0 ? (
               <p>No activities match these filters.</p>
             ) : (
               <ol className={styles.activities}>
-                {journey.activities.map((activity) => (
+                {activityPagination.items.map((activity) => (
                   <li key={activity.id}>
                     <a href={`/activities/${activity.id}?${filterQuery}`}>
                       <div>
@@ -352,6 +381,25 @@ export default function Journey() {
                   </li>
                 ))}
               </ol>
+            )}
+            {activityPagination.totalPages > 1 && (
+              <nav className={styles.pagination} aria-label="Activity history pages">
+                <button
+                  type="button"
+                  disabled={activityPagination.page === 1}
+                  onClick={() => setActivityPage((page) => Math.max(1, page - 1))}
+                >
+                  Previous
+                </button>
+                <span>Page {activityPagination.page} of {activityPagination.totalPages}</span>
+                <button
+                  type="button"
+                  disabled={activityPagination.page === activityPagination.totalPages}
+                  onClick={() => setActivityPage((page) => Math.min(activityPagination.totalPages, page + 1))}
+                >
+                  Next
+                </button>
+              </nav>
             )}
           </section>
 

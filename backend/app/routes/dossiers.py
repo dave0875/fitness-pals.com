@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -20,6 +20,7 @@ from app.services.dossiers import (
     get_dossier_artifact,
     get_dossier_job,
     list_dossiers,
+    dossier_eligibility,
     retry_dossier_job,
 )
 from app.types import CurrentUserLike
@@ -48,6 +49,19 @@ def dossier_library(
 ):
     """Return only the current athlete's jobs and immutable dossier versions."""
     return list_dossiers(db, user.id)
+
+
+@router.get("/eligibility")
+def eligibility(
+    window: Literal["30d", "90d", "365d", "all"] = "90d",
+    sport: str = Query("all", min_length=1, max_length=40),
+    goal: str = Query(
+        "all", min_length=1, max_length=40, pattern=r"^[a-zA-Z0-9_-]+$"
+    ),
+    user: CurrentUserLike = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return dossier_eligibility(db, user.id, window=window, sport=sport, goal=goal)
 
 
 @router.post("", status_code=status.HTTP_202_ACCEPTED)

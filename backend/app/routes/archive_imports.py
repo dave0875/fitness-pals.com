@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import get_current_user
 from app.services import archive_import_jobs
+from app.services.archive_capabilities import archive_capabilities
 from app.services.google_drive_archive import configured_folder_for_user
 from app.types import CurrentUserLike
 
@@ -24,12 +25,26 @@ class UploadStartRequest(BaseModel):
     size_bytes: int = Field(gt=0)
 
 
+@router.get("/capabilities")
+def capabilities(
+    user: CurrentUserLike = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Disclose only whether this athlete can use each archive path."""
+    return {
+        **archive_capabilities(user),
+        "latest_job": archive_import_jobs.latest_archive_import_job_status(db, user),
+    }
+
+
 @router.post("/google-drive", status_code=status.HTTP_202_ACCEPTED)
 def start_google_drive_import(
     user: CurrentUserLike = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Queue the Drive folder assigned to this athlete by server configuration."""
+    if not archive_capabilities(user)["drive"]["available"]:
+        raise HTTPException(status_code=503, detail="Google Drive archive is unavailable for this account")
     folder_id = configured_folder_for_user(user)
     job = archive_import_jobs.create_drive_import_job(db, user, folder_id=folder_id)
     return archive_import_jobs.get_archive_import_job_status(db, user, UUID(str(job.id)))
@@ -41,6 +56,8 @@ def start_upload_import(
     user: CurrentUserLike = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if not archive_capabilities(user)["upload"]["available"]:
+        raise HTTPException(status_code=503, detail="Archive upload is unavailable")
     return archive_import_jobs.create_upload_import_job(
         db,
         user,

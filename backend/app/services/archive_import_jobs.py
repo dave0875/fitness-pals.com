@@ -180,6 +180,19 @@ def get_archive_import_job_status(db: Session, user: Any, job_id: UUID) -> dict[
     return _job_payload(_owned_job(db, user, job_id))
 
 
+def latest_archive_import_job_status(db: Session, user: Any) -> dict[str, Any] | None:
+    """Return the latest owned job so the UI can resume progress after navigation."""
+    job = (
+        db.query(ArchiveImportJob)
+        .filter(ArchiveImportJob.user_id == user.id)
+        .order_by(ArchiveImportJob.created_at.desc())
+        .first()
+    )
+    if job is None or getattr(job, "user_id", None) != user.id:
+        return None
+    return _job_payload(job)
+
+
 def _existing_checkpoint(
     db: Session, job: ArchiveImportJob, source: DriveArchiveObject
 ) -> ArchiveImportObject | None:

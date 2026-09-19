@@ -79,6 +79,37 @@ def _snapshot_hash(snapshot: dict[str, Any]) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def dossier_eligibility(
+    db: Session,
+    user_id: uuid.UUID,
+    *,
+    window: str,
+    sport: str,
+    goal: str,
+    journey_builder: Callable[..., dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Check the selected canonical window each time the library opens."""
+    builder = journey_builder or build_journey
+    journey = builder(
+        db=db,
+        user_id=user_id,
+        window=window,
+        sport=sport,
+        goal_filter=goal,
+    )
+    count = int((journey.get("totals") or {}).get("activity_count") or 0)
+    return {
+        "eligible": count > 0,
+        "activity_count": count,
+        "filters": {"window": window, "sport": sport, "goal": goal},
+        "reason": (
+            None
+            if count
+            else "No canonical activities match this selection. Choose another window or import activity history."
+        ),
+    }
+
+
 def _distance_miles(value: Any) -> float | None:
     if value is None:
         return None
@@ -407,6 +438,12 @@ def job_payload(job: DossierJob) -> dict[str, Any]:
         "id": str(job.id),
         "status": job.status,
         "filters": request.get("filters") or {},
+        "activity_count": int(
+            ((request.get("snapshot") or {}).get("totals") or {}).get(
+                "activity_count"
+            )
+            or 0
+        ),
         "retryable": job.status in RETRYABLE_JOB_STATES,
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "finished_at": job.finished_at.isoformat() if job.finished_at else None,

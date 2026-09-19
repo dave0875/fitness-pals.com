@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import AuthenticatedShell, { StatusNotice } from "../../components/AuthenticatedShell";
 import { authenticatedJson } from "../../lib/authFetch.mjs";
+import { dossierState } from "../../lib/coreFlowStates.mjs";
 import styles from "../../styles/Dossiers.module.css";
 
 const ACTIVE_STATES = ["queued", "generating"];
@@ -41,6 +42,8 @@ export default function DossierLibrary() {
   const [library, setLibrary] = useState(null);
   const [viewState, setViewState] = useState("loading");
   const [actionState, setActionState] = useState("idle");
+  const [eligibility, setEligibility] = useState(null);
+  const [requestedJobId, setRequestedJobId] = useState(null);
 
   const selection = useMemo(
     () => ({
@@ -53,19 +56,25 @@ export default function DossierLibrary() {
 
   const loadLibrary = useCallback(async () => {
     try {
-      const data = await authenticatedJson("/api/dossiers");
+      const params = new URLSearchParams(selection);
+      const [data, currentEligibility] = await Promise.all([
+        authenticatedJson("/api/dossiers"),
+        authenticatedJson(`/api/dossiers/eligibility?${params.toString()}`),
+      ]);
       setLibrary(data);
+      setEligibility(currentEligibility);
       setViewState("ready");
     } catch (error) {
       setViewState(error.status === 401 ? "unauthenticated" : "error");
     }
-  }, []);
+  }, [selection]);
 
   useEffect(() => {
     loadLibrary();
   }, [loadLibrary]);
 
-  const hasActiveJob = (library?.jobs || []).some((job) =>
+  const flow = dossierState(eligibility, library?.jobs || []);
+  const hasActiveJob = flow.currentJobs.some((job) =>
     ACTIVE_STATES.includes(job.status)
   );
 
@@ -75,12 +84,38 @@ export default function DossierLibrary() {
     return () => window.clearInterval(timer);
   }, [hasActiveJob, loadLibrary]);
 
+  useEffect(() => {
+    if (!requestedJobId) return undefined;
+    const timer = window.setInterval(async () => {
+      try {
+        const job = await authenticatedJson(`/api/dossiers/jobs/${requestedJobId}`);
+        if (job.status === "completed") {
+          window.clearInterval(timer);
+          await loadLibrary();
+          setActionState("completed");
+          setRequestedJobId(null);
+        } else if (RECOVERABLE_STATES.includes(job.status)) {
+          window.clearInterval(timer);
+          await loadLibrary();
+          setActionState("failed");
+          setRequestedJobId(null);
+        }
+      } catch {
+        window.clearInterval(timer);
+        setActionState("failed");
+        setRequestedJobId(null);
+      }
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [loadLibrary, requestedJobId]);
+
   async function generateDossier() {
     setActionState("generating");
     try {
-      await authenticatedJson("/api/dossiers", { method: "POST", json: selection });
+      const job = await authenticatedJson("/api/dossiers", { method: "POST", json: selection });
+      setRequestedJobId(job.id);
       await loadLibrary();
-      setActionState("idle");
+      setActionState(job.status === "completed" ? "completed" : "queued");
     } catch {
       setActionState("failed");
     }
@@ -90,8 +125,9 @@ export default function DossierLibrary() {
     setActionState(jobId);
     try {
       await authenticatedJson(`/api/dossiers/jobs/${jobId}/retry`, { method: "POST" });
+      setRequestedJobId(jobId);
       await loadLibrary();
-      setActionState("idle");
+      setActionState("queued");
     } catch {
       setActionState("failed");
     }
@@ -115,9 +151,9 @@ export default function DossierLibrary() {
         <button
           type="button"
           onClick={generateDossier}
-          disabled={actionState === "generating" || hasActiveJob}
+          disabled={!flow.canGenerate || ["generating", "queued"].includes(actionState)}
         >
-          {actionState === "generating" ? "Queuing…" : "Generate dossier"}
+          {["generating", "queued"].includes(actionState) ? "Generation in progress…" : "Generate dossier"}
         </button>
       </header>
 
@@ -145,9 +181,19 @@ export default function DossierLibrary() {
           The request did not complete. Your existing dossiers were not changed.
         </StatusNotice>
       )}
+      {actionState === "completed" && library?.latest && (
+        <StatusNotice tone="success">
+          Your dossier is ready. <Link href={`/dossiers/${library.latest.id}`}>Open generated dossier</Link>.
+        </StatusNotice>
+      )}
 
       {viewState === "ready" && library && (
         <>
+          <StatusNotice tone={eligibility?.eligible ? "success" : "neutral"}>
+            {eligibility?.eligible
+              ? `${eligibility.activity_count} activities match this selection. Dossier generation is available.`
+              : eligibility?.reason}
+          </StatusNotice>
           <section className={styles.card}>
             <div className={styles.sectionHeading}>
               <div>
@@ -155,11 +201,11 @@ export default function DossierLibrary() {
                 <h2>Current requests</h2>
               </div>
             </div>
-            {library.jobs.length === 0 ? (
+            {flow.currentJobs.length === 0 ? (
               <p>No dossier generation is currently pending.</p>
             ) : (
               <ul className={styles.jobList}>
-                {library.jobs.map((job) => (
+                {flow.currentJobs.map((job) => (
                   <li key={job.id}>
                     <div>
                       <strong>{stateLabel(job.status)}</strong>

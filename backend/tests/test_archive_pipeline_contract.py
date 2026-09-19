@@ -24,6 +24,7 @@ def test_archive_pipeline_keeps_schema_model_route_worker_and_ui_together():
 
     paths = {route.path for route in app.routes}
     assert "/api/archive-imports/google-drive" in paths
+    assert "/api/archive-imports/capabilities" in paths
     assert "/api/archive-imports/uploads/start" in paths
     assert "/api/archive-imports/{job_id}" in paths
     assert callable(sync_jobs_worker.process_pending_archive_import_jobs)
@@ -31,5 +32,6 @@ def test_archive_pipeline_keeps_schema_model_route_worker_and_ui_together():
     assert ui.exists()
     ui_source = ui.read_text(encoding="utf-8")
     assert "/api/archive-imports/google-drive" in ui_source
+    assert "/api/archive-imports/capabilities" in ui_source
     assert "/api/archive-imports/uploads/start" in ui_source
     assert "status_url" in ui_source
