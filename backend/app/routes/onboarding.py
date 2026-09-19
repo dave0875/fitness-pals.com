@@ -388,7 +388,7 @@ def first_sync(
         provider_key,
         getattr(user, "tenant_id", None),
     )
-    if not _garmin_token_active(garmin_token):
+    if garmin_token is None or not _garmin_token_active(garmin_token):
         raise HTTPException(status_code=409, detail="Garmin must be connected first")
     if (garmin_token.metadata_json or {}).get("auth_scheme") == "garmin_official_oauth2":
         raise HTTPException(
