@@ -28,13 +28,14 @@ from app.models import (
     User,
     UserProviderToken,
 )
-from app.services import archive_import_jobs
+from app.services import archive_import_jobs, garmin_archive_import
 from app.routes import archive_imports as archive_routes
 from app.services.garmin.activity import persist_activity_summaries
-from app.services.garmin_archive_import import ingest_archive_object
+from app.services.garmin_archive_import import NoSupportedGarminActivities, ingest_archive_object
 from app.services.google_drive_archive import (
     DRIVE_READONLY_SCOPE,
     DriveArchiveObject,
+    GoogleDriveArchiveClient,
     configured_folder_for_user,
     google_drive_authorization_url,
     require_matching_google_account,
@@ -546,3 +547,155 @@ def test_summarized_drive_json_is_normalized_with_provenance():
     assert activity.distance_m == 10000
     assert activity.metadata_json["source_object_id"] == "json-object"
     assert activity.metadata_json["source_object_version"] == "json-md5"
+
+
+def test_root_oauth_drive_scope_only_selects_activity_sources():
+    activity_fit = {"name": "2026-09-20-07-52-49.fit", "mimeType": "application/fits"}
+    exported_fit = {"name": "24428629583_ACTIVITY.fit", "mimeType": "application/fits"}
+    monitor_fit = {"name": "monitor.fit", "mimeType": "application/fits"}
+    uploaded_zip = {"name": "UploadedFiles_0-_Part7.zip", "mimeType": "application/zip"}
+    training_zip = {
+        "name": "runner_PrimaryTrainingBackup_Part1.zip",
+        "mimeType": "application/zip",
+    }
+    summaries = {
+        "name": "runner_1_summarizedActivities.json",
+        "mimeType": "application/json",
+    }
+
+    assert GoogleDriveArchiveClient._supported(
+        activity_fit, path=("Fenix8_Backup", "Activity"), root_scoped=True
+    )
+    assert GoogleDriveArchiveClient._supported(
+        exported_fit, path=("somewhere",), root_scoped=True
+    )
+    assert not GoogleDriveArchiveClient._supported(
+        monitor_fit, path=("Fenix8_Backup", "Monitor"), root_scoped=True
+    )
+    assert GoogleDriveArchiveClient._supported(
+        uploaded_zip,
+        path=("GarminDataExport.zip", "DI_CONNECT", "DI-Connect-Uploaded-Files"),
+        root_scoped=True,
+    )
+    assert not GoogleDriveArchiveClient._supported(
+        training_zip,
+        path=("GarminDataExport.zip", "DI_CONNECT", "DI-Connect-Fitness"),
+        root_scoped=True,
+    )
+    assert GoogleDriveArchiveClient._supported(
+        summaries,
+        path=("GarminDataExport.zip", "DI_CONNECT", "DI-Connect-Fitness"),
+        root_scoped=True,
+    )
+
+
+def test_official_garmin_fit_sdk_session_messages_are_normalized(monkeypatch):
+    source = DriveArchiveObject(
+        object_id="fit-object",
+        name="2026-09-20-07-52-49.fit",
+        mime_type="application/fits",
+        version="v1",
+        modified_time=None,
+        size_bytes=10,
+    )
+
+    class FakeDecoder:
+        def __init__(self, stream):
+            assert stream == "fit-stream"
+
+        def is_fit(self):
+            return True
+
+        def read(self):
+            return (
+                {
+                    "session_mesgs": [
+                        {
+                            "start_time": datetime(
+                                2026, 9, 20, 11, 52, 49, tzinfo=timezone.utc
+                            ),
+                            "sport": "running",
+                            "total_distance": 10000.0,
+                            "total_timer_time": 3600.0,
+                        }
+                    ]
+                },
+                [],
+            )
+
+    monkeypatch.setattr(
+        garmin_archive_import.Stream,
+        "from_bytes_io",
+        lambda _stream: "fit-stream",
+    )
+    monkeypatch.setattr(garmin_archive_import, "Decoder", FakeDecoder)
+
+    activities = garmin_archive_import._fit_activities(b"fit-bytes", source)
+
+    assert len(activities) == 1
+    assert activities[0]["activityType"] == "running"
+    assert activities[0]["distance"] == 10000.0
+    assert activities[0]["duration"] == 3600.0
+    assert activities[0]["startTimeGmt"] == "2026-09-20T11:52:49+00:00"
+
+
+def test_no_activity_drive_object_is_durable_skip(monkeypatch):
+    athlete = _user()
+    db = FakeSession([athlete])
+    source_object = DriveArchiveObject(
+        object_id="non-activity-fit",
+        name="monitor.fit",
+        mime_type="application/fits",
+        version="v1",
+        modified_time=None,
+        size_bytes=10,
+    )
+    downloads = []
+    fake_drive = SimpleNamespace(
+        list_supported_objects=lambda _folder_id: [source_object],
+        download=lambda _object: downloads.append(_object.object_id) or b"fit-bytes",
+    )
+    monkeypatch.setattr(archive_import_jobs, "_drive_client", lambda: fake_drive)
+
+    def no_activity(**_kwargs):
+        raise NoSupportedGarminActivities("no supported Garmin activities")
+
+    monkeypatch.setattr(archive_import_jobs, "ingest_archive_object", no_activity)
+
+    first_job = archive_import_jobs.create_drive_import_job(
+        db, athlete, folder_id="folder-one"
+    )
+    first = archive_import_jobs.process_archive_import_job(db, first_job)
+
+    replay = ArchiveImportJob(
+        user_id=athlete.id,
+        provider="garmin_archive",
+        source_type="google_drive",
+        source_locator="folder-one",
+        source_metadata_json={
+            "folder_id": "folder-one",
+            "authorization": "service_account",
+        },
+        status="queued",
+        filename="Google Drive Garmin archive",
+        content_type="application/vnd.google-apps.folder",
+        size_bytes=0,
+        storage_backend="google_drive",
+        storage_key=f"google-drive/{athlete.id}/replay-no-activity",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db.add(replay)
+    db.commit()
+    second = archive_import_jobs.process_archive_import_job(db, replay)
+
+    checkpoint = next(item for item in db.items if isinstance(item, ArchiveImportObject))
+    assert first["objects_skipped"] == 1
+    assert first["objects_failed"] == 0
+    assert first_job.status == "completed"
+    assert checkpoint.status == "skipped"
+    assert checkpoint.result_json == {"reason": "no_supported_activities"}
+    assert second["objects_skipped"] == 1
+    assert second["objects_failed"] == 0
+    assert replay.status == "completed"
+    assert downloads == ["non-activity-fit"]

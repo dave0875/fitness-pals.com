@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.models import ArchiveImportJob, ArchiveImportObject, User
 from app.services.archive_storage import get_archive_storage_client
-from app.services.garmin_archive_import import ingest_archive_object
+from app.services.garmin_archive_import import NoSupportedGarminActivities, ingest_archive_object
 from app.services.google_drive_archive import GoogleDriveArchiveClient
 from app.services.google_drive_archive import DriveArchiveObject
 
@@ -220,7 +220,7 @@ def _process_object(
     content_loader: Callable[[], bytes],
 ) -> tuple[str, int]:
     checkpoint = _existing_checkpoint(db, job, source)
-    if checkpoint is not None and checkpoint.status == "completed":
+    if checkpoint is not None and checkpoint.status in {"completed", "skipped"}:
         return "skipped", 0
     now = _now()
     if checkpoint is None:
@@ -257,6 +257,14 @@ def _process_object(
         checkpoint.updated_at = _now()
         db.commit()
         return "imported", int(result.get("activity_count") or 0)
+    except NoSupportedGarminActivities:
+        checkpoint.status = "skipped"
+        checkpoint.result_json = {"reason": "no_supported_activities"}
+        checkpoint.error_json = None
+        checkpoint.processed_at = _now()
+        checkpoint.updated_at = _now()
+        db.commit()
+        return "skipped", 0
     except Exception as exc:
         checkpoint.status = "failed"
         checkpoint.error_json = _error_payload(exc)

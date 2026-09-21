@@ -9,11 +9,15 @@ import zipfile
 from datetime import datetime, timezone
 from typing import Any
 
-from fitparse import FitFile
+from garmin_fit_sdk import Decoder, Stream
 
 from app.services import dedupe
 from app.services.garmin.activity import persist_activity_summaries
 from app.services.google_drive_archive import DriveArchiveObject
+
+
+class NoSupportedGarminActivities(ValueError):
+    """The object is valid archive material but contains no importable activities."""
 
 
 def _milliseconds_to_iso(value: Any) -> str | None:
@@ -60,16 +64,26 @@ def _normalize_summary(item: dict[str, Any]) -> dict[str, Any]:
 
 def _fit_value(message: Any, *names: str) -> Any:
     for name in names:
-        value = message.get_value(name)
+        value = message.get(name)
         if value is not None:
             return value
     return None
 
 
 def _fit_activities(content: bytes, source: DriveArchiveObject) -> list[dict[str, Any]]:
-    fit = FitFile(io.BytesIO(content))
+    stream = Stream.from_bytes_io(io.BytesIO(content))
+    decoder = Decoder(stream)
+    if not decoder.is_fit():
+        raise ValueError(f"Archive FIT object is not a valid FIT file: {source.name}")
+    messages, errors = decoder.read()
+    if errors:
+        error = errors[0]
+        if isinstance(error, Exception):
+            raise error
+        raise RuntimeError(str(error))
+    sessions = messages.get("session_mesgs") or []
     activities: list[dict[str, Any]] = []
-    for index, session in enumerate(fit.get_messages("session")):
+    for index, session in enumerate(sessions):
         start = _fit_value(session, "start_time", "timestamp")
         if isinstance(start, datetime):
             if start.tzinfo is None:
@@ -134,7 +148,9 @@ def ingest_archive_object(*, db, user, source_object: DriveArchiveObject, conten
         raise ValueError(f"Archive object is empty: {source_object.name}")
     activities = _object_activities(content, source_object)
     if not activities:
-        raise ValueError(f"Archive object has no supported Garmin activities: {source_object.name}")
+        raise NoSupportedGarminActivities(
+            f"Archive object has no supported Garmin activities: {source_object.name}"
+        )
     content_hash = hashlib.sha256(content).hexdigest()
     for activity in activities:
         start_time = activity.get("startTimeGmt")
