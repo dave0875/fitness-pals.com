@@ -365,32 +365,63 @@ class GoogleDriveArchiveClient:
                 return children
 
     @staticmethod
-    def _supported(item: dict[str, Any]) -> bool:
+    def _supported(
+        item: dict[str, Any],
+        *,
+        path: tuple[str, ...] = (),
+        root_scoped: bool = False,
+    ) -> bool:
+        """Return only objects that can represent Garmin activities.
+
+        Legacy server-mapped folders retain the broad extension contract because the
+        operator already scopes those folders. Per-user OAuth starts at Drive root,
+        so it must use folder/file context instead of treating every Garmin FIT file
+        (sleep, HRV, metrics, monitor data, etc.) as an activity.
+        """
         name = str(item.get("name") or "").lower()
-        mime_type = str(item.get("mimeType") or "")
-        return (
-            name.endswith(".fit")
-            or name.endswith(".zip")
-            or name.endswith("_summarizedactivities.json")
-            or mime_type in {"application/fits", "application/zip"}
-        )
+        mime_type = str(item.get("mimeType") or "").lower()
+        if name.endswith("_summarizedactivities.json"):
+            return True
+        if not root_scoped:
+            return (
+                name.endswith(".fit")
+                or name.endswith(".zip")
+                or mime_type in {"application/fits", "application/zip"}
+            )
+
+        path_segments = {segment.strip().lower() for segment in path}
+        if name.endswith(".fit") or mime_type == "application/fits":
+            return name.endswith("_activity.fit") or "activity" in path_segments
+        if name.endswith(".zip") or mime_type in {
+            "application/zip",
+            "application/x-zip",
+            "application/x-zip-compressed",
+        }:
+            return (
+                name.startswith("uploadedfiles_")
+                or "di-connect-uploaded-files" in path_segments
+            )
+        return False
 
     def list_supported_objects(self, folder_id: str) -> list[DriveArchiveObject]:
         """Walk a configured folder and return importable objects deterministically."""
-        pending = [folder_id]
+        root_scoped = folder_id == "root"
+        pending: list[tuple[str, tuple[str, ...]]] = [(folder_id, ())]
         visited: set[str] = set()
         objects: list[DriveArchiveObject] = []
         maximum = int(self.settings.google_drive_archive_max_objects)
         while pending:
-            current = pending.pop(0)
+            current, path = pending.pop(0)
             if current in visited:
                 continue
             visited.add(current)
             for item in self._children(current):
                 if item.get("mimeType") == FOLDER_MIME_TYPE:
-                    pending.append(str(item["id"]))
+                    pending.append(
+                        (str(item["id"]), (*path, str(item.get("name") or item["id"])))
+                    )
                     continue
-                if not self._supported(item):
+                if not self._supported(item, path=path, root_scoped=root_scoped):
                     continue
                 version = str(item.get("md5Checksum") or item.get("modifiedTime") or item["id"])
                 objects.append(
