@@ -62,7 +62,7 @@ def _normalize_summary(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _fit_value(message: dict[str, Any], *names: str) -> Any:
+def _fit_value(message: Any, *names: str) -> Any:
     for name in names:
         value = message.get(name)
         if value is not None:
@@ -71,7 +71,7 @@ def _fit_value(message: dict[str, Any], *names: str) -> Any:
 
 
 def _fit_activities(content: bytes, source: DriveArchiveObject) -> list[dict[str, Any]]:
-    stream = Stream.from_byte_io(io.BytesIO(content))
+    stream = Stream.from_bytes_io(io.BytesIO(content))
     decoder = Decoder(stream)
     if not decoder.is_fit():
         raise ValueError(f"Archive FIT object is not a valid FIT file: {source.name}")
