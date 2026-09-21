@@ -625,7 +625,7 @@ def test_official_garmin_fit_sdk_session_messages_are_normalized(monkeypatch):
 
     monkeypatch.setattr(
         garmin_archive_import.Stream,
-        "from_byte_io",
+        "from_bytes_io",
         lambda _stream: "fit-stream",
     )
     monkeypatch.setattr(garmin_archive_import, "Decoder", FakeDecoder)
