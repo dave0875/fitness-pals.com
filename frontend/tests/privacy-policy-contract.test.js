@@ -30,11 +30,14 @@ test("privacy policy covers core data-handling topics without claiming current o
   assert.match(privacySource, /does\s+<strong>not sell your personal fitness or wellness data<\/strong>/i);
   assert.match(privacySource, /Disconnecting a provider/i);
   assert.match(privacySource, /Garmin archive import is separate from Garmin's official developer APIs/i);
-  assert.match(privacySource, /used only when Fitness Pals has the required Garmin developer approval/i);
+  assert.match(
+    privacySource,
+    /used\s+only\s+when\s+Fitness Pals\s+has\s+the required Garmin developer\s+approval/i
+  );
   assert.match(privacySource, /read-only Drive access/i);
 });
 
 test("homepage exposes a discoverable public privacy-policy link", () => {
   assert.match(homepageSource, /href="\/privacy"/);
-  assert.match(homepageSource, />\\s*Privacy Policy\\s*</);
+  assert.match(homepageSource, />\s*Privacy Policy\s*</);
 });
