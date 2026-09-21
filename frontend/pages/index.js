@@ -664,6 +664,32 @@ export default function Home() {
           }
         }
       `}</style>
+      <footer
+        style={{
+          maxWidth: "1040px",
+          margin: "0 auto",
+          padding: "0 1.5rem 3rem",
+          color: "#5a6d7b",
+          fontSize: "0.95rem",
+        }}
+      >
+        <div
+          style={{
+            borderTop: "1px solid #dbe6ed",
+            paddingTop: "1.25rem",
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "1rem",
+            flexWrap: "wrap",
+          }}
+        >
+          <span>© 2026 Fitness Pals</span>
+          <a href="/privacy" style={{ color: "#0b5f58", fontWeight: 700, textDecoration: "none" }}>
+            Privacy Policy
+          </a>
+        </div>
+      </footer>
+
     </main>
   );
 }
