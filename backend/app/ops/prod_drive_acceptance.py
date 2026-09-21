@@ -13,6 +13,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
+from uuid import UUID
 
 from app.db import SESSION_FACTORY
 from app.models import Activity, ProviderApp, User, UserProviderToken
@@ -165,7 +166,7 @@ def run_acceptance(base_url: str, poll_timeout: int) -> None:
         app = db.query(ProviderApp).filter(ProviderApp.provider == GOOGLE_DRIVE_PROVIDER).first()
         _provider_app_is_valid(app, base_url)
         user, _provider_token = _select_connected_athlete(db)
-        token = create_access_token(user.id)
+        token = create_access_token(UUID(str(user.id)))
         before = db.query(Activity).filter(Activity.user_id == user.id).count()
     finally:
         db.close()
