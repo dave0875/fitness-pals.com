@@ -36,5 +36,5 @@ test("privacy policy covers core data-handling topics without claiming current o
 
 test("homepage exposes a discoverable public privacy-policy link", () => {
   assert.match(homepageSource, /href="\/privacy"/);
-  assert.match(homepageSource, />Privacy Policy</);
+  assert.match(homepageSource, />\\s*Privacy Policy\\s*</);
 });
