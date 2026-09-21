@@ -927,3 +927,11 @@ jobs:
             --timeout "$CLOUDFLARE_SMOKE_TIMEOUT_SECONDS" \
             --route-timeout "$CLOUDFLARE_ROUTE_SMOKE_TIMEOUT_SECONDS" \
             --request-timeout 15
+
+      - name: Accept production Google Drive OAuth import
+        if: contains(github.event.head_commit.message, '[prod-drive-acceptance]')
+        run: |
+          docker compose --env-file "$ENV_FILE" exec -T backend \
+            python -m app.ops.prod_drive_acceptance \
+            --base-url https://fitness-pals.com \
+            --poll-timeout 900
