@@ -215,9 +215,14 @@
     padding: 0.65rem 1rem;
   }
 
+  .brand strong,
   .brand small,
   .accountName {
     display: none;
+  }
+
+  .account {
+    gap: 0.4rem;
   }
 
   .settingsLabel {
@@ -230,7 +235,11 @@
   }
 
   .coachLink {
-    padding-inline: 0.8rem;
+    padding-inline: 0.7rem;
+  }
+
+  .logout {
+    padding-inline: 0.65rem;
   }
 
   .navigation {
