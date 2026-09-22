@@ -256,6 +256,8 @@ def test_dashboard_to_feedback_to_next_decision_state_transition():
     assert completed["plan"]["feedback"] == {
         "perceived_effort": "as_expected",
         "note": "Felt controlled.",
+        "completion_source": "manual",
+        "matched_activity_id": None,
     }
     assert completed["next_decision_available"] is True
 
