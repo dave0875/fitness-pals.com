@@ -21,7 +21,7 @@ class GarminAuthError(Exception):
 
 
 def is_valid_fit_bytes(b: bytes) -> bool:
-    """Basic validation to avoid passing HTML/JSON/truncated data to fitparse."""
+    """Basic validation to avoid passing HTML/JSON/truncated data to the FIT decoder."""
     if not b or len(b) < 100:
         return False
     prefix = b[:5]
