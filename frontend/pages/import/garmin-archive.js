@@ -115,23 +115,29 @@ export default function GarminArchiveImport() {
       {loading && <StatusNotice>Checking archive availability…</StatusNotice>}
       {message && <StatusNotice tone={job?.status === "failed" ? "warning" : "neutral"}>{message}</StatusNotice>}
       {flow.pending && (
-        <StatusNotice>Import in progress: {String(job.status).replaceAll("_", " ")}.</StatusNotice>
+        <StatusNotice>
+          Import in progress: {String(job.status).replaceAll("_", " ")}. You can leave this page safely.{" "}
+          <a href="/coach?from=%2Fimport%2Fgarmin-archive&prompt=Help%20me%20use%20my%20saved%20goal%20while%20my%20training%20history%20finishes%20importing.">
+            Continue with Coach
+          </a>.
+        </StatusNotice>
       )}
       {job?.status === "failed" && (
         <StatusNotice tone="warning">
-          Import failed: {job.error?.message || "The archive could not be processed."} Try import again below.
+          The latest import did not finish. Your saved training history is unchanged, and you can try again below.
         </StatusNotice>
       )}
       {job?.status === "completed" && (
         <StatusNotice tone="success">
           Import complete: {job.activities || 0} activities processed.{" "}
-          <a href="/training">Review imported activities</a>.
+          <a href="/welcome?first=1">See your first value</a> or{" "}
+          <a href="/training">review imported activities</a>.
         </StatusNotice>
       )}
 
       <div className={styles.sectionGrid}>
         <section className={styles.card}>
-          <h2>Google Drive source of truth</h2>
+          <h2>Garmin files in Google Drive</h2>
           {loading ? (
             <p>Checking Google Drive authorization…</p>
           ) : capabilities?.drive?.connected ? (

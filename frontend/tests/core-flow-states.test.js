@@ -1,12 +1,15 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-test("connected and archive-only athletes see actions that can finish", async () => {
+test("connection actions follow the truthful Phase 2 activation contract", async () => {
   const { connectionState } = await import("../lib/coreFlowStates.mjs");
-  assert.equal(connectionState({ garmin_connected: true, first_sync: { state: "completed" } }).action, "refresh");
-  assert.equal(connectionState({ garmin_connected: false, first_sync: { state: "completed" }, latest_activities: [{}] }).action, "connect");
-  assert.equal(connectionState({ garmin_connected: true, first_sync: { state: "queued" } }).action, "wait");
-  assert.equal(connectionState({ garmin_connected: true, first_sync: { state: "failed" } }).action, "retry");
+  assert.equal(connectionState({ activation: { state: "fully_usable", action: { kind: "refresh", label: "Refresh training data", href: "/settings", enabled: true } } }).action, "refresh");
+  assert.equal(connectionState({ activation: { state: "importing", action: { kind: "wait", label: "Import in progress", href: "/training", enabled: false } } }).action, "wait");
+  assert.equal(connectionState({ activation: { state: "authorization_expired", action: { kind: "reconnect", label: "Reconnect training source", href: "/settings", enabled: true } } }).action, "reconnect");
+  const unsupported = connectionState({ activation: { state: "unsupported_capability", action: { kind: "archive", label: "Use archive import", href: "/import/garmin-archive", enabled: true } } });
+  assert.equal(unsupported.action, "archive");
+  assert.equal(unsupported.href, "/import/garmin-archive");
+  assert.equal(unsupported.enabled, true);
 });
 
 test("archive controls distinguish unavailable, pending, failed, and complete", async () => {
@@ -15,6 +18,7 @@ test("archive controls distinguish unavailable, pending, failed, and complete", 
   assert.equal(unavailable.canDriveImport, false);
   assert.equal(unavailable.driveReason, "No folder assigned");
   assert.equal(archiveState({ drive: { available: true }, upload: { available: true } }, { status: "queued" }).canDriveImport, false);
+  assert.equal(archiveState({ drive: { available: true }, upload: { available: true } }, { status: "processing" }).canDriveImport, false);
   assert.equal(archiveState({ drive: { available: true }, upload: { available: true } }, { status: "failed" }).canDriveImport, true);
   assert.equal(archiveState({ drive: { available: true }, upload: { available: true } }, { status: "completed" }).resultHref, "/training");
 });

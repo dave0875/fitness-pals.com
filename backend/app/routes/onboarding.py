@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import os
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import Activity, SyncJob
+from app.models import Activity, ArchiveImportJob, AthleteGoal, SyncJob
 from app.services.activity_summary import build_canonical_summary
 from app.services.activity_quality import valid_distance_m
 from app.services.providers import get_user_provider_token
+from app.services.today_plan import GOAL_LABELS, PHASE_LABELS, save_goal
 from app.types import CurrentUserLike
 
 
@@ -48,9 +50,14 @@ def _garmin_token_active(token, now: datetime | None = None) -> bool:
 
 
 class GoalHandshakeRequest(BaseModel):
-    """Goal selection captured during first-run onboarding."""
+    """Minimal but evolvable athlete intent captured during activation."""
 
-    goal: str
+    goal: str = Field(min_length=1, max_length=32)
+    phase: str = Field(default="build", min_length=1, max_length=32)
+    target_date: date | None = None
+    target_distance: str | None = Field(default=None, max_length=80)
+    target_performance: str | None = Field(default=None, max_length=120)
+    custom_goal: str | None = Field(default=None, max_length=240)
 
 
 class FirstSyncRequest(BaseModel):
@@ -88,13 +95,29 @@ def _set_goal_cookie(response: Response, goal: str) -> None:
     )
 
 
-def _selected_goal(job: SyncJob | None, request: Request) -> str | None:
-    """Resolve the currently selected onboarding goal."""
+def _selected_goal(
+    persisted_goal: AthleteGoal | None,
+    job: SyncJob | None,
+    request: Request,
+) -> str | None:
+    """Resolve intent from durable athlete state before legacy onboarding hints."""
+    if persisted_goal is not None:
+        return persisted_goal.goal_type
     if job and isinstance(job.payload_json, dict):
         goal = job.payload_json.get("goal")
         if isinstance(goal, str) and goal:
             return goal
     return request.cookies.get(GOAL_COOKIE)
+
+
+def _persisted_goal(db: Session, user: CurrentUserLike) -> AthleteGoal | None:
+    """Return the athlete's durable goal/intent record."""
+    return (
+        db.query(AthleteGoal)
+        .filter(AthleteGoal.user_id == user.id)
+        .order_by(AthleteGoal.updated_at.desc())
+        .first()
+    )
 
 
 def _latest_sync_job(db: Session, user: CurrentUserLike) -> SyncJob | None:
@@ -105,6 +128,215 @@ def _latest_sync_job(db: Session, user: CurrentUserLike) -> SyncJob | None:
         .order_by(SyncJob.created_at.desc())
         .first()
     )
+
+
+def _latest_archive_job(
+    db: Session, user: CurrentUserLike
+) -> ArchiveImportJob | None:
+    """Return persisted archive progress so activation survives navigation."""
+    return (
+        db.query(ArchiveImportJob)
+        .filter(ArchiveImportJob.user_id == user.id)
+        .order_by(ArchiveImportJob.created_at.desc())
+        .first()
+    )
+
+
+def _intent_payload(
+    goal: AthleteGoal | None,
+    fallback_goal: str | None = None,
+) -> dict | None:
+    """Serialize athlete intent without exposing persistence details."""
+    if goal is None:
+        if not fallback_goal:
+            return None
+        return {
+            "goal_type": fallback_goal,
+            "label": GOAL_LABELS.get(
+                fallback_goal, fallback_goal.replace("_", " ").title()
+            ),
+            "phase": None,
+            "phase_label": None,
+            "target_date": None,
+            "target_distance": None,
+            "target_performance": None,
+            "custom_goal": None,
+        }
+
+    details = dict(goal.intent_json or {})
+    label = GOAL_LABELS.get(
+        goal.goal_type, goal.goal_type.replace("_", " ").title()
+    )
+    if goal.goal_type == "other" and details.get("custom_goal"):
+        label = str(details["custom_goal"])
+    return {
+        "goal_type": goal.goal_type,
+        "label": label,
+        "phase": goal.phase,
+        "phase_label": PHASE_LABELS.get(
+            goal.phase, goal.phase.replace("_", " ").title()
+        ),
+        "target_date": goal.target_date.isoformat() if goal.target_date else None,
+        "target_distance": details.get("target_distance"),
+        "target_performance": details.get("target_performance"),
+        "custom_goal": details.get("custom_goal"),
+    }
+
+
+def _latest_activity_time(activities: list[dict]) -> datetime | None:
+    if not activities:
+        return None
+    raw = activities[0].get("start_time")
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return _utc(parsed)
+
+
+def _activation_state(
+    *,
+    garmin_token,
+    garmin_connected: bool,
+    garmin_authorization_available: bool,
+    garmin_sync_available: bool,
+    sync_job: SyncJob | None,
+    archive_job: ArchiveImportJob | None,
+    activities: list[dict],
+    intent: dict | None,
+    now: datetime,
+) -> dict:
+    """Compose one athlete-facing activation contract from existing durable truth."""
+    usable_now = bool(activities)
+    latest_activity = _latest_activity_time(activities)
+    stale = bool(
+        latest_activity is not None and now - latest_activity > FRESHNESS_WINDOW
+    )
+    sync_status = getattr(sync_job, "status", None)
+    archive_status = getattr(archive_job, "status", None)
+    sync_active = sync_status in {"queued", "running"}
+    archive_active = archive_status in {
+        "upload_pending",
+        "uploaded",
+        "queued",
+        "processing",
+        "running",
+    }
+    authorization_failed = (
+        sync_status == "failed" and _failure_category(sync_job) == "authorization"
+    )
+    authorization_expired = garmin_token is not None and not garmin_connected
+    import_failed = archive_status == "failed" or (
+        sync_status == "failed" and not authorization_failed
+    )
+
+    if sync_active or archive_active:
+        state = "usable_partial" if usable_now else "importing"
+    elif authorization_expired or authorization_failed:
+        state = "authorization_expired"
+    elif import_failed:
+        state = "import_failed"
+    elif usable_now and stale:
+        state = "stale"
+    elif usable_now:
+        state = "fully_usable"
+    elif garmin_connected and not garmin_sync_available:
+        state = "unsupported_capability"
+    elif garmin_connected:
+        state = "connected_no_data"
+    else:
+        state = "not_connected"
+
+    if state in {"importing", "usable_partial"}:
+        action = {
+            "kind": "wait",
+            "label": "Import in progress",
+            "href": "/training",
+            "enabled": False,
+        }
+    elif state == "authorization_expired":
+        action = (
+            {
+                "kind": "reconnect",
+                "label": "Reconnect training source",
+                "href": "/api/providers/garmin/login?next=/settings",
+                "enabled": True,
+            }
+            if garmin_authorization_available
+            else {
+                "kind": "archive",
+                "label": "Review training data options",
+                "href": "/import/garmin-archive",
+                "enabled": True,
+            }
+        )
+    elif state == "import_failed":
+        action = {
+            "kind": "archive",
+            "label": "Review import and try again",
+            "href": "/import/garmin-archive",
+            "enabled": True,
+        }
+    elif state == "unsupported_capability":
+        action = {
+            "kind": "archive",
+            "label": "Use a supported training import",
+            "href": "/import/garmin-archive",
+            "enabled": True,
+        }
+    elif state in {"connected_no_data", "stale", "fully_usable"} and garmin_connected and garmin_sync_available:
+        action = {
+            "kind": "refresh" if usable_now else "sync",
+            "label": "Refresh training data" if usable_now else "Import recent training",
+            "href": None,
+            "enabled": True,
+        }
+    else:
+        action = {
+            "kind": "archive",
+            "label": "Review training data options",
+            "href": "/import/garmin-archive",
+            "enabled": True,
+        }
+
+    messages = {
+        "not_connected": "Add training history when you are ready; your goal can be refined at any time.",
+        "connected_no_data": "Your training source is ready, but no usable activities have arrived yet.",
+        "importing": "Training history is loading. You can keep exploring while it runs.",
+        "usable_partial": "Some training history is already usable while more data continues loading.",
+        "fully_usable": "Fitness Pals already has enough training history to start helping.",
+        "stale": "Your saved training history is usable, but the newest activity is older than expected.",
+        "authorization_expired": "Future updates need your attention; saved training history remains available.",
+        "import_failed": "The latest import did not finish. Existing saved training history is unchanged.",
+        "unsupported_capability": "That connection cannot import activities here yet. A supported archive path is available.",
+    }
+    intent_label = (intent or {}).get("label") or "your current goal"
+    prompt = (
+        f"Using the training data you have so far, help me turn {intent_label} "
+        "into the most useful next step. Call out any important data limitations."
+    )
+    coach_href = (
+        "/coach?from=%2Fwelcome&prompt=" + quote(prompt, safe="")
+    )
+    return {
+        "state": state,
+        "requires_activation": not usable_now,
+        "usable_now": usable_now,
+        "resume_href": "/today" if usable_now else "/welcome",
+        "message": messages[state],
+        "action": action,
+        "background": {
+            "sync": sync_status,
+            "archive_import": archive_status,
+        },
+        "intent": intent,
+        "coach_handoff": {
+            "href": coach_href,
+            "label": "Continue with Coach",
+        },
+    }
 
 
 def _utc(value: datetime) -> datetime:
@@ -306,11 +538,34 @@ def _next_action(db: Session, user: CurrentUserLike, goal: str | None) -> dict |
 def store_goal_handshake(
     body: GoalHandshakeRequest,
     response: Response,
-    _: CurrentUserLike = Depends(get_current_user),
+    user: CurrentUserLike = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    """Persist the selected onboarding goal via a backend-managed cookie."""
+    """Persist athlete intent in the same durable goal used by Today and Coach."""
+    if body.goal not in GOAL_LABELS:
+        raise HTTPException(status_code=422, detail="Unsupported goal type")
+    if body.phase not in PHASE_LABELS:
+        raise HTTPException(status_code=422, detail="Unsupported training phase")
+
+    details = {
+        "target_distance": body.target_distance,
+        "target_performance": body.target_performance,
+        "custom_goal": body.custom_goal,
+    }
+    save_goal(
+        db,
+        user.id,
+        goal_type=body.goal,
+        phase=body.phase,
+        target_date=body.target_date,
+        intent_json=details,
+    )
+    persisted = _persisted_goal(db, user)
     _set_goal_cookie(response, body.goal)
-    return {"goal": body.goal}
+    return {
+        "goal": body.goal,
+        "intent": _intent_payload(persisted, body.goal),
+    }
 
 
 @router.get("/status")
@@ -319,7 +574,7 @@ def status(
     user: CurrentUserLike = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return the welcome-flow onboarding state for the current user."""
+    """Return one durable, athlete-facing activation and first-value state."""
     provider_key = _garmin_provider_key()
     garmin_token = get_user_provider_token(
         db,
@@ -327,41 +582,74 @@ def status(
         provider_key,
         getattr(user, "tenant_id", None),
     )
-    garmin_connected = _garmin_token_active(garmin_token)
+    now = datetime.now(timezone.utc)
+    garmin_connected = _garmin_token_active(garmin_token, now)
     latest_job = _latest_sync_job(db, user)
-    selected_goal = _selected_goal(latest_job, request)
+    latest_archive_job = _latest_archive_job(db, user)
+    persisted_goal = _persisted_goal(db, user)
+    selected_goal = _selected_goal(persisted_goal, latest_job, request)
+    intent = _intent_payload(persisted_goal, selected_goal)
     latest_activities = _latest_activities(db, user)
 
     first_sync_state, failure_category = _first_sync_state(
         garmin_connected or bool(latest_activities),
         latest_job,
         latest_activities,
-        datetime.now(timezone.utc),
+        now,
     )
 
-    preview = _training_volume_preview(db, user, selected_goal) if latest_activities else None
-    coach_insight = _coach_insight(db, user, selected_goal) if latest_activities else None
-    next_action = _next_action(db, user, selected_goal) if latest_activities else None
+    preview = (
+        _training_volume_preview(db, user, selected_goal)
+        if latest_activities
+        else None
+    )
+    coach_insight = (
+        _coach_insight(db, user, selected_goal) if latest_activities else None
+    )
+    next_action = (
+        _next_action(db, user, selected_goal) if latest_activities else None
+    )
+    garmin_authorization_available = (
+        (os.environ.get("GARMIN_MODE") or "scraper").lower() == "oauth"
+        and all(
+            os.environ.get(key)
+            for key in (
+                "GARMIN_CLIENT_ID",
+                "GARMIN_CLIENT_SECRET",
+                "GARMIN_REDIRECT_URI",
+            )
+        )
+    )
+    garmin_sync_available = not (
+        garmin_token is not None
+        and (garmin_token.metadata_json or {}).get("auth_scheme")
+        == "garmin_official_oauth2"
+    )
+    activation = _activation_state(
+        garmin_token=garmin_token,
+        garmin_connected=garmin_connected,
+        garmin_authorization_available=garmin_authorization_available,
+        garmin_sync_available=garmin_sync_available,
+        sync_job=latest_job,
+        archive_job=latest_archive_job,
+        activities=latest_activities,
+        intent=intent,
+        now=now,
+    )
 
     return {
         "authenticated": True,
         "garmin_connected": garmin_connected,
-        "garmin_authorization_available": (
-            (os.environ.get("GARMIN_MODE") or "scraper").lower() == "oauth"
-            and all(os.environ.get(key) for key in (
-                "GARMIN_CLIENT_ID", "GARMIN_CLIENT_SECRET", "GARMIN_REDIRECT_URI"
-            ))
-        ),
-        # The existing scheduled importer calls private Connect endpoints and cannot
-        # consume tokens issued to a registered Garmin partner application.
-        "garmin_sync_available": not (
-            garmin_token is not None
-            and (garmin_token.metadata_json or {}).get("auth_scheme") == "garmin_official_oauth2"
-        ),
+        "garmin_authorization_available": garmin_authorization_available,
+        "garmin_sync_available": garmin_sync_available,
         "selected_goal": selected_goal,
+        "intent": intent,
+        "activation": activation,
         "first_sync": {
             "state": first_sync_state,
-            "last_synced_at": latest_activities[0]["start_time"] if latest_activities else None,
+            "last_synced_at": (
+                latest_activities[0]["start_time"] if latest_activities else None
+            ),
             "sync_job_id": str(latest_job.id) if latest_job else None,
             "failure_category": failure_category,
             "retryable": first_sync_state in {"failed", "partial", "stale"},

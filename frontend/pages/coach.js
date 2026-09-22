@@ -17,6 +17,11 @@ function safeSourcePath(value) {
   return value;
 }
 
+function safeCoachPrompt(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/[\r\n]+/g, " ").trim().slice(0, 500);
+}
+
 function sourceLabel(value) {
   if (!value) return null;
   if (value.startsWith("/activities/")) return "an activity";

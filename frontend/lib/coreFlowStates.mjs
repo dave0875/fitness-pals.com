@@ -1,15 +1,28 @@
 export function connectionState(status) {
-  if (!status) return { action: "loading", label: "Checking connection…" };
+  if (!status) return { action: "loading", label: "Checking connection…", enabled: false, href: null };
+  const activationAction = status.activation?.action;
+  if (activationAction) {
+    return {
+      action: activationAction.kind,
+      label: activationAction.label,
+      href: activationAction.href || null,
+      enabled: activationAction.enabled !== false,
+      state: status.activation.state,
+    };
+  }
+
+  // Compatibility for responses during rolling deployment.
   const sync = status.first_sync?.state;
-  if (sync === "queued" || sync === "running") return { action: "wait", label: "Refresh in progress" };
-  if (!status.garmin_connected) return { action: "connect", label: "Connect Garmin" };
-  if (sync === "failed" || sync === "partial") return { action: "retry", label: "Retry refresh" };
-  if (sync === "authorization_required") return { action: "connect", label: "Reconnect Garmin" };
-  return { action: "refresh", label: "Refresh activity data" };
+  if (sync === "queued" || sync === "running") return { action: "wait", label: "Refresh in progress", enabled: false, href: "/training" };
+  if (!status.garmin_connected) return { action: "archive", label: "Review training data options", enabled: true, href: "/import/garmin-archive" };
+  if (status.garmin_sync_available === false) return { action: "archive", label: "Use a supported training import", enabled: true, href: "/import/garmin-archive" };
+  if (sync === "failed" || sync === "partial") return { action: "retry", label: "Retry refresh", enabled: true, href: null };
+  if (sync === "authorization_required") return { action: "archive", label: "Review training data options", enabled: true, href: "/import/garmin-archive" };
+  return { action: "refresh", label: "Refresh activity data", enabled: true, href: null };
 }
 
 export function archiveState(capabilities, job) {
-  const pending = ["upload_pending", "uploaded", "queued", "running"].includes(job?.status);
+  const pending = ["upload_pending", "uploaded", "queued", "processing", "running"].includes(job?.status);
   return {
     canDriveImport: Boolean(capabilities?.drive?.available) && !pending,
     canUpload: Boolean(capabilities?.upload?.available) && !pending,

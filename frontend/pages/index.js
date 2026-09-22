@@ -105,11 +105,11 @@ function renderHeroCtas(sessionState, authWelcomeHref) {
     return <CtaSkeleton />;
   }
 
-  if (sessionState === "authenticatedNoGarmin") {
+  if (sessionState === "activationNeeded") {
     return (
       <>
-        <a href="/welcome" style={ctaButtonStyle("primary")}>
-          Connect Garmin
+        <a href="/welcome?first=1" style={ctaButtonStyle("primary")}>
+          Start with my goal
         </a>
         <a href="#trust" style={ctaButtonStyle("secondary")}>
           How your data is used
@@ -118,11 +118,11 @@ function renderHeroCtas(sessionState, authWelcomeHref) {
     );
   }
 
-  if (sessionState === "readyToSync" || sessionState === "syncQueued") {
+  if (sessionState === "importing") {
     return (
       <>
-        <a href="/welcome" style={ctaButtonStyle("primary")}>
-          Import my training history
+        <a href="/welcome?first=1" style={ctaButtonStyle("primary")}>
+          See activation progress
         </a>
         <a href="#how-it-works" style={ctaButtonStyle("secondary")}>
           What happens next
@@ -170,11 +170,11 @@ function renderNavCtas(sessionState, authWelcomeHref) {
     return <CtaSkeleton compact />;
   }
 
-  if (sessionState === "authenticatedNoGarmin") {
+  if (sessionState === "activationNeeded") {
     return (
       <>
-        <a href="/welcome" style={navButtonStyle("primary")}>
-          Connect Garmin
+        <a href="/welcome?first=1" style={navButtonStyle("primary")}>
+          Start with my goal
         </a>
         <a href={HERO_DOSSIER_URL} style={navButtonStyle("secondary")}>
           View sample coach dossier
@@ -183,11 +183,11 @@ function renderNavCtas(sessionState, authWelcomeHref) {
     );
   }
 
-  if (sessionState === "readyToSync" || sessionState === "syncQueued") {
+  if (sessionState === "importing") {
     return (
       <>
-        <a href="/welcome" style={navButtonStyle("primary")}>
-          Import my training history
+        <a href="/welcome?first=1" style={navButtonStyle("primary")}>
+          See activation progress
         </a>
         <a href={HERO_DOSSIER_URL} style={navButtonStyle("secondary")}>
           View sample coach dossier
@@ -258,7 +258,7 @@ export default function Home() {
         }
 
         if (!onboardingResponse.ok) {
-          setSessionState("authenticatedNoGarmin");
+          setSessionState("activationNeeded");
           return;
         }
 
@@ -267,28 +267,16 @@ export default function Home() {
           return;
         }
 
-        if (!onboardingStatus.garmin_connected && !onboardingStatus.latest_activities?.length) {
-          setSessionState("authenticatedNoGarmin");
-          return;
-        }
-
-        if (
-          onboardingStatus.first_sync?.state === "completed" &&
-          onboardingStatus.latest_activities?.length
-        ) {
+        const activation = onboardingStatus.activation;
+        if (activation?.requires_activation === false) {
           setSessionState("synced");
           return;
         }
-
-        if (
-          onboardingStatus.first_sync?.state === "queued" ||
-          onboardingStatus.first_sync?.state === "running"
-        ) {
-          setSessionState("syncQueued");
+        if (activation?.state === "importing") {
+          setSessionState("importing");
           return;
         }
-
-        setSessionState("readyToSync");
+        setSessionState("activationNeeded");
       } catch (_error) {
         if (active) {
           setSessionState("anonymous");
@@ -447,7 +435,7 @@ export default function Home() {
           >
             {[
               ["1. Sign in", "Use the Fitness Pals sign-in screen and continue with Gmail to create an app-backed session."],
-              ["2. Add Garmin data", "Connect Garmin or import your Garmin archive directly."],
+              ["2. Add Garmin data", "Start with my goal or import your Garmin archive directly."],
               ["3. Sync your data", "Queue your first import and let the product build context."],
               ["4. Get coaching value", "See readiness, recent activity patterns, and next actions."],
             ].map(([title, body]) => (

@@ -42,6 +42,7 @@ class Probe:
     expected_text: str | None = None
     expected_json: dict[str, object] | None = None
     require_json_object: bool = False
+    required_json_keys: tuple[str, ...] = ()
     redirect_host: str | None = None
     route_contract: bool = False
 
@@ -87,6 +88,18 @@ def _validate_response(
         for key, value in probe.expected_json.items():
             if payload.get(key) != value:
                 raise ValueError(f"expected JSON field {key}={value!r}")
+
+    if probe.required_json_keys:
+        if not isinstance(payload, dict):
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError("expected a JSON response body") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("expected a JSON object response body")
+        for key in probe.required_json_keys:
+            if key not in payload:
+                raise ValueError(f"expected JSON field {key!r}")
 
     if probe.redirect_host is not None:
         location = headers.get("Location") if headers is not None else None
@@ -237,6 +250,14 @@ def production_probes(
             url=f"{training}/ready",
             expected_statuses=(200,),
             expected_json={"status": "ok"},
+        ),
+        Probe(
+            name="authenticated activation state",
+            url=f"{web}/api/onboarding/status",
+            expected_statuses=(200,),
+            headers={"Authorization": f"Bearer {auth_token}"},
+            require_json_object=True,
+            required_json_keys=("activation",),
         ),
         Probe(
             name="authenticated athlete journey",

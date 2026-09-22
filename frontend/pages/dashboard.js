@@ -323,10 +323,15 @@ export default function Dashboard() {
                         value={goalDraft.goal_type}
                         onChange={(event) => setGoalDraft({ ...goalDraft, goal_type: event.target.value })}
                       >
-                        <option value="consistency">Consistency</option>
+                        <option value="race">Race preparation</option>
                         <option value="marathon">Marathon</option>
                         <option value="half">Half marathon</option>
+                        <option value="consistency">Consistency</option>
+                        <option value="aerobic_fitness">Aerobic fitness</option>
                         <option value="recovery">Recovery</option>
+                        <option value="healthy_activity">Healthy activity</option>
+                        <option value="other">Another goal</option>
+                        <option value="not_sure">I’m not sure</option>
                       </select>
                     </label>
                     <label>

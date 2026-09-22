@@ -24,6 +24,7 @@ class AthleteGoal(PrimaryUUIDMixin, UserOwnedMixin, TimestampMixin, Base):  # py
     goal_type: Mapped[str] = mapped_column(String(32), nullable=False)
     phase: Mapped[str] = mapped_column(String(32), nullable=False)
     target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    intent_json: Mapped[dict | None] = mapped_column("intent", JSON, nullable=True)
 
 
 class NextSessionPlan(PrimaryUUIDMixin, UserOwnedMixin, TimestampMixin, Base):  # pylint: disable=too-few-public-methods

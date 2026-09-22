@@ -6,7 +6,7 @@ from pathlib import Path
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from app.models import RefreshTokenSession
+from app.models import AthleteGoal, RefreshTokenSession
 
 
 ALEMBIC_VERSION_NUM_MAX_LENGTH = 32
@@ -30,14 +30,17 @@ def test_revision_ids_fit_production_alembic_version_column():
     )
 
 
-def test_migration_branches_have_one_head_after_provider_redirect_uri():
-    """Existing branch histories and the coaching-loop migration must converge."""
+def test_migration_branches_have_one_head_after_activation_intent():
+    """Existing branch histories and the activation-intent migration must converge."""
     backend_root = Path(__file__).resolve().parents[1]
     config = Config(str(backend_root / "alembic.ini"))
     config.set_main_option("script_location", str(backend_root / "migrations"))
     scripts = ScriptDirectory.from_config(config)
 
-    assert scripts.get_heads() == ["0017_provider_redirect_uri"]
+    assert scripts.get_heads() == ["0018_activation_intent"]
+    activation_revision = scripts.get_revision("0018_activation_intent")
+    assert activation_revision is not None
+    assert activation_revision.down_revision == "0017_provider_redirect_uri"
     provider_redirect_revision = scripts.get_revision("0017_provider_redirect_uri")
     assert provider_redirect_revision is not None
     assert provider_redirect_revision.down_revision == "0016_today_plan"
@@ -81,3 +84,14 @@ def test_refresh_session_model_has_exact_durable_security_schema():
     assert foreign_key.target_fullname == "users.id"
     assert foreign_key.ondelete == "CASCADE"
     assert not any("token" in column.name and column.name != "jti" for column in table.columns)
+
+
+def test_athlete_goal_schema_can_hold_evolving_activation_intent():
+    """Phase 2 extends the existing athlete goal instead of creating onboarding state."""
+    table = AthleteGoal.__table__
+
+    assert "intent" in table.columns
+    assert table.columns["intent"].nullable is True
+    assert "goal_type" in table.columns
+    assert "phase" in table.columns
+    assert "target_date" in table.columns

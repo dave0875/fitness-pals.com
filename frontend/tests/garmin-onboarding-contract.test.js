@@ -7,18 +7,16 @@ const repositoryRoot = path.join(__dirname, "..", "..");
 const read = (relativePath) =>
   fs.readFileSync(path.join(repositoryRoot, relativePath), "utf8");
 
-test("welcome connects the athlete directly to Garmin", () => {
+test("activation keeps Garmin implementation behind athlete-facing source actions", () => {
   const welcome = read("frontend/pages/welcome.js");
 
-  assert.ok(welcome.includes("/api/providers/garmin/login?next=/welcome"));
-  assert.ok(welcome.includes("/import/garmin-archive"));
-  assert.ok(welcome.includes("Connect Garmin"));
-  assert.ok(welcome.includes("Authorize Fitness Pals through Garmin"));
-  assert.ok(welcome.includes("official Activity API is not yet configured"));
+  assert.ok(welcome.includes("/import/garmin-archive") || welcome.includes("activation?.action"));
+  assert.ok(!welcome.includes("GARMIN_CLIENT_ID"));
+  assert.ok(!welcome.includes("service account"));
   assert.ok(!welcome.toLowerCase().includes("pulsai"));
 });
 
-test("homepage and onboarding API use Garmin as the primary provider", () => {
+test("onboarding API keeps canonical Garmin ingestion without PulsAI", () => {
   const homepage = read("frontend/pages/index.js");
   const onboarding = read("backend/app/routes/onboarding.py");
 
