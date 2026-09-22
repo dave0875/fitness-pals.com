@@ -38,7 +38,8 @@ test("activity detail is athlete-facing and provenance-safe", () => {
   assert.ok(source.includes("router.query.id"));
   assert.ok(source.includes("router.query.goal"));
   assert.match(source, /Data provenance/i);
-  assert.match(source, /Back to journey/i);
+  assert.match(source, /Back to Training/i);
+  assert.ok(source.includes('return `/training${suffix}`'));
   assert.ok(!source.includes("raw_payload"));
   assert.ok(!source.includes("metadata_json"));
   assert.ok(source.includes('<AuthenticatedShell active="training">'));
