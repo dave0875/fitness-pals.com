@@ -105,10 +105,10 @@ function renderHeroCtas(sessionState, authWelcomeHref) {
     return <CtaSkeleton />;
   }
 
-  if (sessionState === "authenticatedNoGarmin") {
+  if (sessionState === "activationNeeded") {
     return (
       <>
-        <a href="/welcome" style={ctaButtonStyle("primary")}>
+        <a href="/welcome?first=1" style={ctaButtonStyle("primary")}>
           Connect Garmin
         </a>
         <a href="#trust" style={ctaButtonStyle("secondary")}>
@@ -118,10 +118,10 @@ function renderHeroCtas(sessionState, authWelcomeHref) {
     );
   }
 
-  if (sessionState === "readyToSync" || sessionState === "syncQueued") {
+  if (sessionState === "importing") {
     return (
       <>
-        <a href="/welcome" style={ctaButtonStyle("primary")}>
+        <a href="/welcome?first=1" style={ctaButtonStyle("primary")}>
           Import my training history
         </a>
         <a href="#how-it-works" style={ctaButtonStyle("secondary")}>
@@ -170,10 +170,10 @@ function renderNavCtas(sessionState, authWelcomeHref) {
     return <CtaSkeleton compact />;
   }
 
-  if (sessionState === "authenticatedNoGarmin") {
+  if (sessionState === "activationNeeded") {
     return (
       <>
-        <a href="/welcome" style={navButtonStyle("primary")}>
+        <a href="/welcome?first=1" style={navButtonStyle("primary")}>
           Connect Garmin
         </a>
         <a href={HERO_DOSSIER_URL} style={navButtonStyle("secondary")}>
@@ -183,10 +183,10 @@ function renderNavCtas(sessionState, authWelcomeHref) {
     );
   }
 
-  if (sessionState === "readyToSync" || sessionState === "syncQueued") {
+  if (sessionState === "importing") {
     return (
       <>
-        <a href="/welcome" style={navButtonStyle("primary")}>
+        <a href="/welcome?first=1" style={navButtonStyle("primary")}>
           Import my training history
         </a>
         <a href={HERO_DOSSIER_URL} style={navButtonStyle("secondary")}>
@@ -258,7 +258,7 @@ export default function Home() {
         }
 
         if (!onboardingResponse.ok) {
-          setSessionState("authenticatedNoGarmin");
+          setSessionState("activationNeeded");
           return;
         }
 
@@ -267,28 +267,16 @@ export default function Home() {
           return;
         }
 
-        if (!onboardingStatus.garmin_connected && !onboardingStatus.latest_activities?.length) {
-          setSessionState("authenticatedNoGarmin");
-          return;
-        }
-
-        if (
-          onboardingStatus.first_sync?.state === "completed" &&
-          onboardingStatus.latest_activities?.length
-        ) {
+        const activation = onboardingStatus.activation;
+        if (activation?.requires_activation === false) {
           setSessionState("synced");
           return;
         }
-
-        if (
-          onboardingStatus.first_sync?.state === "queued" ||
-          onboardingStatus.first_sync?.state === "running"
-        ) {
-          setSessionState("syncQueued");
+        if (activation?.state === "importing") {
+          setSessionState("importing");
           return;
         }
-
-        setSessionState("readyToSync");
+        setSessionState("activationNeeded");
       } catch (_error) {
         if (active) {
           setSessionState("anonymous");
