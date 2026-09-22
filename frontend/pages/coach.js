@@ -71,7 +71,9 @@ export default function Coach() {
   const [threadId, setThreadId] = useState(null);
   const [thread, setThread] = useState(null);
   const [context, setContext] = useState(null);
-  const [snapshot, setSnapshot] = useState({ home: null, plan: null });
+  const [snapshot, setSnapshot] = useState({ home: null, plan: null, intelligence: null });
+  const [preferenceDraft, setPreferenceDraft] = useState("");
+  const [preferenceBusy, setPreferenceBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [actionBusy, setActionBusy] = useState("");
@@ -139,8 +141,12 @@ export default function Coach() {
       loadThreads(),
       authenticatedJson("/api/athlete-home"),
       authenticatedJson("/api/today-plan"),
+      authenticatedJson("/api/intelligence"),
     ])
-      .then(([, home, plan]) => setSnapshot({ home, plan }))
+      .then(([, home, plan, intelligence]) => {
+        setSnapshot({ home, plan, intelligence });
+        setPreferenceDraft((intelligence.preferences || []).join("\n"));
+      })
       .catch(() =>
         setError(
           "Some Coach context could not be refreshed. Your saved conversations are unchanged."
@@ -233,6 +239,54 @@ export default function Coach() {
     }
   }
 
+  async function savePreferences(event) {
+    event.preventDefault();
+    if (preferenceBusy) return;
+    const preferences = preferenceDraft
+      .split("\n")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 8);
+    setPreferenceBusy(true);
+    setError("");
+    try {
+      const intelligence = await authenticatedJson("/api/intelligence/preferences", {
+        method: "PATCH",
+        json: { preferences },
+      });
+      setSnapshot((current) => ({ ...current, intelligence }));
+      setPreferenceDraft((intelligence.preferences || []).join("\n"));
+      setNotice(
+        preferences.length
+          ? "Coach preferences saved deliberately."
+          : "Saved Coach preferences cleared."
+      );
+    } catch (_requestError) {
+      setError("Coach preferences could not be saved just now.");
+    } finally {
+      setPreferenceBusy(false);
+    }
+  }
+
+  async function clearPreferences() {
+    if (preferenceBusy) return;
+    setPreferenceBusy(true);
+    setError("");
+    try {
+      const intelligence = await authenticatedJson("/api/intelligence/preferences", {
+        method: "PATCH",
+        json: { preferences: [] },
+      });
+      setSnapshot((current) => ({ ...current, intelligence }));
+      setPreferenceDraft("");
+      setNotice("Saved Coach preferences cleared.");
+    } catch (_requestError) {
+      setError("Coach preferences could not be cleared just now.");
+    } finally {
+      setPreferenceBusy(false);
+    }
+  }
+
   async function runAction(action) {
     if (action.kind !== "mutation" || actionBusy) return;
     if (action.confirm && !window.confirm(action.confirm)) return;
@@ -265,6 +319,9 @@ export default function Coach() {
   }
 
   const home = snapshot.home;
+  const intelligence = snapshot.intelligence;
+  const association = intelligence?.associations?.[0];
+  const generatedView = intelligence?.views?.[0];
   const currentGoal = thread?.goal || snapshot.plan?.goal || home?.goal;
   const currentPlan = thread?.plan || snapshot.plan?.plan;
   const recentActivity = home?.recent_activities?.[0];
@@ -276,6 +333,7 @@ export default function Coach() {
       ? "What does my latest activity say about my progress?"
       : "What changed in my training recently?",
     "What evidence matters most for my current goal?",
+    "What if I changed this week's mileage? Treat it as a hypothetical.",
   ];
 
   return (
@@ -288,6 +346,124 @@ export default function Coach() {
           leave to inspect the underlying data and come back.
         </p>
       </header>
+
+      {intelligence && (
+        <section className={styles.card} aria-label="Athlete intelligence">
+          <div className={styles.sectionHeading}>
+            <div>
+              <p className={styles.eyebrow}>Athlete intelligence</p>
+              <h2>What changed?</h2>
+            </div>
+            <a className={styles.textLink} href={intelligence.briefing?.href || "/progress"}>
+              Inspect the evidence
+            </a>
+          </div>
+
+          <p><strong>{intelligence.briefing?.headline}</strong></p>
+          {(intelligence.briefing?.details || []).map((detail) => (
+            <p key={detail}>{detail}</p>
+          ))}
+
+          <div className={styles.summaryGrid} aria-label="Athlete-to-self comparison">
+            <article>
+              <span>Athlete-to-self</span>
+              <strong>{intelligence.athlete_to_self?.current?.miles ?? "Unknown"} mi</strong>
+              <small>Latest 7 days</small>
+            </article>
+            <article>
+              <span>Previous baseline</span>
+              <strong>{intelligence.athlete_to_self?.previous?.miles ?? "Unknown"} mi</strong>
+              <small>Preceding 7 days</small>
+            </article>
+            <article>
+              <span>Goal trajectory</span>
+              <strong>
+                {intelligence.trajectory?.days_to_target === null ||
+                intelligence.trajectory?.days_to_target === undefined
+                  ? "No target date"
+                  : intelligence.trajectory.days_to_target + " days"}
+              </strong>
+              <small>Inputs, not a readiness score or prediction</small>
+            </article>
+          </div>
+
+          <details className={styles.details}>
+            <summary>N-of-1 associations and Coach-generated view</summary>
+            <div className={styles.coachEvidenceGrid}>
+              <div className={styles.coachEvidenceCard}>
+                <span>N-of-1 association</span>
+                <strong>{association?.title || "Association unavailable"}</strong>
+                <p>
+                  {association?.state === "available"
+                    ? association.direction +
+                      " " +
+                      association.strength +
+                      " association across " +
+                      association.sample_size +
+                      " paired observations."
+                    : "Not enough paired evidence yet. Sample size: " +
+                      (association?.sample_size ?? 0) +
+                      "."}
+                </p>
+                <p>{association?.caveat}</p>
+                {association?.href && <a href={association.href}>Inspect source window</a>}
+              </div>
+              <div className={styles.coachEvidenceCard}>
+                <span>Coach-generated view</span>
+                <strong>{generatedView?.title || "Training view unavailable"}</strong>
+                {generatedView?.points?.length ? (
+                  <ol>
+                    {generatedView.points.map((point) => (
+                      <li key={point.week_start}>
+                        {formatDate(point.week_start)}:{" "}
+                        {point.miles === null ? "distance unknown" : point.miles + " mi"},{" "}
+                        {point.active_days} active days
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p>No bounded weekly view is available yet.</p>
+                )}
+                <p>{generatedView?.note}</p>
+              </div>
+            </div>
+          </details>
+
+          <StatusNotice tone="neutral">
+            Hypothetical questions are labeled as projections, not observed facts. Missing or stale
+            signals stay explicit, and athlete-to-self associations do not establish causation.
+          </StatusNotice>
+
+          <form className={styles.chatForm} onSubmit={savePreferences}>
+            <label htmlFor="coach-preferences">
+              Coaching preferences you deliberately want Coach to remember
+            </label>
+            <textarea
+              id="coach-preferences"
+              value={preferenceDraft}
+              onChange={(event) => setPreferenceDraft(event.target.value)}
+              placeholder={"One preference per line, for example:\nPrefer time-based easy runs"}
+            />
+            <div className={styles.buttonRow}>
+              <button
+                className={styles.secondaryButton}
+                type="submit"
+                disabled={preferenceBusy}
+              >
+                {preferenceBusy ? "Saving…" : "Save preferences"}
+              </button>
+              <button
+                className={styles.secondaryButton}
+                type="button"
+                onClick={clearPreferences}
+                disabled={preferenceBusy || !(intelligence.preferences || []).length}
+              >
+                Clear saved preferences
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
 
       <div className={styles.coachWorkspace}>
         <aside className={styles.threadSidebar} aria-label="Coach conversations">
