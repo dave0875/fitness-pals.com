@@ -173,6 +173,7 @@ export function connectionTrustState(status, home, capabilities) {
     label: "Connection state unavailable",
     detail: "Fitness Pals cannot determine the current connection state yet.",
     historyAvailable,
+    sourceLabel,
     updating: false,
   };
 }
