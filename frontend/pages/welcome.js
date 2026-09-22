@@ -1,634 +1,401 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/router";
+
 import { authenticatedFetch } from "../lib/authFetch.mjs";
+import styles from "../styles/AthletePages.module.css";
 
 const GOAL_OPTIONS = [
-  ["marathon", "Train for a marathon"],
-  ["half", "Train for a half"],
-  ["consistency", "Rebuild consistency"],
-  ["recovery", "Understand recovery"],
+  ["race", "Race preparation"],
+  ["consistency", "Consistency"],
+  ["aerobic_fitness", "Aerobic fitness"],
+  ["recovery", "Recovery"],
+  ["healthy_activity", "Healthy activity"],
+  ["other", "Another goal"],
+  ["not_sure", "I’m not sure"],
 ];
 
-function panelStyle() {
+const EMPTY_INTENT = {
+  goal: "not_sure",
+  phase: "maintenance",
+  target_date: "",
+  target_distance: "",
+  target_performance: "",
+  custom_goal: "",
+};
+
+function intentFromStatus(intent) {
+  if (!intent) return EMPTY_INTENT;
   return {
-    background: "#ffffff",
-    border: "1px solid #dbe6ed",
-    borderRadius: "24px",
-    padding: "1.4rem",
-    boxShadow: "0 18px 36px rgba(19, 32, 44, 0.05)",
+    goal: intent.goal_type || "not_sure",
+    phase: intent.phase || "maintenance",
+    target_date: intent.target_date || "",
+    target_distance: intent.target_distance || "",
+    target_performance: intent.target_performance || "",
+    custom_goal: intent.custom_goal || "",
   };
 }
 
-function GoalHandshake({ selectedGoal, onSelect, disabled = false }) {
+function GoalHandshake({ draft, onChange, onSave, saving }) {
   return (
-    <div style={panelStyle()}>
-      <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Goal handshake</h2>
-      <p style={{ color: "#526472", lineHeight: 1.7, marginTop: "0.75rem" }}>
-        Pick the reason you are here so the first insight is pointed in the right direction.
+    <section className={styles.wideCard} aria-labelledby="activation-intent-heading">
+      <p className={styles.eyebrow}>Your direction</p>
+      <h2 id="activation-intent-heading">What would make Fitness Pals useful right now?</h2>
+      <p>
+        Pick one direction. Details are optional and can be changed later, so this should take
+        seconds rather than feel like a questionnaire.
       </p>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: "0.8rem",
-          marginTop: "1rem",
-        }}
-      >
+      <div className={styles.sectionGrid} role="group" aria-label="Training goal">
         {GOAL_OPTIONS.map(([value, label]) => (
           <button
             key={value}
             type="button"
-            disabled={disabled}
-            onClick={() => onSelect(value)}
-            style={{
-              padding: "0.9rem 1rem",
-              borderRadius: "18px",
-              border: selectedGoal === value ? "2px solid #0d5a55" : "1px solid #dbe6ed",
-              background: selectedGoal === value ? "#e7f3f1" : "#f9fcfe",
-              color: "#13202c",
-              fontWeight: 700,
-              cursor: disabled ? "default" : "pointer",
-            }}
+            className={draft.goal === value ? styles.primaryButton : styles.secondaryButton}
+            aria-pressed={draft.goal === value}
+            onClick={() => onChange({ ...draft, goal: value })}
           >
             {label}
           </button>
         ))}
       </div>
-    </div>
+
+      <details className={styles.details}>
+        <summary>Add optional details</summary>
+        <div className={styles.form}>
+          <label>
+            Current training phase
+            <select
+              value={draft.phase}
+              onChange={(event) => onChange({ ...draft, phase: event.target.value })}
+            >
+              <option value="build">Training / build</option>
+              <option value="maintenance">Maintenance</option>
+              <option value="recovery">Post-race / recovery</option>
+            </select>
+          </label>
+          <label>
+            Target date
+            <input
+              type="date"
+              value={draft.target_date}
+              onChange={(event) => onChange({ ...draft, target_date: event.target.value })}
+            />
+          </label>
+          <label>
+            Target distance
+            <input
+              value={draft.target_distance}
+              placeholder="For example: 10K, marathon, 50 miles"
+              onChange={(event) => onChange({ ...draft, target_distance: event.target.value })}
+            />
+          </label>
+          <label>
+            Target performance
+            <input
+              value={draft.target_performance}
+              placeholder="For example: 3:15, finish comfortably, run the whole way"
+              onChange={(event) => onChange({ ...draft, target_performance: event.target.value })}
+            />
+          </label>
+          {draft.goal === "other" && (
+            <label>
+              Another goal
+              <textarea
+                value={draft.custom_goal}
+                placeholder="Tell Coach what you want to work toward."
+                onChange={(event) => onChange({ ...draft, custom_goal: event.target.value })}
+              />
+            </label>
+          )}
+        </div>
+      </details>
+
+      <div className={styles.buttonRow}>
+        <button className={styles.primaryButton} type="button" onClick={onSave} disabled={saving}>
+          {saving ? "Saving…" : "Save and continue"}
+        </button>
+      </div>
+    </section>
   );
 }
 
-function RecoveryPanel({
-  title,
-  description,
-  primaryLabel,
-  onPrimary,
-  secondaryHref,
-  secondaryLabel,
-}) {
+function FirstValue({ status }) {
+  const activation = status?.activation;
+  const activities = status?.latest_activities || [];
+  const preview = status?.training_volume_preview;
+  const insight = status?.coach_insight;
+  const next = status?.next_action;
+
   return (
-    <div style={panelStyle()} aria-live="polite">
-      <h2 style={{ margin: 0, fontSize: "1.6rem" }}>{title}</h2>
-      <p style={{ marginTop: "0.9rem", color: "#526472", lineHeight: 1.7 }}>
-        {description}
-      </p>
-      <div style={{ display: "flex", gap: "0.9rem", marginTop: "1rem", flexWrap: "wrap" }}>
-        <button
-          type="button"
-          onClick={onPrimary}
-          style={{
-            border: 0,
-            background: "#0d5a55",
-            color: "#fff",
-            padding: "0.95rem 1.3rem",
-            borderRadius: "999px",
-            fontWeight: 800,
-            cursor: "pointer",
-          }}
-        >
-          {primaryLabel}
-        </button>
-        {secondaryHref && (
-          <a
-            href={secondaryHref}
-            target={secondaryHref.startsWith("http") ? "_blank" : undefined}
-            rel={secondaryHref.startsWith("http") ? "noreferrer noopener" : undefined}
-            style={{
-              textDecoration: "none",
-              border: "1px solid #c7d5df",
-              padding: "0.95rem 1.3rem",
-              borderRadius: "999px",
-              color: "#13202c",
-              fontWeight: 700,
-              background: "#fff",
-            }}
-          >
-            {secondaryLabel}
-          </a>
+    <div className={styles.sectionGrid}>
+      <section className={styles.wideCard}>
+        <p className={styles.eyebrow}>First useful signal</p>
+        <h2>{insight?.title || "Your training picture is starting to take shape"}</h2>
+        <p>
+          {insight?.explanation ||
+            "Fitness Pals has usable activity history now. More history can improve the picture without blocking you here."}
+        </p>
+        {preview && <p className={styles.featureValue}>{preview.summary}</p>}
+        {activation?.state === "usable_partial" && (
+          <p role="status">
+            More history is still importing. This view uses only the training data already available.
+          </p>
         )}
-      </div>
+        <div className={styles.buttonRow}>
+          <a className={styles.primaryButton} href={activation?.coach_handoff?.href || "/coach?from=%2Fwelcome"}>
+            Continue with Coach
+          </a>
+          <a className={styles.secondaryButton} href="/today">Open Today</a>
+        </div>
+      </section>
+
+      <section className={styles.card}>
+        <h2>Recent training</h2>
+        {activities.length ? (
+          <ul className={styles.evidenceList}>
+            {activities.map((activity) => (
+              <li key={activity.id}>
+                {(activity.sport || "Activity").replaceAll("_", " ")} ·{" "}
+                {new Date(activity.start_time).toLocaleDateString()}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>Recent activities will appear as usable history arrives.</p>
+        )}
+      </section>
+
+      <section className={styles.card}>
+        <h2>Next action</h2>
+        <p>{next?.description || "Ask Coach what the available evidence can support right now."}</p>
+        <a className={styles.textLink} href={next?.href || activation?.coach_handoff?.href || "/coach"}>
+          {next?.label || "Ask Coach"}
+        </a>
+      </section>
     </div>
   );
 }
 
 export default function Welcome() {
-  const [welcomeState, setWelcomeState] = useState("bootstrapping");
-  const [selectedGoal, setSelectedGoal] = useState("marathon");
+  const router = useRouter();
+  const [viewState, setViewState] = useState("loading");
   const [statusPayload, setStatusPayload] = useState(null);
-  const [syncMessage, setSyncMessage] = useState("");
+  const [draft, setDraft] = useState(EMPTY_INTENT);
+  const [saving, setSaving] = useState(false);
+  const [working, setWorking] = useState(false);
+  const [notice, setNotice] = useState("");
 
-  const latestActivities = statusPayload?.latest_activities ?? [];
-  const trainingVolumePreview = statusPayload?.training_volume_preview ?? null;
-  const coachInsight = statusPayload?.coach_insight ?? null;
-  const nextAction = statusPayload?.next_action ?? null;
+  const activation = statusPayload?.activation;
+  const editingIntent = router.isReady && router.query.edit === "intent";
+  const showingFirstValue = router.isReady && router.query.first === "1";
 
-  useEffect(() => {
+  const loadStatus = useCallback(async () => {
     try {
-      const stored = window.localStorage.getItem("welcome_goal_handshake");
-      if (stored) {
-        setSelectedGoal(stored);
+      const sessionResponse = await authenticatedFetch("/api/auth/session", {
+        credentials: "include",
+      });
+      if (!sessionResponse.ok) {
+        setViewState("unauthenticated");
+        return;
       }
+
+      const response = await authenticatedFetch("/api/onboarding/status", {
+        credentials: "include",
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error("Activation status is unavailable.");
+
+      setStatusPayload(payload);
+      setDraft(intentFromStatus(payload.intent));
+      const activation = payload.activation;
+      if (
+        activation?.requires_activation === false &&
+        router.query.edit !== "intent" &&
+        router.query.first !== "1"
+      ) {
+        router.replace(activation.resume_href || "/today");
+        return;
+      }
+      setViewState("ready");
     } catch (_error) {
-      // ignore localStorage failures
+      setViewState("error");
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
-    let active = true;
-    let pollId = null;
-
-    async function loadStatus() {
-      try {
-        const sessionResponse = await authenticatedFetch("/api/auth/session", { credentials: "include" });
-        if (!active) {
-          return;
-        }
-        if (!sessionResponse.ok) {
-          setWelcomeState("unauthenticated");
-          return;
-        }
-
-        const onboardingResponse = await authenticatedFetch("/api/onboarding/status", {
-          credentials: "include",
-        });
-        if (!active) {
-          return;
-        }
-        if (!onboardingResponse.ok) {
-          setWelcomeState("connect_garmin");
-          return;
-        }
-
-        const payload = await onboardingResponse.json();
-        if (!active) {
-          return;
-        }
-        setStatusPayload(payload);
-        if (payload.selected_goal) {
-          setSelectedGoal(payload.selected_goal);
-        }
-
-        if (!payload.garmin_connected && !payload.latest_activities?.length) {
-          setWelcomeState("connect_garmin");
-          return;
-        }
-
-        const firstSyncState = payload.first_sync?.state;
-        if (firstSyncState === "queued" || firstSyncState === "running") {
-          setWelcomeState("sync_queued");
-          setSyncMessage("Your training history is being imported now.");
-          return;
-        }
-        if (firstSyncState === "authorization_required") {
-          setWelcomeState("authorization_required");
-          return;
-        }
-        if (firstSyncState === "failed") {
-          setWelcomeState("sync_failed");
-          return;
-        }
-        if (firstSyncState === "partial") {
-          setWelcomeState("partial");
-          return;
-        }
-        if (firstSyncState === "stale") {
-          setWelcomeState("stale");
-          return;
-        }
-        if (firstSyncState === "completed" && payload.latest_activities?.length) {
-          setWelcomeState("synced");
-          return;
-        }
-
-        setWelcomeState("ready_to_sync");
-      } catch (_error) {
-        if (active) {
-          setWelcomeState("unauthenticated");
-        }
-      }
-    }
-
+    if (!router.isReady) return undefined;
     loadStatus();
+    return undefined;
+  }, [router.isReady, loadStatus]);
 
-    if (welcomeState === "sync_queued") {
-      pollId = window.setInterval(loadStatus, 4000);
-    }
+  useEffect(() => {
+    if (!["importing", "usable_partial"].includes(activation?.state)) return undefined;
+    const timer = window.setInterval(loadStatus, 4000);
+    return () => window.clearInterval(timer);
+  }, [activation?.state, loadStatus]);
 
-    return () => {
-      active = false;
-      if (pollId) {
-        window.clearInterval(pollId);
-      }
-    };
-  }, [welcomeState]);
-
-  async function persistGoal(goal) {
-    setSelectedGoal(goal);
+  async function saveIntent() {
+    setSaving(true);
+    setNotice("");
     try {
-      window.localStorage.setItem("welcome_goal_handshake", goal);
-    } catch (_error) {
-      // ignore localStorage failures
-    }
-
-    try {
-      await authenticatedFetch("/api/onboarding/goal", {
+      const response = await authenticatedFetch("/api/onboarding/goal", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ goal }),
+        body: JSON.stringify({
+          goal: draft.goal,
+          phase: draft.phase,
+          target_date: draft.target_date || null,
+          target_distance: draft.target_distance || null,
+          target_performance: draft.target_performance || null,
+          custom_goal: draft.custom_goal || null,
+        }),
       });
-    } catch (_error) {
-      // keep local state even if the persistence call fails
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || "Training intent could not be saved.");
+      setNotice("Saved. Coach and Today can use this direction now.");
+      await loadStatus();
+    } catch (error) {
+      setNotice(error.message || "Training intent could not be saved.");
+    } finally {
+      setSaving(false);
     }
   }
 
   async function queueFirstSync() {
-    setWelcomeState("sync_queued");
-    setSyncMessage("Building your first coaching view from recent Garmin history.");
+    setWorking(true);
+    setNotice("Import starting. You can keep using Fitness Pals while it runs.");
     try {
       const response = await authenticatedFetch("/api/onboarding/first-sync", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ goal: selectedGoal }),
+        body: JSON.stringify({ goal: draft.goal }),
       });
-      if (!response.ok) {
-        setWelcomeState("ready_to_sync");
-        setSyncMessage("Sync could not be queued yet. Please try again.");
-        return;
-      }
-      setStatusPayload(await response.json());
-    } catch (_error) {
-      setWelcomeState("ready_to_sync");
-      setSyncMessage("Sync could not be queued yet. Please try again.");
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || "Training import could not start.");
+      await loadStatus();
+    } catch (error) {
+      setNotice(error.message || "Training import could not start.");
+    } finally {
+      setWorking(false);
     }
   }
 
-  return (
-    <main
-      style={{
-        minHeight: "100vh",
-        background: "linear-gradient(180deg, #f7fbff 0%, #edf4f8 100%)",
-        color: "#13202c",
-        fontFamily: "system-ui, sans-serif",
-      }}
-    >
-      <section style={{ maxWidth: "1040px", margin: "0 auto", padding: "3.5rem 1.5rem 4rem" }}>
-        <div style={{ marginBottom: "2rem" }}>
-          <div style={{ fontWeight: 800, letterSpacing: "0.06em", fontSize: "0.95rem" }}>
-            FITNESS PALS
-          </div>
-          <h1 style={{ fontSize: "clamp(2.4rem, 6vw, 4.4rem)", lineHeight: 0.98, margin: "0.85rem 0 0" }}>
-            Welcome to the real onboarding path.
-          </h1>
-          <p style={{ marginTop: "1rem", maxWidth: "60ch", color: "#526472", lineHeight: 1.75 }}>
-            This flow takes you from login to provider connection to first value. The goal is to get
-            you from account creation to useful coaching context without dumping you into a dead end.
-          </p>
+  const sourceAction = useMemo(() => activation?.action || null, [activation]);
+
+  if (viewState === "unauthenticated") {
+    return (
+      <main style={{ maxWidth: 900, margin: "0 auto", padding: "3rem 1.25rem" }}>
+        <header className={styles.pageHeader}>
+          <p className={styles.eyebrow}>Fitness Pals</p>
+          <h1>Start with your training, not setup.</h1>
+          <p className={styles.lede}>Sign in and Fitness Pals will continue from what it already knows.</p>
+        </header>
+        <section className={styles.card}>
+          <a className={styles.primaryButton} href="/auth/login?next=/welcome">Continue with Gmail</a>
+        </section>
+      </main>
+    );
+  }
+
+  if (viewState === "loading") {
+    return (
+      <main style={{ maxWidth: 900, margin: "0 auto", padding: "3rem 1.25rem" }}>
+        <div className={styles.statePanel} role="status" aria-live="polite">
+          <strong>Finding the useful starting point…</strong>
+          <p>Checking the training and intent already saved to your account.</p>
         </div>
+      </main>
+    );
+  }
 
-        {welcomeState === "bootstrapping" && (
-          <div style={panelStyle()}>
-            <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Loading your onboarding state</h2>
-            <p style={{ marginTop: "0.9rem", color: "#526472" }}>
-              Checking your session, Garmin connection, and first-sync status.
-            </p>
-          </div>
-        )}
+  if (viewState === "error") {
+    return (
+      <main style={{ maxWidth: 900, margin: "0 auto", padding: "3rem 1.25rem" }}>
+        <div className={styles.statePanel} role="alert">
+          <strong>Fitness Pals could not load your activation state.</strong>
+          <p>Your saved data has not been changed.</p>
+          <button className={styles.secondaryButton} type="button" onClick={loadStatus}>Try again</button>
+        </div>
+      </main>
+    );
+  }
 
-        {welcomeState === "unauthenticated" && (
-          <div style={panelStyle()}>
-            <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Continue with Gmail</h2>
-            <p style={{ marginTop: "0.9rem", color: "#526472", lineHeight: 1.7 }}>
-              Use the Fitness Pals sign-in screen and choose Gmail before the welcome flow can continue.
-            </p>
-            <div style={{ display: "flex", gap: "0.9rem", marginTop: "1rem", flexWrap: "wrap" }}>
-              <a
-                href="/auth/login?next=/welcome"
-                style={{
-                  textDecoration: "none",
-                  background: "#0d5a55",
-                  color: "#fff",
-                  padding: "0.95rem 1.3rem",
-                  borderRadius: "999px",
-                  fontWeight: 800,
-                }}
+  return (
+    <main style={{ maxWidth: 960, margin: "0 auto", padding: "3rem 1.25rem 4rem" }}>
+      <header className={styles.pageHeader}>
+        <p className={styles.eyebrow}>{editingIntent ? "Training intent" : "Activation"}</p>
+        <h1>{editingIntent ? "Refine what you are training for." : "Get to useful coaching quickly."}</h1>
+        <p className={styles.lede}>
+          {activation?.message ||
+            "Tell Fitness Pals what matters, add training history when needed, and start using what is already known."}
+        </p>
+      </header>
+
+      {notice && <div className={styles.statePanel} role="status" aria-live="polite"><p>{notice}</p></div>}
+
+      <GoalHandshake draft={draft} onChange={setDraft} onSave={saveIntent} saving={saving} />
+
+      {editingIntent && (
+        <div className={styles.buttonRow} style={{ marginTop: "1rem" }}>
+          <a className={styles.secondaryButton} href="/today">Back to Today</a>
+        </div>
+      )}
+
+      {!editingIntent && activation?.usable_now && (showingFirstValue || activation?.state === "usable_partial") && (
+        <FirstValue status={statusPayload} />
+      )}
+
+      {!editingIntent && !activation?.usable_now && (
+        <div className={styles.sectionGrid}>
+          <section className={styles.wideCard} aria-live="polite">
+            <p className={styles.eyebrow}>Training history</p>
+            <h2>
+              {activation?.state === "importing"
+                ? "Your training is loading"
+                : "Add enough training history for personalized guidance"}
+            </h2>
+            <p>{activation?.message}</p>
+
+            {sourceAction?.kind === "sync" ? (
+              <button
+                className={styles.primaryButton}
+                type="button"
+                onClick={queueFirstSync}
+                disabled={working || sourceAction.enabled === false}
               >
-                Continue with Gmail
+                {working ? "Starting…" : sourceAction.label}
+              </button>
+            ) : sourceAction?.enabled !== false && sourceAction?.href ? (
+              <a className={styles.primaryButton} href={sourceAction.href}>
+                {sourceAction.label}
               </a>
+            ) : (
+              <p role="status">Import in progress. No action is required.</p>
+            )}
+
+            <div className={styles.buttonRow} style={{ marginTop: "1rem" }}>
               <a
-                href="/"
-                style={{
-                  textDecoration: "none",
-                  border: "1px solid #c7d5df",
-                  padding: "0.95rem 1.3rem",
-                  borderRadius: "999px",
-                  color: "#13202c",
-                  fontWeight: 700,
-                  background: "#fff",
-                }}
+                className={styles.textLink}
+                href={activation?.coach_handoff?.href || "/coach?from=%2Fwelcome"}
               >
-                Back to homepage
+                Continue with Coach
               </a>
+              <a className={styles.textLink} href="/training">Explore Training</a>
             </div>
-          </div>
-        )}
-
-        {welcomeState === "connect_garmin" && (
-          <div style={{ display: "grid", gap: "1rem" }}>
-            <div style={panelStyle()}>
-              <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Connect Garmin</h2>
-              <p style={{ marginTop: "0.9rem", color: "#526472", lineHeight: 1.7 }}>
-                {statusPayload?.garmin_authorization_available
-                  ? "Authorize Fitness Pals through Garmin’s consent page. Garmin handles your sign-in; Fitness Pals never receives your Garmin password."
-                  : "Garmin’s ordinary sign-in page cannot grant Fitness Pals access to your activities. Live connection requires an approved Garmin developer integration."}
+            {activation?.state === "importing" && (
+              <p>
+                You do not need to wait here while the import finishes. Coach can use your saved
+                intent now and will be explicit about the training evidence that has not arrived yet.
               </p>
-              <p style={{ color: "#526472", lineHeight: 1.7 }}>
-                {statusPayload?.garmin_authorization_available
-                  ? "Your grant is stored encrypted. Automatic import through Garmin’s official Activity API is not yet configured; use an archive to start coaching now."
-                  : "Import your Garmin export archive to start coaching from your own activities now, without granting live access."}
-              </p>
-              <div style={{ display: "flex", gap: "0.9rem", flexWrap: "wrap" }}>
-                {statusPayload?.garmin_authorization_available && (
-                  <a
-                    href="/api/providers/garmin/login?next=/welcome"
-                    style={{
-                      display: "inline-block",
-                      textDecoration: "none",
-                      background: "#0d5a55",
-                      color: "#fff",
-                      padding: "0.85rem 1.2rem",
-                      borderRadius: "999px",
-                      fontWeight: 800,
-                    }}
-                  >
-                    Authorize with Garmin
-                  </a>
-                )}
-                <a
-                  href="/import/garmin-archive"
-                  style={{
-                    display: "inline-block",
-                    textDecoration: "none",
-                    border: "1px solid #c7d5df",
-                    color: "#13202c",
-                    padding: "0.85rem 1.2rem",
-                    borderRadius: "999px",
-                    fontWeight: 700,
-                    background: "#fff",
-                  }}
-                >
-                  Import Garmin archive
-                </a>
-              </div>
-            </div>
-            <GoalHandshake selectedGoal={selectedGoal} onSelect={persistGoal} />
-          </div>
-        )}
-
-        {welcomeState === "ready_to_sync" && (
-          <div style={{ display: "grid", gap: "1rem" }}>
-            <GoalHandshake selectedGoal={selectedGoal} onSelect={persistGoal} />
-            <div style={panelStyle()}>
-              <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Import my training history</h2>
-              <p style={{ marginTop: "0.9rem", color: "#526472", lineHeight: 1.7 }}>
-                {statusPayload?.garmin_sync_available === false
-                  ? "Garmin authorization succeeded, but automatic import through the official Activity API is not configured yet. Import a Garmin archive to start coaching."
-                  : "Garmin is connected. Queue the first sync to turn your training data into a useful coaching view."}
-              </p>
-              <div style={{ display: "flex", gap: "0.9rem", marginTop: "1rem", flexWrap: "wrap" }}>
-                {statusPayload?.garmin_sync_available === false ? (
-                  <a href="/import/garmin-archive">Import Garmin archive</a>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={queueFirstSync}
-                    style={{
-                      border: 0,
-                      background: "#0d5a55",
-                      color: "#fff",
-                      padding: "0.95rem 1.3rem",
-                      borderRadius: "999px",
-                      fontWeight: 800,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Import my training history
-                  </button>
-                )}
-                <a
-                  href="/#how-it-works"
-                  style={{
-                    textDecoration: "none",
-                    border: "1px solid #c7d5df",
-                    padding: "0.95rem 1.3rem",
-                    borderRadius: "999px",
-                    color: "#13202c",
-                    fontWeight: 700,
-                    background: "#fff",
-                  }}
-                >
-                  What sync includes
-                </a>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {welcomeState === "sync_queued" && (
-          <div style={{ display: "grid", gap: "1rem" }}>
-            <GoalHandshake selectedGoal={selectedGoal} onSelect={persistGoal} disabled />
-            <div style={panelStyle()}>
-              <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Sync in progress</h2>
-              <p style={{ marginTop: "0.9rem", color: "#526472", lineHeight: 1.7 }}>
-                {syncMessage || "Your Garmin sync is queued. We are building context for your goal now."}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {welcomeState === "authorization_required" && (
-          <RecoveryPanel
-            title="Garmin authorization needs attention"
-            description="Garmin could not authorize this sync. Reconnect Garmin, then try the import again."
-            primaryLabel="Reconnect Garmin"
-            onPrimary={() => setWelcomeState("connect_garmin")}
-          />
-        )}
-
-        {welcomeState === "sync_failed" && (
-          <RecoveryPanel
-            title="Sync needs another try"
-            description="Garmin did not finish the import. Retrying will reuse canonical records instead of duplicating them."
-            primaryLabel="Try sync again"
-            onPrimary={queueFirstSync}
-          />
-        )}
-
-        {welcomeState === "partial" && (
-          <RecoveryPanel
-            title="Import finished with limited history"
-            description="Garmin connected, but no supported activities reached Fitness Pals yet."
-            primaryLabel="Try sync again"
-            onPrimary={queueFirstSync}
-            secondaryHref="/dashboard"
-            secondaryLabel="Open athlete home"
-          />
-        )}
-
-        {welcomeState === "stale" && (
-          <RecoveryPanel
-            title="Your fitness data needs a refresh"
-            description="The last successful Garmin import is more than 72 hours old. Refresh before using older signals to change your training."
-            primaryLabel="Refresh fitness data"
-            onPrimary={queueFirstSync}
-            secondaryHref="/dashboard"
-            secondaryLabel="Review existing data"
-          />
-        )}
-
-        {welcomeState === "synced" && (
-          <div style={{ display: "grid", gap: "1rem" }}>
-            <div style={panelStyle()}>
-              <h2 style={{ margin: 0, fontSize: "1.6rem" }}>First win</h2>
-              <p style={{ marginTop: "0.9rem", color: "#526472", lineHeight: 1.7 }}>
-                Here is your first value: the latest 5 activities and a training-volume preview based on
-                the data already synced.
-              </p>
-              <div style={{ display: "flex", gap: "0.9rem", marginTop: "1rem", flexWrap: "wrap" }}>
-                <a
-                  href="/today"
-                  style={{
-                    textDecoration: "none",
-                    background: "#0d5a55",
-                    color: "#fff",
-                    padding: "0.95rem 1.3rem",
-                    borderRadius: "999px",
-                    fontWeight: 800,
-                  }}
-                >
-                  Open Today
-                </a>
-                <button
-                  type="button"
-                  onClick={queueFirstSync}
-                  style={{
-                    border: "1px solid #c7d5df",
-                    padding: "0.95rem 1.3rem",
-                    borderRadius: "999px",
-                    color: "#13202c",
-                    fontWeight: 700,
-                    background: "#fff",
-                    cursor: "pointer",
-                  }}
-                >
-                  Refresh fitness data
-                </button>
-                <a
-                  href="/today"
-                  style={{
-                    textDecoration: "none",
-                    border: "1px solid #c7d5df",
-                    padding: "0.95rem 1.3rem",
-                    borderRadius: "999px",
-                    color: "#13202c",
-                    fontWeight: 700,
-                    background: "#fff",
-                  }}
-                >
-                  See my training summary
-                </a>
-              </div>
-            </div>
-
-            <div style={panelStyle()}>
-              <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Latest 5 activities</h2>
-              {latestActivities.length === 0 ? (
-                <p style={{ marginTop: "0.9rem", color: "#526472" }}>
-                  Latest activities will appear here as soon as sync data is available.
-                </p>
-              ) : (
-                <ul style={{ margin: "1rem 0 0", paddingLeft: "1.2rem", lineHeight: 1.8, color: "#334756" }}>
-                  {latestActivities.map((activity) => (
-                    <li key={activity.id}>
-                      {activity.sport || "activity"} on {new Date(activity.start_time).toLocaleString()}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-                <div style={panelStyle()}>
-                  <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Training-volume preview</h2>
-                  {trainingVolumePreview ? (
-                <>
-                  <div style={{ marginTop: "0.9rem", fontSize: "2rem", fontWeight: 800 }}>
-                    {trainingVolumePreview.score}
-                  </div>
-                  <div style={{ marginTop: "0.4rem", fontWeight: 700 }}>{trainingVolumePreview.label}</div>
-                  <p style={{ marginTop: "0.9rem", color: "#526472", lineHeight: 1.7 }}>
-                    {trainingVolumePreview.summary}
-                  </p>
-                </>
-              ) : (
-                <p style={{ marginTop: "0.9rem", color: "#526472" }}>
-                  Training-volume preview coming next as more history is processed.
-                    </p>
-                  )}
-                </div>
-
-                <div style={panelStyle()}>
-                  <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Coach insight</h2>
-                  {coachInsight ? (
-                    <>
-                      <div style={{ marginTop: "0.9rem", fontWeight: 800, fontSize: "1.1rem" }}>
-                        {coachInsight.title}
-                      </div>
-                      <p style={{ marginTop: "0.85rem", color: "#526472", lineHeight: 1.7 }}>
-                        {coachInsight.explanation}
-                      </p>
-                    </>
-                  ) : (
-                    <p style={{ marginTop: "0.9rem", color: "#526472" }}>
-                      Coach insight will appear here as soon as enough synced history is available.
-                    </p>
-                  )}
-                </div>
-
-                <div style={panelStyle()}>
-                  <h2 style={{ margin: 0, fontSize: "1.6rem" }}>Next action</h2>
-                  {nextAction ? (
-                    <>
-                      <div style={{ marginTop: "0.9rem", fontWeight: 800, fontSize: "1.1rem" }}>
-                        {nextAction.label}
-                      </div>
-                      <p style={{ marginTop: "0.85rem", color: "#526472", lineHeight: 1.7 }}>
-                        {nextAction.description}
-                      </p>
-                      <a
-                        href={nextAction.href}
-                        style={{
-                          display: "inline-block",
-                          marginTop: "1rem",
-                          textDecoration: "none",
-                          background: "#0d5a55",
-                          color: "#fff",
-                          padding: "0.85rem 1.15rem",
-                          borderRadius: "999px",
-                          fontWeight: 800,
-                        }}
-                      >
-                        Open my dashboard
-                      </a>
-                    </>
-                  ) : (
-                    <p style={{ marginTop: "0.9rem", color: "#526472" }}>
-                      Next action will appear here once the first synced pattern is ready.
-                    </p>
-                  )}
-                </div>
-              </div>
             )}
           </section>
-        </main>
-      );
+        </div>
+      )}
+
+      {!editingIntent && activation?.usable_now && !showingFirstValue && activation?.state !== "usable_partial" && (
+        <FirstValue status={statusPayload} />
+      )}
+    </main>
+  );
 }
