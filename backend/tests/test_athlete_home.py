@@ -181,7 +181,7 @@ def test_generic_coaching_cta_navigates_to_todays_run_decision():
 
     assert result["coaching"]["next_action"] == {
         "label": "Open today's run",
-        "href": "/dashboard#todays-run",
+        "href": "/today#todays-run",
     }
     assert result["coaching"]["insight"] == "Make the next session serve your goal."
     assert "last seven days" not in result["coaching"]["explanation"]
