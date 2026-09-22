@@ -6,7 +6,13 @@ import { authenticatedJson } from "../lib/authFetch.mjs";
 import styles from "../styles/AthletePages.module.css";
 
 function safeSourcePath(value) {
-  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) return null;
+  if (
+    typeof value !== "string" ||
+    !value.startsWith("/") ||
+    value.startsWith("//") ||
+    value.includes("\\") ||
+    /%5c/i.test(value)
+  ) return null;
   if (value.startsWith("/coach")) return null;
   return value;
 }
