@@ -4,12 +4,10 @@ import { authenticatedFetch } from "../lib/authFetch.mjs";
 import styles from "../styles/AuthenticatedShell.module.css";
 
 const navigation = [
-  { key: "home", label: "Home", href: "/dashboard" },
-  { key: "journey", label: "Journey", href: "/journey" },
-  { key: "activities", label: "Activities", href: "/journey#activities" },
-  { key: "dossiers", label: "Dossiers", href: "/dossiers" },
-  { key: "coach", label: "Coach", href: "/dashboard#coach" },
-  { key: "settings", label: "Settings", href: "/settings" },
+  { key: "today", label: "Today", href: "/today" },
+  { key: "coach", label: "Coach", href: "/coach" },
+  { key: "progress", label: "Progress", href: "/progress" },
+  { key: "training", label: "Training", href: "/training" },
 ];
 
 function displayName(profile) {
@@ -27,10 +25,10 @@ export function StatusNotice({ tone = "neutral", children }) {
 function safeReturnPath(asPath) {
   return typeof asPath === "string" && asPath.startsWith("/") && !asPath.startsWith("//")
     ? asPath
-    : "/dashboard";
+    : "/today";
 }
 
-export default function AuthenticatedShell({ active = "home", children }) {
+export default function AuthenticatedShell({ active = "today", children }) {
   const router = useRouter();
   const [profile, setProfile] = useState(null);
 
@@ -57,13 +55,15 @@ export default function AuthenticatedShell({ active = "home", children }) {
     };
   }, [router.asPath, router.isReady]);
 
+  const coachHref = `/coach?from=${encodeURIComponent(safeReturnPath(router.asPath))}`;
+
   return (
     <div className={styles.shell}>
       <a className={styles.skipLink} href="#main-content">
         Skip to content
       </a>
       <header className={styles.header}>
-        <a className={styles.brand} href="/dashboard" aria-label="Fitness Pals home">
+        <a className={styles.brand} href="/today" aria-label="Fitness Pals Today">
           <span className={styles.brandMark} aria-hidden="true">FP</span>
           <span>
             <strong>Fitness Pals</strong>
@@ -71,6 +71,7 @@ export default function AuthenticatedShell({ active = "home", children }) {
           </span>
         </a>
         <div className={styles.account}>
+          <a className={styles.coachLink} href={coachHref}>Ask Coach</a>
           <a href="/settings" className={styles.accountLink}>{displayName(profile)}</a>
           <a href="/auth/logout" className={styles.logout}>Sign out</a>
         </div>
