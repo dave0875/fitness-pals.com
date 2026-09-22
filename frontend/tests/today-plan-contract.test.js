@@ -33,7 +33,7 @@ test("Today explains evidence and uncertainty without invented zones", () => {
     "Session purpose",
     "Time or distance",
     "Effort",
-    "Why this session",
+    "Why this decision",
     "What is uncertain",
     "not a medical readiness score",
     "Post-race / recovery",
