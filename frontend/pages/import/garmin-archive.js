@@ -104,12 +104,16 @@ export default function GarminArchiveImport() {
   return (
     <AuthenticatedShell active="settings">
       <header className={styles.pageHeader}>
-        <p className={styles.eyebrow}>Historical data</p>
+        <p className={styles.eyebrow}>Connections · Historical data</p>
         <h1>Import Garmin archive</h1>
         <p className={styles.lede}>
-          Authorize read-only access to the same Google account you use for Fitness Pals, or upload
-          a Garmin export. Imports run in the background and resume here when you return.
+          Use a supported archive path when live updates are unavailable or when you need older
+          history. Imports persist in the background, and matching activities are reconciled with
+          canonical history instead of being presented as a second visible workout.
         </p>
+        <a className={styles.textLink} href="/settings#connections">
+          Back to Connections
+        </a>
       </header>
 
       {loading && <StatusNotice>Checking archive availability…</StatusNotice>}
@@ -129,9 +133,10 @@ export default function GarminArchiveImport() {
       )}
       {job?.status === "completed" && (
         <StatusNotice tone="success">
-          Import complete: {job.activities || 0} activities processed.{" "}
-          <a href="/welcome?first=1">See your first value</a> or{" "}
-          <a href="/training">review imported activities</a>.
+          Import complete: {job.activities || 0} activities processed. Matching activities are
+          reconciled rather than intentionally shown twice.{" "}
+          <a href="/training">Review imported activities</a> or{" "}
+          <a href="/settings#connections">return to Connections</a>.
         </StatusNotice>
       )}
 
@@ -200,6 +205,15 @@ export default function GarminArchiveImport() {
           )}
         </section>
       </div>
+
+      <section className={styles.wideCard}>
+        <h2>What happens to existing history?</h2>
+        <p>
+          Archive imports add or reconcile account-owned canonical training records. A failed import
+          does not erase existing history, and retrying the same source is designed to reconcile
+          matching activities rather than create a second visible workout.
+        </p>
+      </section>
     </AuthenticatedShell>
   );
 }
