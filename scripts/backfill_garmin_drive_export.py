@@ -190,7 +190,8 @@ def load_recent_fits(source_dir: Path, after: datetime) -> tuple[list[ActivityRe
     paths = [p for p in sorted(source_dir.glob("*.fit")) if RECENT_FIT_NAME.match(p.name)]
     if not paths:
         return [], []
-    from fitparse import FitFile  # installed in the backend runtime
+
+    from app.services.garmin.fit_sdk import decode_fit_bytes
 
     records: list[ActivityRecord] = []
     included: list[Path] = []
@@ -198,9 +199,10 @@ def load_recent_fits(source_dir: Path, after: datetime) -> tuple[list[ActivityRe
     for path in paths:
         content = path.read_bytes()
         file_hash = hashlib.sha256(content).hexdigest()
+        messages, _field_descriptions = decode_fit_bytes(content)
         file_included = False
-        for index, session in enumerate(FitFile(str(path)).get_messages("session")):
-            start = session.get_value("start_time") or session.get_value("timestamp")
+        for index, session in enumerate(messages.get("session_mesgs") or []):
+            start = session.get("start_time") or session.get("timestamp")
             if not isinstance(start, datetime):
                 continue
             if start.tzinfo is None:
@@ -211,11 +213,11 @@ def load_recent_fits(source_dir: Path, after: datetime) -> tuple[list[ActivityRe
             if start > datetime.now(timezone.utc) + timedelta(days=1):
                 raise ValueError(f"Future FIT session in {path.name}")
             duration = _nonnegative_number(
-                session.get_value("total_timer_time") or session.get_value("total_elapsed_time"),
+                session.get("total_timer_time") or session.get("total_elapsed_time"),
                 "FIT duration",
             )
-            distance = _nonnegative_number(session.get_value("total_distance"), "FIT distance")
-            sport = str(session.get_value("sport") or "activity").lower()
+            distance = _nonnegative_number(session.get("total_distance"), "FIT distance")
+            sport = str(session.get("sport") or "activity").lower()
             fingerprint = _fingerprint(start, duration, distance, sport)
             if fingerprint in fingerprints:
                 continue
@@ -398,22 +400,23 @@ def _sleep_fields(summary: dict[str, Any]) -> dict[str, float]:
 
 
 def _fit_sample_points(path: Path, user_id: UUID) -> list[dict[str, Any]]:
-    from fitparse import FitFile
+    from app.services.garmin.fit_sdk import decode_fit_bytes
 
+    messages, _field_descriptions = decode_fit_bytes(path.read_bytes())
     points = []
-    for message in FitFile(str(path)).get_messages("record"):
-        timestamp = message.get_value("timestamp")
+    for message in messages.get("record_mesgs") or []:
+        timestamp = message.get("timestamp")
         if not isinstance(timestamp, datetime):
             continue
         if timestamp.tzinfo is None:
             timestamp = timestamp.replace(tzinfo=timezone.utc)
         fields = {}
         for key in ("heart_rate", "cadence", "distance", "speed", "altitude", "temperature", "power"):
-            value = _finite_field(message.get_value(key))
+            value = _finite_field(message.get(key))
             if value is not None:
                 fields[key] = value
         for key in ("position_lat", "position_long"):
-            value = _finite_field(message.get_value(key))
+            value = _finite_field(message.get(key))
             if value is not None:
                 fields[key] = value * 180 / (2**31)
         if fields:
