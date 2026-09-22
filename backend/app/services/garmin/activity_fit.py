@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from datetime import datetime
-from typing import Optional, List, Dict, Any, cast
+from typing import Any, Optional
 
-import io
-
-from fitparse import FitFile
+from app.services.garmin.fit_sdk import decode_fit_bytes, normalized_developer_fields
 
 logger = logging.getLogger("garmin.activity_fit")
 logger.setLevel(logging.INFO)
@@ -48,9 +47,9 @@ def fetch_fit_file(client, activity_id) -> Optional[bytes]:
             data = client.download(path)
             if not data:
                 continue
-            # If zip, unwrap to first .fit
             if data.startswith(b"PK\x03\x04"):
-                import zipfile, io
+                import io
+                import zipfile
 
                 try:
                     with zipfile.ZipFile(io.BytesIO(data)) as zf:
@@ -76,14 +75,7 @@ def fetch_fit_file(client, activity_id) -> Optional[bytes]:
     return None
 
 
-def _extract_record_fields(msg) -> Dict[str, Any]:
-    fields: Dict[str, Any] = {}
-    for f in msg:
-        name = _normalize_field_name(f.name)
-        val = f.value
-        if name in ("position_lat", "position_long"):
-            val = _convert_semicircles(val)
-        fields[name] = val
+def _extract_record_fields(msg: Mapping[str, Any]) -> dict[str, Any]:
     aliases = {
         "position_lat": "Latitude",
         "position_long": "Longitude",
@@ -103,19 +95,22 @@ def _extract_record_fields(msg) -> Dict[str, Any]:
         "grade_adjusted_speed": "GradeAdjustedSpeed",
         "stance_time_balance": "StanceTimeBalance",
     }
-    normalized = {}
-    for k, v in fields.items():
-        key = aliases.get(k, None)
-        if key:
-            normalized[key] = v
-        else:
-            normalized[k] = v
-    if "Cadence" in normalized and normalized.get("Cadence") is not None:
+    normalized: dict[str, Any] = {}
+    for raw_name, raw_value in msg.items():
+        if raw_name in {"mesg_num", "developer_fields"}:
+            continue
+        name = _normalize_field_name(str(raw_name))
+        value = raw_value
+        if name in ("position_lat", "position_long"):
+            value = _convert_semicircles(value)
+        normalized[aliases.get(name, name)] = value
+
+    if normalized.get("Cadence") is not None:
         try:
             normalized["Cadence"] = int(round(float(normalized["Cadence"])))
         except Exception:
             pass
-    if "Temperature" in normalized and normalized.get("Temperature") is not None:
+    if normalized.get("Temperature") is not None:
         try:
             normalized["Temperature"] = int(round(float(normalized["Temperature"])))
         except Exception:
@@ -123,55 +118,50 @@ def _extract_record_fields(msg) -> Dict[str, Any]:
     return normalized
 
 
-def _extract_developer_fields(msg) -> Dict[str, Any]:
-    dev_fields: Dict[str, Any] = {}
-    for f in getattr(msg, "developer_fields", []):
-        try:
-            name = _normalize_field_name(f.name)
-        except Exception:
-            continue
-        try:
-            val = f.value
-        except Exception:
-            continue
-        if name and val is not None:
-            dev_fields[name] = val
-    return dev_fields
-
-
-def parse_fit_file_to_timeseries(fit_bytes: bytes, activity_id, activity_name: Optional[str], start_time: Optional[datetime]) -> List[Dict[str, Any]]:
-    """Parse FIT bytes into unified timeseries samples."""
-    samples: List[Dict[str, Any]] = []
+def parse_fit_file_to_timeseries(
+    fit_bytes: bytes,
+    activity_id,
+    activity_name: Optional[str],
+    start_time: Optional[datetime],
+) -> list[dict[str, Any]]:
+    """Parse FIT bytes into unified timeseries samples using Garmin's FIT SDK."""
+    samples: list[dict[str, Any]] = []
     try:
-        fit = FitFile(io.BytesIO(fit_bytes), data_processor=None)
+        messages, field_descriptions = decode_fit_bytes(fit_bytes)
     except Exception as exc:
-        logger.warning("fitparse failed to open FIT", extra={"activity_id": activity_id, "error": str(exc)}, exc_info=True)
+        logger.warning(
+            "Garmin FIT SDK failed to decode FIT",
+            extra={"activity_id": activity_id, "error": str(exc)},
+            exc_info=True,
+        )
         return samples
 
     last_record_ts_ns: Optional[int] = _to_ns(start_time)
 
-    for msg in fit.get_messages("record"):
+    for message in messages.get("record_mesgs") or []:
         try:
-            msg_any = cast(Any, msg)
-            ts = msg_any.get_value("timestamp")
-            ts_ns = _to_ns(ts) or last_record_ts_ns
-            fields = _extract_record_fields(msg_any)
-            dev_fields = _extract_developer_fields(msg_any)
-            fields.update(dev_fields)
+            ts = message.get("timestamp")
+            ts_ns = _to_ns(ts if isinstance(ts, datetime) else None) or last_record_ts_ns
+            fields = _extract_record_fields(message)
+            fields.update(normalized_developer_fields(message, field_descriptions))
             if activity_id:
                 fields["ActivityID"] = activity_id
             if activity_name:
                 fields["ActivityName"] = activity_name
-            samples.append({"time": ts_ns, "fields": {k: v for k, v in fields.items() if v is not None}})
+            samples.append(
+                {
+                    "time": ts_ns,
+                    "fields": {key: value for key, value in fields.items() if value is not None},
+                }
+            )
             if ts_ns is not None:
                 last_record_ts_ns = ts_ns
         except Exception:
             continue
 
-    for msg in fit.get_messages("hrv"):
+    for message in messages.get("hrv_mesgs") or []:
         try:
-            msg_any = cast(Any, msg)
-            rr_list = msg_any.get_value("time") or []
+            rr_list = message.get("time") or []
             if not isinstance(rr_list, list):
                 continue
             base_ts_ns = last_record_ts_ns or _to_ns(start_time)
@@ -180,7 +170,7 @@ def parse_fit_file_to_timeseries(fit_bytes: bytes, activity_id, activity_name: O
                     rr_ms = float(rr) * 1000.0
                 except Exception:
                     continue
-                rr_fields: Dict[str, Any] = {"RR": rr_ms}
+                rr_fields: dict[str, Any] = {"RR": rr_ms}
                 if activity_id:
                     rr_fields["ActivityID"] = activity_id
                 if activity_name:
@@ -189,22 +179,34 @@ def parse_fit_file_to_timeseries(fit_bytes: bytes, activity_id, activity_name: O
         except Exception:
             continue
 
-    return [s for s in samples if s.get("fields")]
+    return [sample for sample in samples if sample.get("fields")]
 
 
-def merge_timeseries(existing_samples: List[Dict[str, Any]], fit_samples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def merge_timeseries(
+    existing_samples: list[dict[str, Any]],
+    fit_samples: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     """Merge and sort by timestamp; FIT samples override on identical timestamps."""
-    merged = {s.get("time"): s for s in existing_samples if s.get("time") is not None}
-    for s in fit_samples:
-        merged[s.get("time")] = s
-    no_time = [s for s in existing_samples + fit_samples if s.get("time") is None]
+    merged = {sample.get("time"): sample for sample in existing_samples if sample.get("time") is not None}
+    for sample in fit_samples:
+        merged[sample.get("time")] = sample
+    no_time = [
+        sample
+        for sample in existing_samples + fit_samples
+        if sample.get("time") is None
+    ]
     out = list(merged.values())
-    out.sort(key=lambda x: x.get("time") or 0)
+    out.sort(key=lambda item: item.get("time") or 0)
     out.extend(no_time)
     return out
 
 
-def extract_activity_timeseries(client, activity_id, activity_name: Optional[str], start_time: Optional[datetime]) -> List[Dict[str, Any]]:
+def extract_activity_timeseries(
+    client,
+    activity_id,
+    activity_name: Optional[str],
+    start_time: Optional[datetime],
+) -> list[dict[str, Any]]:
     """Fetch FIT file, parse, and return unified timeseries."""
     fit_bytes = fetch_fit_file(client, activity_id)
     if not fit_bytes:

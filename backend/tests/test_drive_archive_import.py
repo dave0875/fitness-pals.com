@@ -599,36 +599,25 @@ def test_official_garmin_fit_sdk_session_messages_are_normalized(monkeypatch):
         size_bytes=10,
     )
 
-    class FakeDecoder:
-        def __init__(self, stream):
-            assert stream == "fit-stream"
+    def fake_decode(content: bytes):
+        assert content == b"fit-bytes"
+        return (
+            {
+                "session_mesgs": [
+                    {
+                        "start_time": datetime(
+                            2026, 9, 20, 11, 52, 49, tzinfo=timezone.utc
+                        ),
+                        "sport": "running",
+                        "total_distance": 10000.0,
+                        "total_timer_time": 3600.0,
+                    }
+                ]
+            },
+            {},
+        )
 
-        def is_fit(self):
-            return True
-
-        def read(self):
-            return (
-                {
-                    "session_mesgs": [
-                        {
-                            "start_time": datetime(
-                                2026, 9, 20, 11, 52, 49, tzinfo=timezone.utc
-                            ),
-                            "sport": "running",
-                            "total_distance": 10000.0,
-                            "total_timer_time": 3600.0,
-                        }
-                    ]
-                },
-                [],
-            )
-
-    monkeypatch.setattr(
-        garmin_archive_import.Stream,
-        "from_bytes_io",
-        lambda _stream: "fit-stream",
-    )
-    monkeypatch.setattr(garmin_archive_import, "Decoder", FakeDecoder)
+    monkeypatch.setattr(garmin_archive_import, "decode_fit_bytes", fake_decode)
 
     activities = garmin_archive_import._fit_activities(b"fit-bytes", source)
 
