@@ -23,7 +23,11 @@ export function StatusNotice({ tone = "neutral", children }) {
 }
 
 function safeReturnPath(asPath) {
-  return typeof asPath === "string" && asPath.startsWith("/") && !asPath.startsWith("//")
+  return typeof asPath === "string" &&
+    asPath.startsWith("/") &&
+    !asPath.startsWith("//") &&
+    !asPath.includes("\\") &&
+    !/%5c/i.test(asPath)
     ? asPath
     : "/today";
 }
@@ -72,7 +76,10 @@ export default function AuthenticatedShell({ active = "today", children }) {
         </a>
         <div className={styles.account}>
           <a className={styles.coachLink} href={coachHref}>Ask Coach</a>
-          <a href="/settings" className={styles.accountLink}>{displayName(profile)}</a>
+          <a href="/settings" className={styles.accountLink} aria-label="Account settings">
+            <span className={styles.accountName}>{displayName(profile)}</span>
+            <span className={styles.settingsLabel}>Settings</span>
+          </a>
           <a href="/auth/logout" className={styles.logout}>Sign out</a>
         </div>
       </header>
