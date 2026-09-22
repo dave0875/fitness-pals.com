@@ -142,9 +142,11 @@ def _normalize_context(
 
 def _latest_context(rows: list[Conversation]) -> dict[str, Any] | None:
     for row in reversed(rows):
-        context = _metadata(row).get("context")
-        if isinstance(context, dict):
-            return context
+        metadata = _metadata(row)
+        if "context" not in metadata:
+            continue
+        context = metadata.get("context")
+        return context if isinstance(context, dict) else None
     return None
 
 
