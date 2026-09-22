@@ -32,6 +32,8 @@ test("shell has a compact mobile navigation treatment", () => {
   assert.ok(shellStyles.includes("overflow-x: auto"));
   assert.ok(shellStyles.includes("min-height: 44px"));
   assert.ok(shellStyles.includes(".coachLink"));
+  assert.ok(shellSource.includes("styles.accountName"));
+  assert.ok(shellSource.includes("styles.settingsLabel"));
 });
 
 test("protected routes enter sign in with their full safe return path", () => {
@@ -42,6 +44,7 @@ test("protected routes enter sign in with their full safe return path", () => {
   assert.ok(shellSource.includes("window.location.assign"));
   assert.ok(shellSource.includes('response.status === 401'));
   assert.ok(shellSource.includes('!asPath.startsWith("//")'));
+  assert.ok(shellSource.includes('!asPath.includes("\\\\")'));
 });
 
 test("shell links only to real primary product routes and carries Coach source context", () => {
