@@ -5,16 +5,17 @@ const test = require("node:test");
 
 const welcomePath = path.join(__dirname, "..", "pages", "welcome.js");
 
-test("welcome page source contract includes guided onboarding states", () => {
+test("welcome page is an activation surface, not a permanent integration wizard", () => {
   assert.ok(fs.existsSync(welcomePath), "expected frontend/pages/welcome.js to exist");
   const source = fs.readFileSync(welcomePath, "utf8");
 
-  assert.match(source, /Connect Garmin/);
-  assert.match(source, /Import my training history/);
-  assert.match(source, /latest 5 activities|last 5 activities|recent 5 activities/i);
-  assert.match(source, /training-volume preview/i);
-  assert.match(source, /connect_garmin|ready_to_sync|sync_queued|synced/i);
-  assert.match(source, /garmin_authorization_available/);
-  assert.match(source, /garmin_sync_available === false/);
-  assert.match(source, /Import Garmin archive/);
+  assert.match(source, /What would make Fitness Pals useful right now/i);
+  assert.match(source, /Save and continue/i);
+  assert.match(source, /First useful signal/i);
+  assert.match(source, /Continue with Coach/i);
+  assert.match(source, /activation\?\.requires_activation === false/);
+  assert.match(source, /router\.replace/);
+  assert.ok(source.includes("/api/onboarding/status"));
+  assert.ok(source.includes("/api/onboarding/goal"));
+  assert.ok(source.includes("/api/onboarding/first-sync"));
 });
