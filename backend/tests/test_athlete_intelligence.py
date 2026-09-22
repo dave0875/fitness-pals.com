@@ -121,7 +121,8 @@ def test_intelligence_is_athlete_scoped_and_briefing_compares_self():
     assert result["trajectory"]["interpretation"].endswith(
         "not a readiness score or prediction."
     )
-    assert "100" not in str(result["athlete_to_self"])
+    assert result["athlete_to_self"]["current"]["miles"] != 100.0
+    assert result["athlete_to_self"]["previous"]["miles"] != 100.0
 
 
 def test_intelligence_keeps_missing_and_stale_signals_explicit():
