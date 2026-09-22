@@ -24,7 +24,7 @@ test("archive page checks capabilities before exposing actions and links complet
   assert.ok(source.includes("flow.canUpload"));
   assert.match(source, /Drive import unavailable/i);
   assert.match(source, /Try import again/i);
-  assert.ok(source.includes("/journey#activities"));
+  assert.ok(source.includes('href="/training"'));
 });
 
 test("dossier page uses current eligibility and returns to the generated result", () => {
