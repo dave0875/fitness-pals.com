@@ -7,7 +7,7 @@ const dashboardSource = fs.readFileSync(path.join(__dirname, "..", "pages", "das
 
 test("Today CTA opens the concrete Today's run plan", () => {
   assert.ok(dashboardSource.includes('id="todays-run"'));
-  assert.ok(dashboardSource.includes("/today#todays-run"));
+  assert.ok(dashboardSource.includes("href={home.coaching.next_action.href}"));
   assert.ok(!dashboardSource.includes('href="/dashboard#coach"'));
 });
 
