@@ -133,7 +133,7 @@ def login_probe(web_base_url: str, auth_base_url: str = "https://auth.fitness-pa
     """Return the login-entry redirect contract."""
     return Probe(
         name="login redirect",
-        url=f"{web_base_url.rstrip('/')}/auth/login?next=%2Fjourney",
+        url=f"{web_base_url.rstrip('/')}/auth/login?next=%2Ftoday",
         expected_statuses=(302, 303, 307, 308),
         redirect_host=urllib.parse.urlparse(auth_base_url).hostname,
     )
