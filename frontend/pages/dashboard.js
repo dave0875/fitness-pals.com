@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/router";
-
 import AuthenticatedShell, { StatusNotice } from "../components/AuthenticatedShell";
 import { authenticatedJson } from "../lib/authFetch.mjs";
 import styles from "../styles/AthletePages.module.css";
@@ -37,13 +35,9 @@ function Signal({ label, value, detail }) {
 }
 
 export default function Dashboard() {
-  const router = useRouter();
   const [home, setHome] = useState(null);
   const [todayPlan, setTodayPlan] = useState(null);
   const [viewState, setViewState] = useState("loading");
-  const [message, setMessage] = useState("");
-  const [chat, setChat] = useState("");
-  const [sending, setSending] = useState(false);
   const [planBusy, setPlanBusy] = useState(false);
   const [planNotice, setPlanNotice] = useState("");
   const [editingPlan, setEditingPlan] = useState(false);
@@ -81,12 +75,6 @@ export default function Dashboard() {
   useEffect(() => {
     loadHome();
   }, [loadHome]);
-
-  useEffect(() => {
-    if (router.isReady && typeof router.query.prompt === "string") {
-      setMessage(router.query.prompt);
-    }
-  }, [router.isReady, router.query.prompt]);
 
   const saveGoal = async () => {
     setPlanBusy(true);

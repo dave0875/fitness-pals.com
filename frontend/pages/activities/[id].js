@@ -49,6 +49,16 @@ export default function ActivityDetailPage() {
     return `/training${suffix}`;
   }, [router.query.goal, router.query.sport, router.query.window]);
 
+  const coachHref = useMemo(() => {
+    if (!activity?.id) return "/coach";
+    const params = new URLSearchParams({
+      from: router.asPath,
+      activity: activity.id,
+      label: activity.title || activity.sport || "Activity",
+    });
+    return "/coach?" + params.toString();
+  }, [activity, router.asPath]);
+
   useEffect(() => {
     if (!router.isReady || typeof router.query.id !== "string") return;
     let active = true;
