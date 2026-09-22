@@ -11,6 +11,7 @@ import pytest
 from app.models import Activity, AthleteGoal, NextSessionPlan, SleepSession
 from app.services.today_plan import (
     apply_plan_action,
+    build_today_context,
     build_today_plan,
     create_next_plan,
     save_goal,
@@ -255,6 +256,8 @@ def test_dashboard_to_feedback_to_next_decision_state_transition():
     assert completed["plan"]["feedback"] == {
         "perceived_effort": "as_expected",
         "note": "Felt controlled.",
+        "completion_source": "manual",
+        "matched_activity_id": None,
     }
     assert completed["next_decision_available"] is True
 
@@ -294,3 +297,118 @@ def test_skipped_plan_returns_to_a_next_decision():
 
     assert skipped["state"] == "skipped"
     assert skipped["next_decision_available"] is True
+
+
+
+def test_today_context_exposes_rolling_week_trajectory_and_safe_match():
+    athlete_id = uuid.uuid4()
+    now = datetime(2026, 9, 18, 12, tzinfo=timezone.utc)
+    db = FakeSession(
+        [
+            run(athlete_id, datetime(2026, 9, 16, 10, tzinfo=timezone.utc), 3.5, 31),
+            run(athlete_id, datetime(2026, 9, 14, 10, tzinfo=timezone.utc), 4.0, 37),
+        ]
+    )
+    recommended = save_goal(
+        db,
+        athlete_id,
+        goal_type="marathon",
+        phase="build",
+        target_date=date(2026, 11, 1),
+        now=now,
+    )
+    plan_id = uuid.UUID(recommended["plan"]["id"])
+    apply_plan_action(db, athlete_id, plan_id, action="accept", payload={}, now=now)
+    matching = run(athlete_id, datetime(2026, 9, 18, 18, tzinfo=timezone.utc), 3.0, 27)
+    db.add(matching)
+
+    context = build_today_context(db, athlete_id, now=now)
+
+    assert len(context["week"]["days"]) == 7
+    assert any(day["is_today"] for day in context["week"]["days"])
+    assert context["trajectory"]["goal"]["type"] == "marathon"
+    assert context["trajectory"]["days_to_target"] == 44
+    assert context["trajectory"]["last_7_days"]["runs"] == 3
+    assert context["match"]["id"] == str(matching.id)
+    assert "Same scheduled day" in context["match"]["basis"]
+
+
+def test_move_is_distinct_from_modifying_the_session_prescription():
+    athlete_id = uuid.uuid4()
+    now = datetime(2026, 9, 18, 12, tzinfo=timezone.utc)
+    db = FakeSession([run(athlete_id, now - timedelta(days=2), 3.5, 31)])
+    recommended = save_goal(
+        db,
+        athlete_id,
+        goal_type="consistency",
+        phase="maintenance",
+        target_date=None,
+        now=now,
+    )
+    plan_id = uuid.UUID(recommended["plan"]["id"])
+    original = dict(recommended["plan"])
+
+    moved = apply_plan_action(
+        db,
+        athlete_id,
+        plan_id,
+        action="move",
+        payload={"scheduled_for": "2026-09-20"},
+        now=now,
+    )
+
+    assert moved["plan"]["status"] == "adjusted"
+    assert moved["plan"]["scheduled_for"] == "2026-09-20"
+    assert moved["plan"]["duration_minutes"] == original["duration_minutes"]
+    assert moved["plan"]["distance_miles"] == original["distance_miles"]
+    assert moved["plan"]["effort_range"] == original["effort_range"]
+
+
+def test_matched_completion_requires_current_owned_safe_candidate():
+    athlete_id = uuid.uuid4()
+    other_id = uuid.uuid4()
+    now = datetime(2026, 9, 18, 12, tzinfo=timezone.utc)
+    db = FakeSession([run(athlete_id, now - timedelta(days=2), 3.5, 31)])
+    recommended = save_goal(
+        db,
+        athlete_id,
+        goal_type="consistency",
+        phase="maintenance",
+        target_date=None,
+        now=now,
+    )
+    plan_id = uuid.UUID(recommended["plan"]["id"])
+    apply_plan_action(db, athlete_id, plan_id, action="accept", payload={}, now=now)
+
+    foreign = run(other_id, datetime(2026, 9, 18, 17, tzinfo=timezone.utc), 2.5, 25)
+    db.add(foreign)
+    with pytest.raises(HTTPException) as exc_info:
+        apply_plan_action(
+            db,
+            athlete_id,
+            plan_id,
+            action="complete",
+            payload={
+                "perceived_effort": "as_expected",
+                "matched_activity_id": str(foreign.id),
+            },
+            now=now,
+        )
+    assert exc_info.value.status_code == 422
+
+    owned = run(athlete_id, datetime(2026, 9, 18, 18, tzinfo=timezone.utc), 2.5, 25)
+    db.add(owned)
+    completed = apply_plan_action(
+        db,
+        athlete_id,
+        plan_id,
+        action="complete",
+        payload={
+            "perceived_effort": "as_expected",
+            "note": "Matched the saved decision.",
+            "matched_activity_id": str(owned.id),
+        },
+        now=now,
+    )
+    assert completed["plan"]["feedback"]["completion_source"] == "canonical_match"
+    assert completed["plan"]["feedback"]["matched_activity_id"] == str(owned.id)
