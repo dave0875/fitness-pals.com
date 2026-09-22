@@ -41,7 +41,7 @@ test("activation provides progressive value and a contextual Coach continuation"
 
   assert.match(welcome, /usable_partial/);
   assert.match(welcome, /Continue with Coach/i);
-  assert.ok(welcome.includes("activation.coach_handoff.href"));
+  assert.match(welcome, /activation\?\.coach_handoff\?\.href/);
   assert.match(welcome, /while.*import|import.*while/i);
   assert.ok(!welcome.includes('secondaryHref="/dashboard"'));
 });
