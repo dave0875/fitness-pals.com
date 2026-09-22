@@ -94,6 +94,18 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
             return FakeResponse(200, f"release {release}")
         if url.endswith("/api/health"):
             return FakeResponse(200, {"database": "ok", "version": "1"})
+        if url.endswith("/api/onboarding/status"):
+            assert authorization == f"Bearer {token}"
+            return FakeResponse(
+                200,
+                {
+                    "activation": {
+                        "state": "fully_usable",
+                        "requires_activation": False,
+                        "usable_now": True,
+                    }
+                },
+            )
         if "/api/journey?" in url:
             assert authorization == f"Bearer {token}"
             return FakeResponse(200, {"state": "empty", "activities": []})
@@ -108,8 +120,9 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         opener=opener,
     )
 
-    assert len(seen) == 14
-    assert sum(authorization is not None for _, authorization in seen) == 1
+    assert len(seen) == 15
+    assert sum(authorization is not None for _, authorization in seen) == 2
+    assert any(url.endswith("/api/onboarding/status") for url, _ in seen)
 
 
 def test_production_smoke_reports_authentik_tunnel_drift_before_login() -> None:
