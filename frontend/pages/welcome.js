@@ -496,7 +496,7 @@ export default function Welcome() {
               </p>
               <div style={{ display: "flex", gap: "0.9rem", marginTop: "1rem", flexWrap: "wrap" }}>
                 <a
-                  href="/dashboard"
+                  href="/today"
                   style={{
                     textDecoration: "none",
                     background: "#0d5a55",
@@ -506,7 +506,7 @@ export default function Welcome() {
                     fontWeight: 800,
                   }}
                 >
-                  Open dashboard
+                  Open Today
                 </a>
                 <button
                   type="button"
@@ -524,7 +524,7 @@ export default function Welcome() {
                   Refresh fitness data
                 </button>
                 <a
-                  href="/dashboard"
+                  href="/today"
                   style={{
                     textDecoration: "none",
                     border: "1px solid #c7d5df",
