@@ -6,15 +6,17 @@ const test = require("node:test");
 const root = path.join(__dirname, "..");
 const read = (name) => fs.readFileSync(path.join(root, name), "utf8");
 
-test("settings resolves connected, archive-only, pending, and failed connection actions", () => {
+test("settings renders the truthful activation contract without hard-coded provider OAuth", () => {
   const source = read("pages/settings.js");
   assert.ok(source.includes("/api/onboarding/status"));
   assert.ok(source.includes("/api/onboarding/first-sync"));
-  assert.ok(source.includes("/api/providers/garmin/login?next=/settings"));
-  assert.match(source, /Connection is active/i);
-  assert.match(source, /Archive history is available/i);
-  assert.match(source, /Refresh in progress/i);
-  assert.match(source, /Retry refresh/i);
+  assert.ok(source.includes("connectionState(status)"));
+  assert.ok(source.includes("status?.activation?.message"));
+  assert.ok(source.includes("connection.href"));
+  assert.ok(source.includes("connection.enabled"));
+  assert.ok(source.includes('href="/import/garmin-archive"'));
+  assert.ok(source.includes('href="/welcome?edit=intent"'));
+  assert.doesNotMatch(source, /api\/providers\/garmin\/login/);
 });
 
 test("archive page checks capabilities before exposing actions and links completed imports", () => {
