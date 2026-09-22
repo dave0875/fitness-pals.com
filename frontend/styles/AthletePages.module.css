@@ -429,3 +429,297 @@
     gap: 0.35rem;
   }
 }
+
+.coachWorkspace {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.threadSidebar,
+.coachSnapshot,
+.messagePanel,
+.coachActions,
+.composerCard {
+  background: #fff;
+  border: 1px solid #dce5dd;
+  border-radius: 1rem;
+  box-shadow: 0 8px 30px rgba(28, 51, 37, 0.05);
+}
+
+.threadSidebar {
+  padding: 1rem;
+  position: sticky;
+  top: 1rem;
+}
+
+.threadSidebar .sectionHeading {
+  align-items: center;
+}
+
+.threadSidebar h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.compactButton {
+  min-height: 40px;
+  padding: 0 0.8rem;
+  color: #176b47;
+  background: #fff;
+  border: 1px solid #bdcbbf;
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.threadList {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+}
+
+.threadList a {
+  display: grid;
+  gap: 0.2rem;
+  min-height: 52px;
+  padding: 0.65rem;
+  color: #17211b;
+  background: #f4f7f3;
+  border-radius: 0.7rem;
+  text-decoration: none;
+}
+
+.threadList a[aria-current="page"] {
+  outline: 2px solid #176b47;
+}
+
+.threadList span,
+.muted {
+  color: #5a685f;
+  font-size: 0.8rem;
+}
+
+.coachMain {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.coachSnapshot {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.coachSnapshot div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  padding: 0.75rem;
+  background: #f4f7f3;
+  border-radius: 0.75rem;
+}
+
+.coachSnapshot span,
+.coachSnapshot small {
+  color: #5a685f;
+}
+
+.coachSnapshot span {
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.contextChip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: #e6f4eb;
+  border: 1px solid #bdddc9;
+  border-radius: 0.85rem;
+}
+
+.contextChip a,
+.contextChip button {
+  color: #176b47;
+  font: inherit;
+  font-weight: 800;
+}
+
+.contextChip button {
+  min-height: 40px;
+  margin-left: auto;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.messagePanel {
+  min-height: 220px;
+  padding: 1rem;
+}
+
+.messageList {
+  display: grid;
+  gap: 1.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.messageList li {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.athleteMessage,
+.coachMessage,
+.failedMessage {
+  padding: 0.9rem 1rem;
+  border-radius: 0.85rem;
+}
+
+.athleteMessage {
+  max-width: 84%;
+  margin-left: auto;
+  background: #eef4ef;
+}
+
+.coachMessage {
+  background: #fff;
+  border: 1px solid #dce5dd;
+}
+
+.failedMessage {
+  background: #fff6df;
+  border: 1px solid #ecd398;
+}
+
+.athleteMessage span,
+.interpretationBadge {
+  display: inline-flex;
+  margin-bottom: 0.35rem;
+  color: #176b47;
+  font-size: 0.75rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.athleteMessage p,
+.coachMessage p,
+.failedMessage p {
+  margin: 0.2rem 0 0;
+  line-height: 1.6;
+}
+
+.coachEvidenceGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.65rem;
+  margin-top: 0.6rem;
+}
+
+.coachEvidenceCard {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.75rem;
+  background: #f4f7f3;
+  border-radius: 0.7rem;
+}
+
+.coachEvidenceCard span {
+  color: #176b47;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.coachEvidenceCard p {
+  color: #5a685f;
+  font-size: 0.85rem;
+}
+
+.coachEvidenceCard a {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  color: #176b47;
+  font-weight: 800;
+}
+
+.coachActions,
+.composerCard {
+  padding: 1rem;
+}
+
+.suggestionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.suggestionRow button {
+  min-height: 40px;
+  padding: 0.55rem 0.75rem;
+  color: #176b47;
+  background: #f4f7f3;
+  border: 1px solid #dce5dd;
+  border-radius: 999px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.emptyConversation {
+  max-width: 640px;
+  margin: 1.5rem auto;
+  text-align: center;
+}
+
+.compactButton:focus-visible,
+.threadList a:focus-visible,
+.contextChip a:focus-visible,
+.contextChip button:focus-visible,
+.coachEvidenceCard a:focus-visible,
+.suggestionRow button:focus-visible {
+  outline: 3px solid #f2b84b;
+  outline-offset: 3px;
+}
+
+@media (max-width: 720px) {
+  .coachWorkspace,
+  .coachSnapshot {
+    grid-template-columns: 1fr;
+  }
+
+  .threadSidebar {
+    position: static;
+  }
+
+  .threadList {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+
+  .athleteMessage {
+    max-width: 100%;
+  }
+
+  .contextChip button {
+    margin-left: 0;
+  }
+
+  .suggestionRow {
+    display: grid;
+  }
+
+  .suggestionRow button {
+    width: 100%;
+    text-align: left;
+  }
+}

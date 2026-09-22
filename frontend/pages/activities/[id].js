@@ -49,6 +49,16 @@ export default function ActivityDetailPage() {
     return `/training${suffix}`;
   }, [router.query.goal, router.query.sport, router.query.window]);
 
+  const coachHref = useMemo(() => {
+    if (!activity?.id) return "/coach";
+    const params = new URLSearchParams({
+      from: router.asPath,
+      activity: activity.id,
+      label: activity.title || activity.sport || "Activity",
+    });
+    return "/coach?" + params.toString();
+  }, [activity, router.asPath]);
+
   useEffect(() => {
     if (!router.isReady || typeof router.query.id !== "string") return;
     let active = true;
@@ -179,6 +189,15 @@ export default function ActivityDetailPage() {
                 )}
               </section>
             </div>
+
+            <section className={styles.handoff}>
+              <div>
+                <p className={styles.eyebrow}>Coaching context</p>
+                <h2>Ask about this workout</h2>
+                <p>Carry this exact canonical activity into a durable Coach conversation.</p>
+              </div>
+              <Link href={coachHref}>Ask Coach about this workout</Link>
+            </section>
 
             <p className={styles.boundary}>
               Fitness Pals shows canonical activity facts only. Provider credentials,

@@ -1,16 +1,17 @@
-"""Tests for LLM client fallback behavior."""
+"""Tests for explicit Coach model failure behavior."""
 
 from __future__ import annotations
 
 import httpx
+import pytest
 
 from openai import AuthenticationError
 
 from app.llm import client as llm_client
 
 
-def test_run_coach_prompt_returns_fallback_on_openai_auth_error(monkeypatch):
-    """OpenAI auth errors should degrade to a user-safe fallback response."""
+def test_run_coach_prompt_raises_retryable_error_on_openai_auth_error(monkeypatch):
+    """Transport/auth failures must not be persisted as successful coaching prose."""
 
     class FakeResponses:
         def create(self, **_kwargs):
@@ -26,6 +27,11 @@ def test_run_coach_prompt_returns_fallback_on_openai_auth_error(monkeypatch):
     monkeypatch.setattr(llm_client.settings, "openai_api_key", "bad-key")
     monkeypatch.setattr(llm_client, "OpenAI", FakeOpenAI)
 
-    result = llm_client.run_coach_prompt("hello", {"mileage": {}})
+    with pytest.raises(llm_client.CoachUnavailableError):
+        llm_client.run_coach_prompt("hello", {"mileage": {}})
 
-    assert result == "Coach unavailable right now."
+
+def test_run_coach_prompt_requires_configured_model(monkeypatch):
+    monkeypatch.setattr(llm_client.settings, "openai_api_key", "")
+    with pytest.raises(llm_client.CoachUnavailableError):
+        llm_client.run_coach_prompt("hello", {"mileage": {}})

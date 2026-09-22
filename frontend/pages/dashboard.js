@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/router";
 
 import AuthenticatedShell, { StatusNotice } from "../components/AuthenticatedShell";
 import { authenticatedJson } from "../lib/authFetch.mjs";
@@ -37,13 +36,9 @@ function Signal({ label, value, detail }) {
 }
 
 export default function Dashboard() {
-  const router = useRouter();
   const [home, setHome] = useState(null);
   const [todayPlan, setTodayPlan] = useState(null);
   const [viewState, setViewState] = useState("loading");
-  const [message, setMessage] = useState("");
-  const [chat, setChat] = useState("");
-  const [sending, setSending] = useState(false);
   const [planBusy, setPlanBusy] = useState(false);
   const [planNotice, setPlanNotice] = useState("");
   const [editingPlan, setEditingPlan] = useState(false);
@@ -82,33 +77,6 @@ export default function Dashboard() {
     loadHome();
   }, [loadHome]);
 
-  useEffect(() => {
-    if (router.isReady && typeof router.query.prompt === "string") {
-      setMessage(router.query.prompt);
-    }
-  }, [router.isReady, router.query.prompt]);
-
-  const sendChat = async () => {
-    if (!message.trim() || sending) return;
-    setSending(true);
-    try {
-      const data = await authenticatedJson("/api/chat", {
-        method: "POST",
-        json: { message: message.trim() },
-      });
-      setChat(data.response);
-      setMessage("");
-    } catch (error) {
-      if (error.status === 401) {
-        setViewState("unauthenticated");
-        setChat("Please sign in again before asking your coach.");
-      } else {
-        setChat("Your coach could not answer just now. Your fitness home is still available.");
-      }
-    } finally {
-      setSending(false);
-    }
-  };
 
   const saveGoal = async () => {
     setPlanBusy(true);
@@ -512,30 +480,13 @@ export default function Dashboard() {
 
             <section className={styles.card} id="coach">
               <p className={styles.questionLabel}>Personal guidance</p>
-              <h2>Ask your coach</h2>
-              <p>Ask about the fitness information connected to your account.</p>
-              <div className={styles.chatForm}>
-                <label htmlFor="coach-message">What would you like help with?</label>
-                <textarea
-                  id="coach-message"
-                  value={message}
-                  onChange={(event) => setMessage(event.target.value)}
-                  placeholder="How should I approach this week’s training?"
-                />
-                <button
-                  className={styles.primaryButton}
-                  type="button"
-                  onClick={sendChat}
-                  disabled={!message.trim() || sending}
-                >
-                  {sending ? "Asking…" : "Ask coach"}
-                </button>
-                {chat && (
-                  <StatusNotice tone={viewState === "unauthenticated" ? "warning" : "success"}>
-                    {chat}
-                  </StatusNotice>
-                )}
-              </div>
+              <h2>Keep the conversation in Coach</h2>
+              <p>
+                Coach keeps follow-ups, evidence, and saved training actions together across page visits.
+              </p>
+              <a className={styles.primaryButton} href="/coach?from=%2Ftoday">
+                Open Coach workspace
+              </a>
             </section>
           </div>
         </>

@@ -106,6 +106,9 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
                     }
                 },
             )
+        if url.endswith("/api/chat/threads"):
+            assert authorization == f"Bearer {token}"
+            return FakeResponse(200, {"threads": []})
         if "/api/journey?" in url:
             assert authorization == f"Bearer {token}"
             return FakeResponse(200, {"state": "empty", "activities": []})
@@ -120,9 +123,10 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         opener=opener,
     )
 
-    assert len(seen) == 15
-    assert sum(authorization is not None for _, authorization in seen) == 2
+    assert len(seen) == 16
+    assert sum(authorization is not None for _, authorization in seen) == 3
     assert any(url.endswith("/api/onboarding/status") for url, _ in seen)
+    assert any(url.endswith("/api/chat/threads") for url, _ in seen)
 
 
 def test_production_smoke_reports_authentik_tunnel_drift_before_login() -> None:
