@@ -7,7 +7,13 @@ const DEFAULT_AUTH_NEXT = "/today";
 const AUTH_WELCOME_HREF = `/auth/login?next=${encodeURIComponent(DEFAULT_AUTH_NEXT)}`;
 
 function isSafeNextPath(candidate) {
-  return Boolean(candidate && candidate.startsWith("/") && !candidate.startsWith("//"));
+  return Boolean(
+    candidate &&
+    candidate.startsWith("/") &&
+    !candidate.startsWith("//") &&
+    !candidate.includes("\\") &&
+    !/%5c/i.test(candidate)
+  );
 }
 
 function authLoginHref(nextPath = DEFAULT_AUTH_NEXT) {
