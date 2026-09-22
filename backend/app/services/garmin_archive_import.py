@@ -9,10 +9,9 @@ import zipfile
 from datetime import datetime, timezone
 from typing import Any
 
-from garmin_fit_sdk import Decoder, Stream
-
 from app.services import dedupe
 from app.services.garmin.activity import persist_activity_summaries
+from app.services.garmin.fit_sdk import decode_fit_bytes
 from app.services.google_drive_archive import DriveArchiveObject
 
 
@@ -71,16 +70,10 @@ def _fit_value(message: Any, *names: str) -> Any:
 
 
 def _fit_activities(content: bytes, source: DriveArchiveObject) -> list[dict[str, Any]]:
-    stream = Stream.from_bytes_io(io.BytesIO(content))
-    decoder = Decoder(stream)
-    if not decoder.is_fit():
-        raise ValueError(f"Archive FIT object is not a valid FIT file: {source.name}")
-    messages, errors = decoder.read()
-    if errors:
-        error = errors[0]
-        if isinstance(error, Exception):
-            raise error
-        raise RuntimeError(str(error))
+    try:
+        messages, _field_descriptions = decode_fit_bytes(content)
+    except ValueError as exc:
+        raise ValueError(f"Archive FIT object is not a valid FIT file: {source.name}") from exc
     sessions = messages.get("session_mesgs") or []
     activities: list[dict[str, Any]] = []
     for index, session in enumerate(sessions):
