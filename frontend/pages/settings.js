@@ -40,10 +40,7 @@ export default function Settings() {
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.detail || "Refresh could not be queued.");
-      setStatus((current) => ({
-        ...current,
-        first_sync: { ...current.first_sync, state: payload.state },
-      }));
+      await loadStatus();
       setState("ready");
       setMessage("Refresh in progress. You can review existing activities while it finishes.");
     } catch (error) {
@@ -77,31 +74,44 @@ export default function Settings() {
           {state !== "loading" && state !== "error" && (
             <>
               <p>
-                {status?.garmin_connected
-                  ? "Connection is active. Refreshes add new canonical activities without duplicating history."
-                  : archiveOnly
-                    ? "Archive history is available. Connect Garmin to refresh it automatically."
-                    : "Garmin is not connected. Connect it to import and refresh activity data."}
+                {status?.activation?.message ||
+                  (archiveOnly
+                    ? "Saved training history is available from your archive."
+                    : "Review the training data available to Fitness Pals and the next supported action.")}
               </p>
-              {connection.action === "wait" && <p role="status">Refresh in progress.</p>}
-              {connection.action === "connect" ? (
-                <a className={styles.textLink} href="/api/providers/garmin/login?next=/settings">
+              {connection.action === "wait" ? (
+                <>
+                  <p role="status">Import in progress. Existing training remains available.</p>
+                  <a className={styles.textLink} href="/training">Review existing activities</a>
+                </>
+              ) : connection.href ? (
+                <a
+                  className={styles.textLink}
+                  href={connection.href}
+                  aria-disabled={!connection.enabled}
+                >
                   {connection.label}
                 </a>
-              ) : connection.action === "wait" ? (
-                <a className={styles.textLink} href="/training">Review existing activities</a>
-              ) : (
+              ) : connection.enabled ? (
                 <button
                   className={styles.primaryButton}
                   type="button"
                   onClick={refresh}
                   disabled={state === "working"}
                 >
-                  {connection.action === "retry" ? "Retry refresh" : connection.label}
+                  {connection.label}
                 </button>
+              ) : (
+                <p role="status">{connection.label}</p>
               )}
             </>
           )}
+        </section>
+
+        <section className={styles.card}>
+          <h2>Training intent</h2>
+          <p>Refine what you are training for without restarting activation or reconnecting data.</p>
+          <a className={styles.textLink} href="/welcome?edit=intent">Review training intent</a>
         </section>
 
         <section className={styles.card}>
