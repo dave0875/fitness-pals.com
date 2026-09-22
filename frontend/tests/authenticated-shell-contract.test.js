@@ -3,28 +3,20 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 
-const shellSource = fs.readFileSync(
-  path.join(__dirname, "..", "components", "AuthenticatedShell.js"),
-  "utf8"
-);
-const shellStyles = fs.readFileSync(
-  path.join(__dirname, "..", "styles", "AuthenticatedShell.module.css"),
-  "utf8"
-);
-const dashboardSource = fs.readFileSync(
-  path.join(__dirname, "..", "pages", "dashboard.js"),
-  "utf8"
-);
-const settingsSource = fs.readFileSync(
-  path.join(__dirname, "..", "pages", "settings.js"),
-  "utf8"
-);
+const shellSource = fs.readFileSync(path.join(__dirname, "..", "components", "AuthenticatedShell.js"), "utf8");
+const shellStyles = fs.readFileSync(path.join(__dirname, "..", "styles", "AuthenticatedShell.module.css"), "utf8");
+const dashboardSource = fs.readFileSync(path.join(__dirname, "..", "pages", "dashboard.js"), "utf8");
+const settingsSource = fs.readFileSync(path.join(__dirname, "..", "pages", "settings.js"), "utf8");
 
-test("authenticated shell exposes the athlete journey navigation", () => {
-  for (const destination of ["Home", "Journey", "Activities", "Dossiers", "Coach", "Settings"]) {
-    assert.ok(shellSource.includes(destination), `expected shell navigation to include ${destination}`);
+test("authenticated shell exposes the intent-based Product V2 navigation", () => {
+  for (const destination of ["Today", "Coach", "Progress", "Training"]) {
+    assert.ok(shellSource.includes(`label: "${destination}"`), `expected shell navigation to include ${destination}`);
+  }
+  for (const obsolete of ['label: "Home"', 'label: "Journey"', 'label: "Activities"', 'label: "Dossiers"', 'label: "Settings"']) {
+    assert.ok(!shellSource.includes(obsolete), `expected primary navigation to drop ${obsolete}`);
   }
   assert.ok(shellSource.includes('aria-label="Primary navigation"'));
+  assert.ok(shellSource.includes('href="/settings"'));
   assert.ok(shellSource.includes('href="/auth/logout"'));
 });
 
@@ -39,6 +31,7 @@ test("shell has a compact mobile navigation treatment", () => {
   assert.match(shellStyles, /@media\s*\(max-width:\s*720px\)/);
   assert.ok(shellStyles.includes("overflow-x: auto"));
   assert.ok(shellStyles.includes("min-height: 44px"));
+  assert.ok(shellStyles.includes(".coachLink"));
 });
 
 test("protected routes enter sign in with their full safe return path", () => {
@@ -51,12 +44,13 @@ test("protected routes enter sign in with their full safe return path", () => {
   assert.ok(shellSource.includes('!asPath.startsWith("//")'));
 });
 
-test("shell links to implemented product pages and remaining dashboard sections", () => {
-  assert.ok(shellSource.includes('href: "/journey"'));
-  assert.ok(shellSource.includes('href: "/journey#activities"'));
-  assert.ok(shellSource.includes('href: "/dossiers"'));
-  for (const section of ["coach"]) {
-    assert.ok(shellSource.includes(`/dashboard#${section}`));
-    assert.ok(dashboardSource.includes(`id="${section}"`));
+test("shell links only to real primary product routes and carries Coach source context", () => {
+  for (const route of ["/today", "/coach", "/progress", "/training"]) {
+    assert.ok(shellSource.includes(`href: "${route}"`));
   }
+  assert.ok(!shellSource.includes("/dashboard#coach"));
+  assert.ok(!shellSource.includes("/journey#activities"));
+  assert.ok(shellSource.includes("coachHref"));
+  assert.ok(shellSource.includes("encodeURIComponent(safeReturnPath(router.asPath))"));
+  assert.ok(shellSource.includes('href={coachHref}'));
 });
