@@ -16,7 +16,7 @@ export function archiveState(capabilities, job) {
     driveReason: capabilities?.drive?.reason || "Checking Drive availability…",
     uploadReason: capabilities?.upload?.reason || "Checking upload availability…",
     pending,
-    resultHref: job?.status === "completed" ? "/journey#activities" : null,
+    resultHref: job?.status === "completed" ? "/training" : null,
   };
 }
 
