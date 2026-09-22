@@ -29,19 +29,22 @@ test("archive page checks capabilities before exposing actions and links complet
   assert.ok(source.includes('href="/training"'));
 });
 
-test("dossier page uses current eligibility and returns to the generated result", () => {
+test("saved-analysis page uses current eligibility and returns to the generated result", () => {
   const source = read("pages/dossiers/index.js");
   assert.ok(source.includes("/api/dossiers/eligibility?"));
   assert.ok(source.includes("flow.currentJobs"));
   assert.ok(source.includes("flow.canGenerate"));
   assert.match(source, /activities match this selection/i);
-  assert.match(source, /Open generated dossier/i);
+  assert.match(source, /Open generated analysis/i);
 });
 
-test("journey visibly applies filters and paginates activity history", () => {
+test("journey visibly applies filters and uses server-bounded activity pagination", () => {
   const source = read("pages/journey.js");
   assert.match(source, /Applied filters/i);
-  assert.ok(source.includes("paginateActivities"));
+  assert.ok(source.includes("activity_page"));
+  assert.ok(source.includes("activity_page_size"));
+  assert.ok(source.includes("activity_pagination"));
+  assert.ok(!source.includes("paginateActivities"));
   assert.match(source, /Previous/i);
   assert.match(source, /Next/i);
 });

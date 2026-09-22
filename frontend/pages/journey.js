@@ -1,13 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 
 import AuthenticatedShell, { StatusNotice } from "../components/AuthenticatedShell";
 import { authenticatedJson } from "../lib/authFetch.mjs";
-import { paginateActivities } from "../lib/coreFlowStates.mjs";
 import styles from "../styles/Journey.module.css";
 
 const JOURNEY_API = "/api/journey";
-
+const ACTIVITY_PAGE_SIZE = 25;
 const WINDOWS = [
   ["30d", "30 days"],
   ["90d", "90 days"],
@@ -21,10 +20,9 @@ const SPORTS = [
   ["walk", "Walking"],
   ["strength", "Strength"],
 ];
-const ACTIVITY_PAGE_SIZE = 25;
 
 function formatDate(value) {
-  if (!value) return "Unknown";
+  if (!value) return "Unavailable";
   return new Intl.DateTimeFormat("en", {
     month: "short",
     day: "numeric",
@@ -33,15 +31,21 @@ function formatDate(value) {
 }
 
 function formatDistance(meters) {
-  if (meters === null || meters === undefined) return "Unknown";
+  if (meters === null || meters === undefined) return "Unavailable";
   return `${(meters / 1609.344).toFixed(1)} mi`;
 }
 
 function formatDuration(seconds) {
-  if (seconds === null || seconds === undefined) return "Unknown";
+  if (seconds === null || seconds === undefined) return "Unavailable";
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.round((seconds % 3600) / 60);
   return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
+}
+
+function formatPercent(value) {
+  if (value === null || value === undefined) return "Not comparable";
+  if (value === 0) return "No change";
+  return `${value > 0 ? "+" : ""}${value}%`;
 }
 
 function queryValue(value, allowed, fallback) {
@@ -54,6 +58,11 @@ function goalQueryValue(value) {
     : "all";
 }
 
+function pageQueryValue(value) {
+  const parsed = Number.parseInt(typeof value === "string" ? value : "1", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
 export default function Journey() {
   const router = useRouter();
   const [journey, setJourney] = useState(null);
@@ -61,7 +70,8 @@ export default function Journey() {
   const [windowValue, setWindowValue] = useState("90d");
   const [sportValue, setSportValue] = useState("all");
   const [goalValue, setGoalValue] = useState("all");
-  const [activityPage, setActivityPage] = useState(1);
+
+  const selectedPage = pageQueryValue(router.query.page);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -76,6 +86,7 @@ export default function Journey() {
       "all"
     );
     const selectedGoal = goalQueryValue(router.query.goal);
+    const activityPage = pageQueryValue(router.query.page);
     setWindowValue(selectedWindow);
     setSportValue(selectedSport);
     setGoalValue(selectedGoal);
@@ -85,24 +96,43 @@ export default function Journey() {
       window: selectedWindow,
       sport: selectedSport,
       goal: selectedGoal,
+      activity_page: String(activityPage),
+      activity_page_size: String(ACTIVITY_PAGE_SIZE),
     });
     authenticatedJson(`${JOURNEY_API}?${params.toString()}`)
       .then((data) => {
         setJourney(data);
-        setActivityPage(1);
         setViewState("ready");
       })
       .catch((error) => {
         setJourney(null);
         setViewState(error.status === 401 ? "unauthenticated" : "error");
       });
-  }, [router.isReady, router.query.window, router.query.sport, router.query.goal]);
+  }, [
+    router.isReady,
+    router.query.window,
+    router.query.sport,
+    router.query.goal,
+    router.query.page,
+  ]);
 
   function applyFilters(event) {
     event.preventDefault();
     router.replace({
       pathname: "/progress",
-      query: { window: windowValue, sport: sportValue, goal: goalValue },
+      query: { window: windowValue, sport: sportValue, goal: goalValue, page: 1 },
+    });
+  }
+
+  function changePage(page) {
+    router.replace({
+      pathname: "/progress",
+      query: {
+        window: journey.filters.window,
+        sport: journey.filters.sport,
+        goal: journey.filters.goal,
+        page,
+      },
     });
   }
 
@@ -111,34 +141,52 @@ export default function Journey() {
     sport: sportValue,
     goal: goalValue,
   };
-  const filterQuery = `window=${encodeURIComponent(appliedFilters.window)}&sport=${encodeURIComponent(appliedFilters.sport)}&goal=${encodeURIComponent(appliedFilters.goal)}`;
-  const activityPagination = paginateActivities(
-    journey?.activities || [],
-    activityPage,
-    ACTIVITY_PAGE_SIZE
-  );
+  const filterQuery = useMemo(() => {
+    const params = new URLSearchParams({
+      window: appliedFilters.window,
+      sport: appliedFilters.sport,
+      goal: appliedFilters.goal,
+      page: String(selectedPage),
+    });
+    return params.toString();
+  }, [appliedFilters.goal, appliedFilters.sport, appliedFilters.window, selectedPage]);
+
+  const coachHref = useMemo(() => {
+    const params = new URLSearchParams({
+      from: router.asPath || "/progress",
+      window: appliedFilters.window,
+      sport: appliedFilters.sport,
+      goal: appliedFilters.goal,
+      label: "Selected Progress window",
+    });
+    return `/coach?${params.toString()}`;
+  }, [appliedFilters.goal, appliedFilters.sport, appliedFilters.window, router.asPath]);
+
   const appliedWindow = WINDOWS.find(
     ([value]) => value === journey?.filters?.window
   )?.[1] || journey?.filters?.window;
   const appliedSport = SPORTS.find(
     ([value]) => value === journey?.filters?.sport
   )?.[1] || journey?.filters?.sport;
+  const pagination = journey?.activity_pagination;
 
   return (
     <AuthenticatedShell active="progress">
       <header className={styles.pageHeader}>
-        <p className={styles.eyebrow}>Your history</p>
-        <h1>Your fitness journey</h1>
-        <p>
-          Review the work you completed, how consistently it accumulated, and which
-          recovery signals are still missing.
-        </p>
+        <div>
+          <p className={styles.eyebrow}>Your progress</p>
+          <h1>Progress through your own history</h1>
+          <p>
+            Compare the work you completed with your own prior training, then open
+            the exact activities behind the story.
+          </p>
+        </div>
         {journey?.goal && (
           <span className={styles.goalPill}>Current focus: {journey.goal.label}</span>
         )}
       </header>
 
-      <form className={styles.filters} onSubmit={applyFilters} aria-label="Journey filters">
+      <form className={styles.filters} onSubmit={applyFilters} aria-label="Progress filters">
         <label>
           Time window
           <select
@@ -190,8 +238,8 @@ export default function Journey() {
 
       {viewState === "loading" && (
         <div className={styles.statePanel} role="status">
-          <strong>Loading your journey</strong>
-          <p>Reconciling your selected canonical activities…</p>
+          <strong>Loading Progress</strong>
+          <p>Reconciling your selected canonical evidence…</p>
         </div>
       )}
       {viewState === "unauthenticated" && (
@@ -201,7 +249,7 @@ export default function Journey() {
       )}
       {viewState === "error" && (
         <div className={styles.statePanel} role="alert">
-          <strong>Your journey could not be loaded</strong>
+          <strong>Progress could not be loaded</strong>
           <p>Your saved fitness history has not been changed.</p>
         </div>
       )}
@@ -213,59 +261,75 @@ export default function Journey() {
               {journey.freshness.state === "stale"
                 ? "This window needs a data refresh"
                 : journey.freshness.state === "partial"
-                  ? "Some journey signals are missing or stale"
+                  ? "Some Progress signals are missing or stale"
                   : journey.freshness.state === "empty"
                     ? "No data is available in this window"
-                    : "Journey data is current"}
+                    : "Progress data is current"}
             </StatusNotice>
+            <span>Data through {formatDate(journey.freshness.data_through)}</span>
             <span>
-              Data through {formatDate(journey.freshness.data_through)}
+              Workouts: {journey.freshness.signals.activities.state}. Sleep:{" "}
+              {journey.freshness.signals.sleep.state}. Intensity:{" "}
+              {journey.freshness.signals.intensity.state}.
             </span>
-            <span>Workouts: {journey.freshness.signals.activities.state}. Sleep: {journey.freshness.signals.sleep.state}. Intensity: {journey.freshness.signals.intensity.state}.</span>
           </div>
 
-          <section className={styles.summaryGrid} aria-label="Selected journey totals">
-            <article>
-              <span>Activities</span>
-              <strong>{journey.totals.activity_count}</strong>
-            </article>
-            <article>
-              <span>Distance</span>
-              <strong>{formatDistance(journey.totals.distance_m)}</strong>
-            </article>
-            <article>
-              <span>Training time</span>
-              <strong>{formatDuration(journey.totals.duration_seconds)}</strong>
-            </article>
-            <article>
-              <span>Active days</span>
-              <strong>{journey.totals.active_days}</strong>
-            </article>
+          <section className={styles.summaryGrid} aria-label="Selected Progress totals">
+            <article><span>Activities</span><strong>{journey.totals.activity_count}</strong></article>
+            <article><span>Distance</span><strong>{formatDistance(journey.totals.distance_m)}</strong></article>
+            <article><span>Training time</span><strong>{formatDuration(journey.totals.duration_seconds)}</strong></article>
+            <article><span>Active days</span><strong>{journey.totals.active_days}</strong></article>
           </section>
 
-          {journey.totals.intensity_distribution === null && (
-            <StatusNotice tone="neutral">
-              Intensity distribution is unknown for this window.
-            </StatusNotice>
-          )}
+          <section className={styles.card} aria-label="Athlete-to-self comparison">
+            <div className={styles.sectionHeading}>
+              <div>
+                <p className={styles.eyebrow}>Athlete-to-self</p>
+                <h2>How this window compares with you</h2>
+              </div>
+              <span>{journey.comparison.basis}</span>
+            </div>
+            {journey.comparison.state === "available" ? (
+              <div className={styles.summaryGrid}>
+                <article>
+                  <span>Distance change</span>
+                  <strong>{formatPercent(journey.comparison.changes.distance_percent)}</strong>
+                </article>
+                <article>
+                  <span>Training-time change</span>
+                  <strong>{formatPercent(journey.comparison.changes.duration_percent)}</strong>
+                </article>
+                <article>
+                  <span>Activity-count change</span>
+                  <strong>{formatPercent(journey.comparison.changes.activity_count_percent)}</strong>
+                </article>
+                <article>
+                  <span>Active-day change</span>
+                  <strong>{formatPercent(journey.comparison.changes.active_days_percent)}</strong>
+                </article>
+              </div>
+            ) : (
+              <p>{journey.comparison.basis}</p>
+            )}
+            <p className={styles.boundary}>
+              This is a direct comparison with the immediately preceding equal window,
+              not a readiness score or prediction.
+            </p>
+          </section>
 
-          {journey.totals.intensity_distribution !== null && (
+          {journey.totals.intensity_distribution === null ? (
+            <StatusNotice tone="neutral">
+              Intensity distribution is unavailable for this window.
+            </StatusNotice>
+          ) : (
             <section className={styles.card} aria-label="Intensity distribution">
               <div className={styles.sectionHeading}>
-                <div>
-                  <p className={styles.eyebrow}>Training balance</p>
-                  <h2>Intensity distribution</h2>
-                </div>
+                <div><p className={styles.eyebrow}>Training balance</p><h2>Intensity distribution</h2></div>
               </div>
               <div className={styles.intensityGrid}>
-                {Object.entries(journey.totals.intensity_distribution).map(
-                  ([intensity, count]) => (
-                    <div key={intensity}>
-                      <span>{intensity}</span>
-                      <strong>{count}</strong>
-                    </div>
-                  )
-                )}
+                {Object.entries(journey.totals.intensity_distribution).map(([intensity, count]) => (
+                  <div key={intensity}><span>{intensity}</span><strong>{count}</strong></div>
+                ))}
               </div>
             </section>
           )}
@@ -287,7 +351,7 @@ export default function Journey() {
                         <strong>{formatDistance(week.distance_m)}</strong>
                         <span>
                           Sleep {week.average_sleep_hours === null
-                            ? "unknown"
+                            ? "unavailable"
                             : `${week.average_sleep_hours}h average`}
                         </span>
                       </div>
@@ -317,34 +381,25 @@ export default function Journey() {
             </section>
           </div>
 
-          <section className={styles.card}>
-            <h2>Milestones in this window</h2>
-            {journey.milestones.length === 0 ? (
-              <p>Milestones will appear when the selected window contains activities.</p>
-            ) : (
-              <ul className={styles.milestones}>
-                {journey.milestones.map((milestone) => (
-                  <li key={milestone.kind}>
-                    <strong>{milestone.label}</strong>
-                    <span>{formatDistance(milestone.distance_m)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
+          <section className={styles.handoff}>
+            <div>
+              <p className={styles.eyebrow}>Coaching context</p>
+              <h2>Ask Coach about this window</h2>
+              <p>Carry these exact filters and this evidence window into your durable Coach thread.</p>
+            </div>
+            <a href={coachHref}>Ask Coach about this window</a>
           </section>
 
           <section className={styles.handoff}>
             <div>
-              <p className={styles.eyebrow}>Coaching context</p>
-              <h2>Carry this window into your dossier</h2>
+              <p className={styles.eyebrow}>Saved analysis</p>
+              <h2>Go deeper without losing this selection</h2>
               <p>
-                This link preserves the selected time, sport, and recorded goal period.
-                Your selected filters open the private library and seed a new immutable version.
+                Create or revisit an immutable deeper analysis using the same window,
+                sport, and recorded goal period.
               </p>
             </div>
-            <a href={journey.dossier_handoff.href}>
-              {journey.dossier_handoff.label}
-            </a>
+            <a href={journey.dossier_handoff.href}>{journey.dossier_handoff.label}</a>
           </section>
 
           <StatusNotice tone="neutral">
@@ -355,47 +410,42 @@ export default function Journey() {
 
           <section className={styles.card} id="activities">
             <div className={styles.sectionHeading}>
-              <div>
-                <p className={styles.eyebrow}>Selected record</p>
-                <h2>Activities</h2>
-              </div>
+              <div><p className={styles.eyebrow}>Selected evidence</p><h2>Activities</h2></div>
               <span>
-                {activityPagination.from}–{activityPagination.to} of {journey.activities.length} shown
+                {pagination.from}–{pagination.to} of {pagination.total_items} shown
               </span>
             </div>
-            {journey.activities.length === 0 ? (
+            {pagination.total_items === 0 ? (
               <p>No activities match these filters.</p>
             ) : (
               <ol className={styles.activities}>
-                {activityPagination.items.map((activity) => (
+                {journey.activities.map((activity) => (
                   <li key={activity.id}>
                     <a href={`/activities/${activity.id}?${filterQuery}`}>
                       <div>
                         <strong>{activity.title}</strong>
                         <span>{formatDate(activity.start_time)} · {activity.sport}</span>
                       </div>
-                      <span>
-                        {formatDistance(activity.distance_m)} · {formatDuration(activity.duration_seconds)}
-                      </span>
+                      <span>{formatDistance(activity.distance_m)} · {formatDuration(activity.duration_seconds)}</span>
                     </a>
                   </li>
                 ))}
               </ol>
             )}
-            {activityPagination.totalPages > 1 && (
-              <nav className={styles.pagination} aria-label="Activity history pages">
+            {pagination.total_pages > 1 && (
+              <nav className={styles.pagination} aria-label="Progress activity pages">
                 <button
                   type="button"
-                  disabled={activityPagination.page === 1}
-                  onClick={() => setActivityPage((page) => Math.max(1, page - 1))}
+                  disabled={pagination.page === 1}
+                  onClick={() => changePage(pagination.page - 1)}
                 >
                   Previous
                 </button>
-                <span>Page {activityPagination.page} of {activityPagination.totalPages}</span>
+                <span>Page {pagination.page} of {pagination.total_pages}</span>
                 <button
                   type="button"
-                  disabled={activityPagination.page === activityPagination.totalPages}
-                  onClick={() => setActivityPage((page) => Math.min(activityPagination.totalPages, page + 1))}
+                  disabled={pagination.page === pagination.total_pages}
+                  onClick={() => changePage(pagination.page + 1)}
                 >
                   Next
                 </button>
@@ -404,8 +454,9 @@ export default function Journey() {
           </section>
 
           <p className={styles.boundary}>
-            Summaries reconcile to the canonical activities visible for this selected window.
-            Missing history and signals remain unknown rather than being treated as zero.
+            Full-window summaries reconcile to the complete canonical selection even
+            though activity rows are delivered one bounded page at a time. Missing
+            history and signals remain unavailable rather than becoming zero.
           </p>
         </>
       )}

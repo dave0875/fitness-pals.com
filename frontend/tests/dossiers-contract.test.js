@@ -22,7 +22,7 @@ test("dossier library covers asynchronous and recoverable lifecycle states", () 
   for (const state of ["queued", "generating", "completed", "superseded", "insufficient_data", "failed"]) {
     assert.ok(source.includes(state));
   }
-  assert.match(source, /Generate dossier/i);
+  assert.match(source, /Generate analysis/i);
   assert.match(source, /Retry/i);
   assert.match(source, /Public sample/i);
   assert.ok(source.includes('<AuthenticatedShell active="progress">'));
