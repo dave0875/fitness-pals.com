@@ -84,6 +84,25 @@
   font-size: 0.88rem;
 }
 
+.coachLink {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.95rem;
+  color: white;
+  background: var(--fp-primary);
+  border-radius: 999px;
+  text-decoration: none;
+  font-weight: 800;
+}
+
+.coachLink:hover,
+.coachLink:focus-visible {
+  filter: brightness(0.94);
+  outline: 3px solid color-mix(in srgb, var(--fp-primary) 30%, transparent);
+  outline-offset: 2px;
+}
+
 .accountLink {
   max-width: 220px;
   overflow: hidden;
@@ -193,8 +212,13 @@
     display: none;
   }
 
+  .coachLink,
   .logout {
     min-height: 44px;
+  }
+
+  .coachLink {
+    padding-inline: 0.8rem;
   }
 
   .navigation {
