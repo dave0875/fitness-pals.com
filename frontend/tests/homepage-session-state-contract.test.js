@@ -23,4 +23,5 @@ test("homepage preserves or defaults the next redirect for brokered login", () =
   assert.match(source, /URLSearchParams|window\.location\.search|next=/);
   assert.match(source, /\/auth\/login\?next=/);
   assert.ok(source.includes('const DEFAULT_AUTH_NEXT = "/today"'));
+  assert.ok(source.includes('!candidate.includes("\\\\")'));
 });
