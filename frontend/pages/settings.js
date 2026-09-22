@@ -54,7 +54,9 @@ export default function Settings() {
       setHome(nextHome);
       setCapabilities(nextCapabilities);
       setState("ready");
-      if (!capabilitiesResponse.ok) {
+      if (capabilitiesResponse.ok) {
+        setMessage("");
+      } else {
         setMessage("Archive options could not be checked. Your saved training history is still available.");
       }
     } catch (error) {
@@ -196,7 +198,7 @@ export default function Settings() {
                 <p className={styles.eyebrow}>Connections</p>
                 <h2>Training data trust</h2>
               </div>
-              <span className={styles.statusBadge}>{trust.label}</span>
+              <span className={styles.statusBadge}>{trust.sourceLabel} · {trust.label}</span>
             </div>
 
             <StatusNotice tone={trustTone(trust.state)}>
