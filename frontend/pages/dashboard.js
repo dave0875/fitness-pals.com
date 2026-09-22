@@ -294,7 +294,7 @@ export default function Dashboard() {
               <p className={styles.questionLabel}>What to do next</p>
               <h2>{home.coaching.insight}</h2>
               <p>{home.coaching.explanation}</p>
-              <a className={styles.primaryButton} href="/today#todays-run">
+              <a className={styles.primaryButton} href={home.coaching.next_action.href}>
                 {home.coaching.next_action.label}
               </a>
             </section>
