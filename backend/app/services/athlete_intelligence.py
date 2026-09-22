@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from math import sqrt
 import re
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -206,6 +206,8 @@ def _sleep_hours(session: SleepSession) -> float | None:
         if payload.get(key) is not None:
             seconds = payload[key]
             break
+    if seconds is None:
+        return None
     try:
         value = float(seconds)
     except (TypeError, ValueError):
@@ -235,7 +237,7 @@ def _sleep_run_association(
     activities: list[Activity], sleep_sessions: list[SleepSession]
 ) -> dict[str, Any]:
     sleep_by_date = {
-        row.calendar_date: hours
+        cast(date, row.calendar_date): hours
         for row in sleep_sessions
         if (hours := _sleep_hours(row)) is not None
     }
@@ -320,7 +322,10 @@ def _freshness(
     activities: list[Activity], sleep_sessions: list[SleepSession], now: datetime
 ) -> dict[str, Any]:
     latest_activity = max((_utc(row.start_time) for row in activities), default=None)
-    latest_sleep = max((_utc(row.calendar_date) for row in sleep_sessions), default=None)
+    latest_sleep = max(
+        (_utc(cast(date, row.calendar_date)) for row in sleep_sessions),
+        default=None,
+    )
     activity_signal = _signal(latest_activity, now)
     sleep_signal = _signal(latest_sleep, now)
     states = {activity_signal["state"], sleep_signal["state"]}
