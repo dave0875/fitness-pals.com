@@ -13,6 +13,15 @@ function formatDate(value) {
   }).format(new Date(value));
 }
 
+function formatWeekday(value) {
+  if (!value) return "Unknown";
+  return new Intl.DateTimeFormat("en", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(value + "T12:00:00"));
+}
+
 function formatDistance(meters) {
   if (meters === null || meters === undefined) return "Distance unknown";
   return `${(meters / 1609.344).toFixed(1)} mi`;
@@ -38,10 +47,13 @@ function Signal({ label, value, detail }) {
 export default function Dashboard() {
   const [home, setHome] = useState(null);
   const [todayPlan, setTodayPlan] = useState(null);
+  const [todayContext, setTodayContext] = useState(null);
   const [viewState, setViewState] = useState("loading");
   const [planBusy, setPlanBusy] = useState(false);
   const [planNotice, setPlanNotice] = useState("");
   const [editingPlan, setEditingPlan] = useState(false);
+  const [movingPlan, setMovingPlan] = useState(false);
+  const [moveDate, setMoveDate] = useState("");
   const [goalDraft, setGoalDraft] = useState({
     goal_type: "consistency",
     phase: "maintenance",
@@ -55,9 +67,11 @@ export default function Dashboard() {
     Promise.all([
       authenticatedJson("/api/athlete-home"),
       authenticatedJson("/api/today-plan"),
-    ]).then(([homeData, planData]) => {
+      authenticatedJson("/api/today-plan/context"),
+    ]).then(([homeData, planData, contextData]) => {
         setHome(homeData);
         setTodayPlan(planData);
+        setTodayContext(contextData);
         if (planData.goal) {
           setGoalDraft({
             goal_type: planData.goal.type,
@@ -87,7 +101,9 @@ export default function Dashboard() {
         json: { ...goalDraft, target_date: goalDraft.target_date || null },
       });
       setTodayPlan(data);
+      setTodayContext(await authenticatedJson("/api/today-plan/context"));
       setEditingPlan(false);
+      setMovingPlan(false);
       setPlanNotice("Goal saved. Your next decision is ready.");
     } catch (_error) {
       setPlanNotice("Your goal could not be saved just now.");
@@ -106,7 +122,9 @@ export default function Dashboard() {
         json: request,
       });
       setTodayPlan(data);
+      setTodayContext(await authenticatedJson("/api/today-plan/context"));
       setEditingPlan(false);
+      setMovingPlan(false);
       setPlanNotice(`Plan ${data.state}.`);
     } catch (_error) {
       setPlanNotice("That plan update could not be saved just now.");
@@ -120,7 +138,6 @@ export default function Dashboard() {
   const adjustPlan = () => updatePlan({
     action: "adjust",
     payload: {
-      scheduled_for: adjustment.scheduled_for,
       duration_minutes: adjustment.duration_min && adjustment.duration_max ? {
         min: Number(adjustment.duration_min),
         max: Number(adjustment.duration_max),
@@ -132,12 +149,18 @@ export default function Dashboard() {
       effort_range: adjustment.effort_range,
     },
   });
-  const completePlan = () => updatePlan({ action: "complete", payload: feedback });
+  const movePlan = () => updatePlan({
+    action: "move",
+    payload: { scheduled_for: moveDate },
+  });
+  const completePlan = (matchedActivityId = null) => updatePlan({
+    action: "complete",
+    payload: { ...feedback, matched_activity_id: matchedActivityId },
+  });
 
   const startAdjustment = () => {
     const plan = todayPlan.plan;
     setAdjustment({
-      scheduled_for: plan.scheduled_for,
       duration_min: plan.duration_minutes?.min ?? "",
       duration_max: plan.duration_minutes?.max ?? "",
       distance_min: plan.distance_miles?.min ?? "",
@@ -145,6 +168,13 @@ export default function Dashboard() {
       effort_range: plan.effort_range,
     });
     setEditingPlan(true);
+    setMovingPlan(false);
+  };
+
+  const startMove = () => {
+    setMoveDate(todayPlan.plan.scheduled_for);
+    setMovingPlan(true);
+    setEditingPlan(false);
   };
 
   const requestNextPlan = async () => {
@@ -153,6 +183,7 @@ export default function Dashboard() {
     try {
       const data = await authenticatedJson("/api/today-plan/next", { method: "POST" });
       setTodayPlan(data);
+      setTodayContext(await authenticatedJson("/api/today-plan/context"));
       setPlanNotice("Your next decision is ready.");
     } catch (_error) {
       setPlanNotice("The next decision could not be created just now.");
@@ -164,13 +195,22 @@ export default function Dashboard() {
   const recovery = home?.recovery;
   const readiness = home?.readiness;
   const displayedGoal = todayPlan?.goal || home?.goal;
+  const coachHref = todayPlan?.plan
+    ? `/coach?from=${encodeURIComponent(
+        `/today?goal=${todayPlan.goal?.type || ""}`
+      )}&label=${encodeURIComponent(
+        `Today decision: ${todayPlan.plan.session_purpose}`
+      )}&prompt=${encodeURIComponent(
+        "Help me understand or adjust this saved training decision."
+      )}`
+    : "/coach?from=%2Ftoday";
   return (
     <AuthenticatedShell active="today">
       <header className={styles.pageHeader}>
-        <p className={styles.eyebrow}>Your training</p>
-        <h1>Your athlete home</h1>
+        <p className={styles.eyebrow}>Today</p>
+        <h1>One decision, grounded in your training</h1>
         <p className={styles.lede}>
-          See what changed, understand where you are now, and leave with one useful next step.
+          Understand the next session, shape it to fit the day, then carry the result forward.
         </p>
         {displayedGoal && (
           <p className={styles.goalPill}>
@@ -228,50 +268,11 @@ export default function Dashboard() {
           )}
 
           <div className={styles.sectionGrid}>
-            <section className={styles.wideCard} id="journey">
-              <p className={styles.questionLabel}>What happened</p>
-              <h2>{home.trend.label}</h2>
-              <p className={styles.featureValue}>
-                {home.trend.state === "unknown"
-                  ? "Training trend unknown"
-                  : `${home.trend.current_miles.toFixed(1)} miles this week`}
-              </p>
-              <p>{home.trend.explanation}</p>
-            </section>
-
-            <section className={styles.card}>
-              <p className={styles.questionLabel}>Where you are now</p>
-              <h2>{readiness.label}</h2>
-              <p className={styles.featureValue}>
-                {readiness.score === null ? "Unknown" : `${readiness.score}/100`}
-              </p>
-              <p>{readiness.explanation}</p>
-              <p>Training consistency: {home.training_consistency.score === null ? "Unknown" : `${home.training_consistency.score}/100`}. {home.training_consistency.explanation}</p>
-              <p>Workout data: {home.freshness.signals.activities.state}. Sleep data: {home.freshness.signals.sleep.state}. Intensity: {home.freshness.signals.intensity.state}.</p>
-              <div className={styles.signalGrid}>
-                <Signal
-                  label="Sleep"
-                  value={recovery.sleep_hours === null ? "Unknown" : `${recovery.sleep_hours} hours`}
-                />
-                <Signal label="Sleep score" value={recovery.sleep_score} />
-                <Signal label="Overnight HRV" value={recovery.overnight_hrv} />
-              </div>
-            </section>
-
-            <section className={styles.card}>
-              <p className={styles.questionLabel}>What to do next</p>
-              <h2>{home.coaching.insight}</h2>
-              <p>{home.coaching.explanation}</p>
-              <a className={styles.primaryButton} href={home.coaching.next_action.href}>
-                {home.coaching.next_action.label}
-              </a>
-            </section>
-
-            <section className={styles.wideCard} id="todays-run">
-              <p className={styles.questionLabel}>One decision at a time</p>
-              <h2>Today&apos;s run</h2>
+            <section className={styles.decisionHero} id="todays-run">
+              <p className={styles.questionLabel}>Your next decision</p>
+              <h2>What should you do next?</h2>
               <p>
-                A coaching suggestion grounded in your account&apos;s valid run history. It is not a medical readiness score.
+                One saved coaching decision grounded in canonical training history. It is not a medical readiness score or a prediction.
               </p>
 
               {todayPlan?.state === "goal_required" && (
@@ -364,10 +365,13 @@ export default function Dashboard() {
                         <dd>{todayPlan.plan.effort_range}</dd>
                       </div>
                     </dl>
+                    <a className={styles.textLink} href={coachHref}>
+                      Ask Coach about this decision
+                    </a>
                   </div>
 
                   <div>
-                    <h3>Why this session</h3>
+                    <h3>Why this decision</h3>
                     <ul className={styles.evidenceList}>
                       {todayPlan.plan.evidence.map((item) => <li key={item.activity_id}>{item.summary}</li>)}
                       {todayPlan.plan.rationale.map((item) => <li key={item}>{item}</li>)}
@@ -380,7 +384,8 @@ export default function Dashboard() {
 
                   {editingPlan && adjustment && (
                     <div className={styles.form}>
-                      <label>When<input type="date" value={adjustment.scheduled_for} onChange={(event) => setAdjustment({ ...adjustment, scheduled_for: event.target.value })} /></label>
+                      <h3>Modify the session</h3>
+                      <p>Change the work itself. Moving the day is a separate decision.</p>
                       <div className={styles.rangeRow}>
                         <label>Minimum minutes<input type="number" min="5" value={adjustment.duration_min} onChange={(event) => setAdjustment({ ...adjustment, duration_min: event.target.value })} /></label>
                         <label>Maximum minutes<input type="number" min="5" value={adjustment.duration_max} onChange={(event) => setAdjustment({ ...adjustment, duration_max: event.target.value })} /></label>
@@ -397,9 +402,31 @@ export default function Dashboard() {
                     </div>
                   )}
 
+                  {movingPlan && (
+                    <div className={styles.form}>
+                      <h3>Move this session</h3>
+                      <p>Keep the saved duration, distance, and effort guidance. Change only the day.</p>
+                      <label>
+                        New day
+                        <input type="date" value={moveDate} onChange={(event) => setMoveDate(event.target.value)} />
+                      </label>
+                      <div className={styles.buttonRow}>
+                        <button className={styles.primaryButton} type="button" onClick={movePlan} disabled={planBusy || !moveDate}>Save new day</button>
+                        <button className={styles.secondaryButton} type="button" onClick={() => setMovingPlan(false)}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+
                   {todayPlan.plan.status === "accepted" && (
                     <div className={styles.form}>
-                      <h3>Report completion</h3>
+                      <h3>Finish the loop</h3>
+                      {todayContext?.match ? (
+                        <StatusNotice tone="success">
+                          Possible completed run found: {todayContext.match.title} · {todayContext.match.distance_miles ?? "distance unknown"} mi · {todayContext.match.duration_minutes ?? "duration unknown"} min. Confirm it before Fitness Pals links it to this decision.
+                        </StatusNotice>
+                      ) : (
+                        <p>No unique canonical activity safely matches this saved session yet. You can still report completion manually.</p>
+                      )}
                       <label>
                         How did the effort feel?
                         <select value={feedback.perceived_effort} onChange={(event) => setFeedback({ ...feedback, perceived_effort: event.target.value })}>
@@ -409,7 +436,12 @@ export default function Dashboard() {
                         </select>
                       </label>
                       <label>Optional note<textarea value={feedback.note} onChange={(event) => setFeedback({ ...feedback, note: event.target.value })} /></label>
-                      <button className={styles.primaryButton} type="button" onClick={completePlan} disabled={planBusy}>Mark complete</button>
+                      <div className={styles.buttonRow}>
+                        {todayContext?.match && (
+                          <button className={styles.primaryButton} type="button" onClick={() => completePlan(todayContext.match.id)} disabled={planBusy}>Confirm run and save feedback</button>
+                        )}
+                        <button className={todayContext?.match ? styles.secondaryButton : styles.primaryButton} type="button" onClick={() => completePlan()} disabled={planBusy}>Report completion manually</button>
+                      </div>
                     </div>
                   )}
 
@@ -422,13 +454,99 @@ export default function Dashboard() {
                       {todayPlan.plan.status !== "accepted" && (
                         <button className={styles.primaryButton} type="button" onClick={acceptPlan} disabled={planBusy}>Accept</button>
                       )}
-                      <button className={styles.secondaryButton} type="button" onClick={startAdjustment} disabled={planBusy}>Adjust</button>
+                      <button className={styles.secondaryButton} type="button" onClick={startAdjustment} disabled={planBusy}>Modify</button>
+                      <button className={styles.secondaryButton} type="button" onClick={startMove} disabled={planBusy}>Move</button>
                       <button className={styles.secondaryButton} type="button" onClick={skipPlan} disabled={planBusy}>Skip</button>
                     </div>
                   )}
                 </div>
               )}
+              {todayContext?.week?.days?.length ? (
+                <div className={styles.todayContextBlock} aria-labelledby="rolling-week-heading">
+                  <div className={styles.sectionHeading}>
+                    <div>
+                      <p className={styles.questionLabel}>Rolling week</p>
+                      <h3 id="rolling-week-heading">The seven-day neighborhood around today</h3>
+                    </div>
+                  </div>
+                  <div className={styles.weekGrid}>
+                    {todayContext.week.days.map((day) => (
+                      <div className={styles.weekDay} data-state={day.state} key={day.date}>
+                        <strong>{formatWeekday(day.date)}</strong>
+                        {day.is_today && <span className={styles.statusBadge}>Today</span>}
+                        {day.activities.map((activity) => (
+                          <a href={activity.href} key={activity.id}>{activity.title} · {activity.distance_miles ?? "?"} mi</a>
+                        ))}
+                        {day.plan && <span>{day.plan.session_purpose} · {day.plan.status.replaceAll("_", " ")}</span>}
+                        {!day.activities.length && !day.plan && <span>Open day</span>}
+                      </div>
+                    ))}
+                  </div>
+                  {todayContext.week.outside_window_plan && (
+                    <p className={styles.muted}>
+                      Saved session sits outside this seven-day window on {formatDate(todayContext.week.outside_window_plan.date)}.
+                    </p>
+                  )}
+                </div>
+              ) : null}
+
+              {todayContext?.trajectory && (
+                <div className={styles.todayContextBlock} aria-labelledby="trajectory-heading">
+                  <p className={styles.questionLabel}>Goal trajectory inputs</p>
+                  <h3 id="trajectory-heading">What this decision is looking at</h3>
+                  <div className={styles.trajectoryGrid}>
+                    <Signal label="Last 7 days" value={`${todayContext.trajectory.last_7_days.miles.toFixed(1)} mi · ${todayContext.trajectory.last_7_days.runs} runs`} />
+                    <Signal label="Previous 7 days" value={`${todayContext.trajectory.previous_7_days.miles.toFixed(1)} mi · ${todayContext.trajectory.previous_7_days.runs} runs`} />
+                    <Signal label="Last 28 days" value={`${todayContext.trajectory.last_28_days.miles.toFixed(1)} mi · ${todayContext.trajectory.last_28_days.runs} runs`} />
+                    <Signal
+                      label="Target timing"
+                      value={todayContext.trajectory.days_to_target === null ? "No target date" : `${todayContext.trajectory.days_to_target} days`}
+                      detail={todayContext.trajectory.interpretation}
+                    />
+                  </div>
+                </div>
+              )}
+
               {planNotice && <StatusNotice tone="neutral">{planNotice}</StatusNotice>}
+            </section>
+
+            <section className={styles.wideCard} id="journey">
+              <p className={styles.questionLabel}>What happened</p>
+              <h2>{home.trend.label}</h2>
+              <p className={styles.featureValue}>
+                {home.trend.state === "unknown"
+                  ? "Training trend unknown"
+                  : `${home.trend.current_miles.toFixed(1)} miles this week`}
+              </p>
+              <p>{home.trend.explanation}</p>
+            </section>
+
+            <section className={styles.card}>
+              <p className={styles.questionLabel}>Where you are now</p>
+              <h2>{readiness.label}</h2>
+              <p className={styles.featureValue}>
+                {readiness.score === null ? "Unknown" : `${readiness.score}/100`}
+              </p>
+              <p>{readiness.explanation}</p>
+              <p>Training consistency: {home.training_consistency.score === null ? "Unknown" : `${home.training_consistency.score}/100`}. {home.training_consistency.explanation}</p>
+              <p>Workout data: {home.freshness.signals.activities.state}. Sleep data: {home.freshness.signals.sleep.state}. Intensity: {home.freshness.signals.intensity.state}.</p>
+              <div className={styles.signalGrid}>
+                <Signal
+                  label="Sleep"
+                  value={recovery.sleep_hours === null ? "Unknown" : `${recovery.sleep_hours} hours`}
+                />
+                <Signal label="Sleep score" value={recovery.sleep_score} />
+                <Signal label="Overnight HRV" value={recovery.overnight_hrv} />
+              </div>
+            </section>
+
+            <section className={styles.card}>
+              <p className={styles.questionLabel}>What to do next</p>
+              <h2>{home.coaching.insight}</h2>
+              <p>{home.coaching.explanation}</p>
+              <a className={styles.primaryButton} href={home.coaching.next_action.href}>
+                {home.coaching.next_action.label}
+              </a>
             </section>
 
             <section className={styles.wideCard} id="activities">
