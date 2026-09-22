@@ -38,7 +38,7 @@ test("private dossier detail discloses boundaries and reasoning classes", () => 
   assert.match(source, /Inference/i);
   assert.match(source, /Uncertainty/i);
   assert.match(source, /Next actions/i);
-  assert.match(source, /Back to Journey/i);
+  assert.match(source, /Back to Progress/i);
   assert.ok(source.includes("/export"));
   assert.ok(!source.includes("public share"));
   assert.ok(source.includes('<AuthenticatedShell active="progress">'));
