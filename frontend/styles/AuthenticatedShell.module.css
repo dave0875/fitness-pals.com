@@ -104,11 +104,19 @@
 }
 
 .accountLink {
+  min-height: 44px;
   max-width: 220px;
+  display: inline-flex;
+  align-items: center;
   overflow: hidden;
   color: var(--fp-ink);
+  text-decoration: none;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.settingsLabel {
+  display: none;
 }
 
 .logout {
@@ -208,8 +216,12 @@
   }
 
   .brand small,
-  .accountLink {
+  .accountName {
     display: none;
+  }
+
+  .settingsLabel {
+    display: inline;
   }
 
   .coachLink,
