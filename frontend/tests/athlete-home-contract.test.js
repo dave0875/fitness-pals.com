@@ -36,6 +36,10 @@ test("athlete home preserves the V2 Today route for sign in", () => {
   assert.ok(dashboardSource.includes("/auth/login?next=%2Ftoday"));
 });
 
+test("athlete home follows the backend recovery or coaching destination", () => {
+  assert.ok(dashboardSource.includes("href={home.coaching.next_action.href}"));
+});
+
 test("athlete home renders owner-scoped dossier lifecycle state", () => {
   assert.ok(dashboardSource.includes("home.dossier.action.href"));
   assert.ok(dashboardSource.includes("home.dossier.action.label"));
