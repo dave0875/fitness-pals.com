@@ -14,6 +14,7 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.services.today_plan import (
     apply_plan_action,
+    build_today_context,
     build_today_plan,
     create_next_plan,
     save_goal,
@@ -46,6 +47,15 @@ def get_today_plan(
 ):
     """Return or lazily create the current athlete-owned decision."""
     return build_today_plan(db, user.id)
+
+
+@router.get("/context")
+def get_today_context(
+    user: CurrentUserLike = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return non-mutating rolling-week, trajectory, freshness, and match context."""
+    return build_today_context(db, user.id)
 
 
 @router.put("/goal")
