@@ -70,6 +70,8 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
                     "Location": "https://auth.fitness-pals.com/application/o/authorize/"
                 },
             )
+        if any(url.endswith(route) for route in ("/today", "/coach", "/progress", "/training")):
+            return FakeResponse(200, "<html>Fitness Pals</html>")
         if url.endswith("/api/auth/session"):
             raise http_error(url, 401, {"detail": "Credentials missing"})
         if url.endswith("/api/health-check"):
@@ -106,7 +108,7 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         opener=opener,
     )
 
-    assert len(seen) == 10
+    assert len(seen) == 14
     assert sum(authorization is not None for _, authorization in seen) == 1
 
 
