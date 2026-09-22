@@ -109,7 +109,7 @@ function renderHeroCtas(sessionState, authWelcomeHref) {
     return (
       <>
         <a href="/welcome?first=1" style={ctaButtonStyle("primary")}>
-          Connect Garmin
+          Start with my goal
         </a>
         <a href="#trust" style={ctaButtonStyle("secondary")}>
           How your data is used
@@ -122,7 +122,7 @@ function renderHeroCtas(sessionState, authWelcomeHref) {
     return (
       <>
         <a href="/welcome?first=1" style={ctaButtonStyle("primary")}>
-          Import my training history
+          See activation progress
         </a>
         <a href="#how-it-works" style={ctaButtonStyle("secondary")}>
           What happens next
@@ -174,7 +174,7 @@ function renderNavCtas(sessionState, authWelcomeHref) {
     return (
       <>
         <a href="/welcome?first=1" style={navButtonStyle("primary")}>
-          Connect Garmin
+          Start with my goal
         </a>
         <a href={HERO_DOSSIER_URL} style={navButtonStyle("secondary")}>
           View sample coach dossier
@@ -187,7 +187,7 @@ function renderNavCtas(sessionState, authWelcomeHref) {
     return (
       <>
         <a href="/welcome?first=1" style={navButtonStyle("primary")}>
-          Import my training history
+          See activation progress
         </a>
         <a href={HERO_DOSSIER_URL} style={navButtonStyle("secondary")}>
           View sample coach dossier
@@ -435,7 +435,7 @@ export default function Home() {
           >
             {[
               ["1. Sign in", "Use the Fitness Pals sign-in screen and continue with Gmail to create an app-backed session."],
-              ["2. Add Garmin data", "Connect Garmin or import your Garmin archive directly."],
+              ["2. Add Garmin data", "Start with my goal or import your Garmin archive directly."],
               ["3. Sync your data", "Queue your first import and let the product build context."],
               ["4. Get coaching value", "See readiness, recent activity patterns, and next actions."],
             ].map(([title, body]) => (
