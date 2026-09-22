@@ -16,6 +16,7 @@ from app.llm.client import CoachUnavailableError, run_coach_prompt
 from app.models import Activity, Conversation
 from app.routes.metrics import summary
 from app.services.activity_quality import valid_distance_m
+from app.services.athlete_intelligence import build_athlete_intelligence, build_scenario_context
 from app.services.today_plan import build_today_plan
 from app.types import CurrentUserLike
 
@@ -204,6 +205,49 @@ def _evidence(
                     f"{distance_30d / 1609.344:.1f} miles from valid canonical runs."
                 ),
                 "href": "/progress?window=30d",
+            }
+        )
+
+    intelligence = metrics.get("athlete_intelligence")
+    briefing = intelligence.get("briefing") if isinstance(intelligence, dict) else None
+    if isinstance(briefing, dict) and briefing.get("state") == "available":
+        evidence.append(
+            {
+                "kind": "derived",
+                "label": "Derived metric",
+                "title": "What changed",
+                "summary": briefing.get("headline"),
+                "href": briefing.get("href") or "/progress",
+            }
+        )
+
+    associations = intelligence.get("associations") if isinstance(intelligence, dict) else None
+    if isinstance(associations, list):
+        for association in associations[:1]:
+            if isinstance(association, dict) and association.get("state") == "available":
+                evidence.append(
+                    {
+                        "kind": "derived",
+                        "label": "Derived metric",
+                        "title": association.get("title") or "Athlete-to-self association",
+                        "summary": (
+                            f"{association.get('direction')} {association.get('strength')} association "
+                            f"across {association.get('sample_size')} paired observations. "
+                            "Association does not establish causation."
+                        ),
+                        "href": association.get("href") or "/progress",
+                    }
+                )
+
+    scenario = metrics.get("scenario")
+    if isinstance(scenario, dict) and scenario.get("state") == "projection":
+        evidence.append(
+            {
+                "kind": "estimate",
+                "label": "Estimate / model output",
+                "title": "Hypothetical scenario",
+                "summary": scenario.get("caveat"),
+                "href": "/coach",
             }
         )
 
@@ -422,7 +466,11 @@ def chat(
             context = _latest_context(rows)
 
     metrics = summary(user=user, db=db)
+    intelligence = build_athlete_intelligence(db, user.id)
     metrics["today_plan"] = build_today_plan(db, user.id)
+    metrics["athlete_intelligence"] = intelligence
+    metrics["coaching_preferences"] = intelligence.get("preferences", [])
+    metrics["scenario"] = build_scenario_context(question)
     metrics["coach_context"] = context
     metrics["conversation_history"] = _history(
         rows, exclude_id=retry_row.id if retry_row is not None else None
