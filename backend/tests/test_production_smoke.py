@@ -63,7 +63,7 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         url = request.full_url
         authorization = request.headers.get("Authorization")
         seen.append((url, authorization))
-        if url.endswith("/auth/login?next=%2Fjourney"):
+        if url.endswith("/auth/login?next=%2Ftoday"):
             return FakeResponse(
                 302,
                 headers={
