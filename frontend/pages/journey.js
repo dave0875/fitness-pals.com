@@ -101,7 +101,7 @@ export default function Journey() {
   function applyFilters(event) {
     event.preventDefault();
     router.replace({
-      pathname: "/journey",
+      pathname: "/progress",
       query: { window: windowValue, sport: sportValue, goal: goalValue },
     });
   }
@@ -125,7 +125,7 @@ export default function Journey() {
   )?.[1] || journey?.filters?.sport;
 
   return (
-    <AuthenticatedShell active="journey">
+    <AuthenticatedShell active="progress">
       <header className={styles.pageHeader}>
         <p className={styles.eyebrow}>Your history</p>
         <h1>Your fitness journey</h1>
@@ -196,7 +196,7 @@ export default function Journey() {
       )}
       {viewState === "unauthenticated" && (
         <StatusNotice tone="warning">
-          Your session has ended. <a href="/auth/login?next=%2Fjourney">Sign in to continue</a>.
+          Your session has ended. <a href="/auth/login?next=%2Fprogress">Sign in to continue</a>.
         </StatusNotice>
       )}
       {viewState === "error" && (
