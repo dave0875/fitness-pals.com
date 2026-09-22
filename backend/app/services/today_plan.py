@@ -19,8 +19,13 @@ METERS_PER_MILE = 1609.344
 GOAL_LABELS = {
     "marathon": "Marathon",
     "half": "Half marathon",
+    "race": "Race preparation",
     "consistency": "Consistency",
+    "aerobic_fitness": "Aerobic fitness",
     "recovery": "Recovery",
+    "healthy_activity": "Healthy activity",
+    "other": "Another goal",
+    "not_sure": "I’m not sure",
 }
 PHASE_LABELS = {
     "build": "Training / build",
@@ -327,6 +332,7 @@ def save_goal(
     goal_type: str,
     phase: str,
     target_date: date | None,
+    intent_json: dict[str, Any] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Persist an explicit goal and start a fresh recommendation."""
@@ -343,6 +349,7 @@ def save_goal(
             goal_type=goal_type,
             phase=phase,
             target_date=target_date,
+            intent_json=intent_json,
             created_at=current_time,
             updated_at=current_time,
         )
@@ -351,6 +358,8 @@ def save_goal(
         goal.goal_type = goal_type
         goal.phase = phase
         goal.target_date = target_date
+        if intent_json is not None:
+            goal.intent_json = intent_json
         goal.updated_at = current_time
 
     active = _latest_plan(db, user_id)
