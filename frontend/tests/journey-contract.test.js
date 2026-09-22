@@ -54,10 +54,10 @@ test("journey layouts retain usable mobile controls", () => {
   assert.ok(styles.includes(":focus-visible"));
 });
 
-test("dossier handoff carries Journey filters into the private library", () => {
+test("saved-analysis handoff carries Progress filters into the private library", () => {
   const journey = read("pages/journey.js");
   assert.ok(journey.includes("journey.dossier_handoff.href"));
-  assert.match(journey, /Carry this window into your dossier/i);
+  assert.match(journey, /Go deeper without losing this selection/i);
   assert.ok(journey.includes('name="window"'));
   assert.ok(journey.includes('name="sport"'));
   assert.ok(journey.includes('name="goal"'));

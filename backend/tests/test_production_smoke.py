@@ -117,7 +117,22 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
             return FakeResponse(200, {"threads": []})
         if "/api/journey?" in url:
             assert authorization == f"Bearer {token}"
-            return FakeResponse(200, {"state": "empty", "activities": []})
+            return FakeResponse(
+                200,
+                {
+                    "totals": {"activity_count": 0},
+                    "comparison": {"state": "available"},
+                    "activities": [],
+                    "activity_pagination": {
+                        "page": 1,
+                        "page_size": 25,
+                        "total_items": 0,
+                        "total_pages": 1,
+                        "from": 0,
+                        "to": 0,
+                    },
+                },
+            )
         raise AssertionError(f"unexpected URL {url}")
 
     smoke_production.verify_production(
@@ -134,6 +149,11 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
     assert any(url.endswith("/api/onboarding/status") for url, _ in seen)
     assert any(url.endswith("/api/today-plan/context") for url, _ in seen)
     assert any(url.endswith("/api/chat/threads") for url, _ in seen)
+    assert any(
+        "/api/journey?window=30d&sport=all&goal=all"
+        "&activity_page=1&activity_page_size=25" in url
+        for url, _ in seen
+    )
 
 
 def test_production_smoke_reports_authentik_tunnel_drift_before_login() -> None:

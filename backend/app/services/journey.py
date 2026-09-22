@@ -253,7 +253,7 @@ def _percent_change(current: float | int | None, previous: float | int | None) -
 
 def _window_comparison(
     all_activities: list[Activity],
-    activity_goals: dict[UUID, str | None],
+    activity_goals: dict[Any, str | None],
     *,
     selected_window: str,
     selected_goal_filter: str,
