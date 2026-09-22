@@ -151,7 +151,7 @@ def _latest_context(rows: list[Conversation]) -> dict[str, Any] | None:
 
 
 def _history(
-    rows: list[Conversation], exclude_id: UUID | None = None
+    rows: list[Conversation], exclude_id: Any | None = None
 ) -> list[dict[str, str]]:
     turns: list[dict[str, str]] = []
     for row in rows:
