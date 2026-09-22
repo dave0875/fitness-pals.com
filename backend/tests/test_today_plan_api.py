@@ -84,6 +84,25 @@ def test_dashboard_api_path_reaches_completed_and_next_action_state(monkeypatch)
             json={"action": "accept", "payload": {}},
         )
         assert accepted.json()["state"] == "accepted"
+
+        matching = Activity(
+            id=uuid.uuid4(),
+            user_id=athlete_id,
+            start_time=now,
+            duration_seconds=27 * 60,
+            distance_m=2.75 * 1609.344,
+            sport="run",
+            status="merged",
+            fingerprint_hash=str(uuid.uuid4()),
+            metadata_json={"name": "Easy run"},
+        )
+        db.add(matching)
+        db.commit()
+        context = client.get("/api/today-plan/context")
+        assert context.status_code == 200
+        assert len(context.json()["week"]["days"]) == 7
+        assert context.json()["match"]["id"] == str(matching.id)
+
         completed = client.patch(
             f"/api/today-plan/{plan_id}",
             json={
@@ -91,10 +110,12 @@ def test_dashboard_api_path_reaches_completed_and_next_action_state(monkeypatch)
                 "payload": {
                     "perceived_effort": "as_expected",
                     "note": "Felt controlled.",
+                    "matched_activity_id": str(matching.id),
                 },
             },
         )
         assert completed.json()["state"] == "completed"
+        assert completed.json()["plan"]["feedback"]["completion_source"] == "canonical_match"
         assert completed.json()["next_decision_available"] is True
 
         next_decision = client.post("/api/today-plan/next")
