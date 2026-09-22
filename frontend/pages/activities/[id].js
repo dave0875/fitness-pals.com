@@ -180,6 +180,15 @@ export default function ActivityDetailPage() {
               </section>
             </div>
 
+            <section className={styles.handoff}>
+              <div>
+                <p className={styles.eyebrow}>Coaching context</p>
+                <h2>Ask about this workout</h2>
+                <p>Carry this exact canonical activity into a durable Coach conversation.</p>
+              </div>
+              <Link href={coachHref}>Ask Coach about this workout</Link>
+            </section>
+
             <p className={styles.boundary}>
               Fitness Pals shows canonical activity facts only. Provider credentials,
               private ingestion URLs, and raw payloads are never displayed.

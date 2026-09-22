@@ -55,13 +55,14 @@ test("Settings consumes the same activation action contract instead of inventing
   assert.ok(settings.includes("/welcome?edit=intent"));
 });
 
-test("Coach accepts a safe activation prompt without implementing Phase 3 thread persistence", () => {
+test("Coach carries a safe activation prompt into the durable Phase 3 composer", () => {
   const coach = read("pages/coach.js");
 
   assert.ok(coach.includes("router.query.prompt"));
   assert.ok(coach.includes("setMessage"));
   assert.ok(coach.includes("safeCoachPrompt"));
-  assert.ok(!coach.includes("threadId"));
+  assert.ok(coach.includes("threadId"));
+  assert.ok(coach.includes("router.query.thread"));
 });
 
 test("activation UI avoids infrastructure implementation language", () => {
