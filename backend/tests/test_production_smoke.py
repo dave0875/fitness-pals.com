@@ -106,6 +106,12 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
                     }
                 },
             )
+        if url.endswith("/api/today-plan/context"):
+            assert authorization == f"Bearer {token}"
+            return FakeResponse(
+                200,
+                {"week": {"days": []}, "trajectory": {}, "match": None},
+            )
         if url.endswith("/api/chat/threads"):
             assert authorization == f"Bearer {token}"
             return FakeResponse(200, {"threads": []})
@@ -123,9 +129,10 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         opener=opener,
     )
 
-    assert len(seen) == 16
-    assert sum(authorization is not None for _, authorization in seen) == 3
+    assert len(seen) == 17
+    assert sum(authorization is not None for _, authorization in seen) == 4
     assert any(url.endswith("/api/onboarding/status") for url, _ in seen)
+    assert any(url.endswith("/api/today-plan/context") for url, _ in seen)
     assert any(url.endswith("/api/chat/threads") for url, _ in seen)
 
 
