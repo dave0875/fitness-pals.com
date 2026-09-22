@@ -237,6 +237,12 @@ def production_probes(
             route_contract=True,
         ),
         Probe(
+            name="Settings page route",
+            url=f"{web}/settings",
+            expected_statuses=(200,),
+            route_contract=True,
+        ),
+        Probe(
             name="Grafana health",
             url=f"{grafana}/api/health",
             expected_statuses=(200,),
@@ -255,6 +261,22 @@ def production_probes(
             headers={"Authorization": f"Bearer {auth_token}"},
             require_json_object=True,
             required_json_keys=("activation",),
+        ),
+        Probe(
+            name="authenticated athlete trust state",
+            url=f"{web}/api/athlete-home",
+            expected_statuses=(200,),
+            headers={"Authorization": f"Bearer {auth_token}"},
+            require_json_object=True,
+            required_json_keys=("state", "freshness"),
+        ),
+        Probe(
+            name="authenticated archive capabilities",
+            url=f"{web}/api/archive-imports/capabilities",
+            expected_statuses=(200,),
+            headers={"Authorization": f"Bearer {auth_token}"},
+            require_json_object=True,
+            required_json_keys=("drive", "upload", "latest_job"),
         ),
         Probe(
             name="authenticated Today decision context",
