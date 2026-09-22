@@ -364,7 +364,7 @@ export default function Coach() {
             <p key={detail}>{detail}</p>
           ))}
 
-          <div className={styles.summaryGrid} aria-label="Athlete-to-self comparison">
+          <div className={styles.coachSnapshot} aria-label="Athlete-to-self comparison">
             <article>
               <span>Athlete-to-self</span>
               <strong>{intelligence.athlete_to_self?.current?.miles ?? "Unknown"} mi</strong>
