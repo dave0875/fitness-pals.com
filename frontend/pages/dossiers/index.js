@@ -134,7 +134,7 @@ export default function DossierLibrary() {
   }
 
   return (
-    <AuthenticatedShell active="dossiers">
+    <AuthenticatedShell active="progress">
       <Head>
         <title>Coaching dossiers | Fitness Pals</title>
       </Head>

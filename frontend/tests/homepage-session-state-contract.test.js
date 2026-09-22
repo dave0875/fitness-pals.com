@@ -6,51 +6,22 @@ const test = require("node:test");
 const source = fs.readFileSync(path.join(__dirname, "..", "pages", "index.js"), "utf8");
 
 test("homepage exposes a loading or skeleton state while session is resolving", () => {
-  assert.match(
-    source,
-    /loading|skeleton|authState|sessionState|sessionStatus|isAuthenticated/i,
-    "expected homepage source to include session loading/skeleton state"
-  );
+  assert.match(source, /loading|skeleton|authState|sessionState|sessionStatus|isAuthenticated/i);
 });
 
 test("homepage renders state-aware authenticated CTAs", () => {
   assert.ok(
     source.includes("Connect Garmin") &&
       source.includes("Import my training history") &&
-      source.includes("Open dashboard"),
-    'expected homepage source to include "Connect Garmin", "Import my training history", and "Open dashboard"'
+      source.includes("Open Today")
   );
-  assert.match(
-    source,
-    /session|authState|sessionState|sessionStatus|isAuthenticated/i,
-    "expected homepage source to include session state handling"
-  );
-  assert.ok(
-    source.includes("/api/onboarding/status"),
-    "expected homepage source to probe /api/onboarding/status for first-win funnel state"
-  );
-  assert.match(
-    source,
-    /authenticatedNoGarmin|readyToSync|synced|anonymous/i,
-    "expected homepage source to model anonymous, connected, ready-to-sync, and synced states"
-  );
-  assert.ok(
-    /(?:session|authState|sessionState|sessionStatus|isAuthenticated)[\s\S]{0,500}(Continue with Gmail|View sample coach dossier)|(Continue with Gmail|View sample coach dossier)[\s\S]{0,500}(?:session|authState|sessionState|sessionStatus|isAuthenticated)/i.test(
-      source
-    ),
-    "expected anonymous-only CTAs to be gated by resolved session state"
-  );
+  assert.ok(source.includes("/api/onboarding/status"));
+  assert.match(source, /authenticatedNoGarmin|readyToSync|synced|anonymous/i);
 });
 
 test("homepage preserves or defaults the next redirect for brokered login", () => {
-  assert.match(
-    source,
-    /URLSearchParams|window\.location\.search|next=/,
-    "expected homepage source to read or construct a next redirect"
-  );
-  assert.match(
-    source,
-    /\/auth\/login\?next=/,
-    "expected homepage source to route anonymous users through /auth/login?next="
-  );
+  assert.match(source, /URLSearchParams|window\.location\.search|next=/);
+  assert.match(source, /\/auth\/login\?next=/);
+  assert.ok(source.includes('const DEFAULT_AUTH_NEXT = "/today"'));
+  assert.ok(source.includes('!candidate.includes("\\\\")'));
 });

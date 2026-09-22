@@ -277,28 +277,28 @@ def _next_action(db: Session, user: CurrentUserLike, goal: str | None) -> dict |
     normalized_goal = (goal or "").lower()
     if normalized_goal == "marathon":
         return {
-            "label": "Open your dashboard and protect the next easy day",
+            "label": "Open Today and protect the next easy day",
             "description": (
                 "Do not spend this first sync looking for hero workouts. Let the product map your pattern, "
                 "then keep the next run conversational so consistency remains intact."
             ),
-            "href": "/dashboard",
+            "href": "/today",
         }
     if normalized_goal == "consistency":
         return {
-            "label": "Use the dashboard to plan two calm runs",
+            "label": "Use Today to plan two calm runs",
             "description": (
                 "The fastest way to create better guidance is to give the system two more ordinary training days, "
                 "not one perfect one."
             ),
-            "href": "/dashboard",
+            "href": "/today",
         }
     return {
-        "label": "Open the dashboard and review training history",
+        "label": "Open Today and review training history",
         "description": (
             "Start with your training history; recovery-based readiness remains unavailable without current signals."
         ),
-        "href": "/dashboard",
+        "href": "/today",
     }
 
 

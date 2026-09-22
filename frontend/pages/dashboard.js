@@ -197,7 +197,7 @@ export default function Dashboard() {
   const readiness = home?.readiness;
   const displayedGoal = todayPlan?.goal || home?.goal;
   return (
-    <AuthenticatedShell active="home">
+    <AuthenticatedShell active="today">
       <header className={styles.pageHeader}>
         <p className={styles.eyebrow}>Your training</p>
         <h1>Your athlete home</h1>
@@ -223,7 +223,7 @@ export default function Dashboard() {
       {viewState === "unauthenticated" && (
         <StatusNotice tone="warning">
           Your session has ended.{" "}
-          <a href="/auth/login?next=%2Fdashboard">Sign in to continue</a>.
+          <a href="/auth/login?next=%2Ftoday">Sign in to continue</a>.
         </StatusNotice>
       )}
 
@@ -294,7 +294,7 @@ export default function Dashboard() {
               <p className={styles.questionLabel}>What to do next</p>
               <h2>{home.coaching.insight}</h2>
               <p>{home.coaching.explanation}</p>
-              <a className={styles.primaryButton} href="/dashboard#todays-run">
+              <a className={styles.primaryButton} href={home.coaching.next_action.href}>
                 {home.coaching.next_action.label}
               </a>
             </section>
@@ -464,7 +464,7 @@ export default function Dashboard() {
                   <p className={styles.questionLabel}>Your recent record</p>
                   <h2>Latest activities</h2>
                 </div>
-                <a className={styles.textLink} href="/welcome">Review connection</a>
+                <a className={styles.textLink} href="/settings">Review connection</a>
               </div>
               {home.recent_activities.length === 0 ? (
                 <p>No activities are available yet.</p>

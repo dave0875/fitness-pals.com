@@ -84,12 +84,39 @@
   font-size: 0.88rem;
 }
 
+.coachLink {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.95rem;
+  color: white;
+  background: var(--fp-primary);
+  border-radius: 999px;
+  text-decoration: none;
+  font-weight: 800;
+}
+
+.coachLink:hover,
+.coachLink:focus-visible {
+  filter: brightness(0.94);
+  outline: 3px solid color-mix(in srgb, var(--fp-primary) 30%, transparent);
+  outline-offset: 2px;
+}
+
 .accountLink {
+  min-height: 44px;
   max-width: 220px;
+  display: inline-flex;
+  align-items: center;
   overflow: hidden;
   color: var(--fp-ink);
+  text-decoration: none;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.settingsLabel {
+  display: none;
 }
 
 .logout {
@@ -188,13 +215,31 @@
     padding: 0.65rem 1rem;
   }
 
+  .brand strong,
   .brand small,
-  .accountLink {
+  .accountName {
     display: none;
   }
 
+  .account {
+    gap: 0.4rem;
+  }
+
+  .settingsLabel {
+    display: inline;
+  }
+
+  .coachLink,
   .logout {
     min-height: 44px;
+  }
+
+  .coachLink {
+    padding-inline: 0.7rem;
+  }
+
+  .logout {
+    padding-inline: 0.65rem;
   }
 
   .navigation {

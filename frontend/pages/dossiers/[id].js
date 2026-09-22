@@ -61,7 +61,7 @@ export default function DossierDetail() {
   const content = dossier?.content;
 
   return (
-    <AuthenticatedShell active="dossiers">
+    <AuthenticatedShell active="progress">
       <Head>
         <title>Private coaching dossier | Fitness Pals</title>
       </Head>
@@ -145,7 +145,7 @@ export default function DossierDetail() {
           </section>
 
           <Link className={styles.journeyLink} href={content.journey_href}>
-            Back to Journey evidence
+            Back to Progress evidence
           </Link>
           <p className={styles.privacy}>
             Private by default. Export is owner-authorized and does not create a

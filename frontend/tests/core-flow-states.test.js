@@ -16,7 +16,7 @@ test("archive controls distinguish unavailable, pending, failed, and complete", 
   assert.equal(unavailable.driveReason, "No folder assigned");
   assert.equal(archiveState({ drive: { available: true }, upload: { available: true } }, { status: "queued" }).canDriveImport, false);
   assert.equal(archiveState({ drive: { available: true }, upload: { available: true } }, { status: "failed" }).canDriveImport, true);
-  assert.equal(archiveState({ drive: { available: true }, upload: { available: true } }, { status: "completed" }).resultHref, "/journey#activities");
+  assert.equal(archiveState({ drive: { available: true }, upload: { available: true } }, { status: "completed" }).resultHref, "/training");
 });
 
 test("journey pagination keeps a long filtered history finishable", async () => {

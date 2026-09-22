@@ -391,7 +391,7 @@ def test_onboarding_status_returns_first_win_preview_when_synced(monkeypatch):
     assert result["coach_insight"]["title"]
     assert result["coach_insight"]["explanation"]
     assert result["next_action"]["label"]
-    assert result["next_action"]["href"] == "/dashboard"
+    assert result["next_action"]["href"] == "/today"
 
 
 def test_first_sync_persists_goal_in_sync_job_payload(monkeypatch):

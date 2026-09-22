@@ -160,7 +160,7 @@ def test_athlete_home_stale_and_empty_states_are_actionable():
     empty = build_athlete_home(FakeSession([]), athlete_id, goal=None, now=now)
 
     assert stale["freshness"]["state"] == "stale"
-    assert stale["coaching"]["next_action"]["href"] == "/welcome"
+    assert stale["coaching"]["next_action"]["href"] == "/settings"
     assert empty["state"] == "empty"
     assert empty["readiness"]["state"] == "unknown"
     assert empty["dossier"]["state"] == "not_generated"
@@ -181,7 +181,7 @@ def test_generic_coaching_cta_navigates_to_todays_run_decision():
 
     assert result["coaching"]["next_action"] == {
         "label": "Open today's run",
-        "href": "/dashboard#todays-run",
+        "href": "/today#todays-run",
     }
     assert result["coaching"]["insight"] == "Make the next session serve your goal."
     assert "last seven days" not in result["coaching"]["explanation"]

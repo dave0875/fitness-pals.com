@@ -3,18 +3,15 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 
-const dashboardSource = fs.readFileSync(
-  path.join(__dirname, "..", "pages", "dashboard.js"),
-  "utf8"
-);
+const dashboardSource = fs.readFileSync(path.join(__dirname, "..", "pages", "dashboard.js"), "utf8");
 
-test("dashboard CTA opens the concrete Today's run plan", () => {
+test("Today CTA opens the concrete Today's run plan", () => {
   assert.ok(dashboardSource.includes('id="todays-run"'));
-  assert.ok(dashboardSource.includes("/dashboard#todays-run"));
+  assert.ok(dashboardSource.includes("href={home.coaching.next_action.href}"));
   assert.ok(!dashboardSource.includes('href="/dashboard#coach"'));
 });
 
-test("dashboard supports the complete persisted coaching loop", () => {
+test("Today supports the complete persisted coaching loop", () => {
   for (const contract of [
     'authenticatedJson("/api/today-plan")',
     'authenticatedJson("/api/today-plan/goal"',
@@ -24,11 +21,11 @@ test("dashboard supports the complete persisted coaching loop", () => {
     'action: "complete"',
     'authenticatedJson("/api/today-plan/next"',
   ]) {
-    assert.ok(dashboardSource.includes(contract), `expected dashboard contract: ${contract}`);
+    assert.ok(dashboardSource.includes(contract), `expected Today contract: ${contract}`);
   }
 });
 
-test("dashboard explains evidence and uncertainty without invented zones", () => {
+test("Today explains evidence and uncertainty without invented zones", () => {
   for (const copy of [
     "Session purpose",
     "Time or distance",
@@ -43,4 +40,3 @@ test("dashboard explains evidence and uncertainty without invented zones", () =>
   assert.ok(!dashboardSource.includes("heart-rate zone"));
   assert.ok(!dashboardSource.includes("target pace"));
 });
-

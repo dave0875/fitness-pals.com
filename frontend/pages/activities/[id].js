@@ -46,7 +46,7 @@ export default function ActivityDetailPage() {
       query.set("goal", router.query.goal);
     }
     const suffix = query.toString() ? `?${query.toString()}` : "";
-    return `/journey${suffix}#activities`;
+    return `/training${suffix}`;
   }, [router.query.goal, router.query.sport, router.query.window]);
 
   useEffect(() => {
@@ -84,14 +84,14 @@ export default function ActivityDetailPage() {
   }, [router.isReady, router.query.id]);
 
   return (
-    <AuthenticatedShell active="activities">
+    <AuthenticatedShell active="training">
       <Head>
         <title>Activity details | Fitness Pals</title>
       </Head>
 
       <main>
         <Link className={styles.backLink} href={backHref}>
-          ← Back to journey
+          ← Back to Training
         </Link>
 
         {state !== "ready" ? (

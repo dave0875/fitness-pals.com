@@ -133,7 +133,7 @@ def login_probe(web_base_url: str, auth_base_url: str = "https://auth.fitness-pa
     """Return the login-entry redirect contract."""
     return Probe(
         name="login redirect",
-        url=f"{web_base_url.rstrip('/')}/auth/login?next=%2Fjourney",
+        url=f"{web_base_url.rstrip('/')}/auth/login?next=%2Ftoday",
         expected_statuses=(302, 303, 307, 308),
         redirect_host=urllib.parse.urlparse(auth_base_url).hostname,
     )
@@ -201,6 +201,30 @@ def production_probes(
             url=f"{web}/deploy-version",
             expected_statuses=(200,),
             expected_text=expected_release,
+        ),
+        Probe(
+            name="Today page route",
+            url=f"{web}/today",
+            expected_statuses=(200,),
+            route_contract=True,
+        ),
+        Probe(
+            name="Coach page route",
+            url=f"{web}/coach",
+            expected_statuses=(200,),
+            route_contract=True,
+        ),
+        Probe(
+            name="Progress page route",
+            url=f"{web}/progress",
+            expected_statuses=(200,),
+            route_contract=True,
+        ),
+        Probe(
+            name="Training page route",
+            url=f"{web}/training",
+            expected_statuses=(200,),
+            route_contract=True,
         ),
         Probe(
             name="Grafana health",

@@ -3,11 +3,17 @@ import { authenticatedFetch } from "../lib/authFetch.mjs";
 
 const HERO_DOSSIER_URL =
   "https://fitness-pals.com/reports/urban-feet-coach-dossier-third-edition-2026-04-05.html";
-const DEFAULT_AUTH_NEXT = "/welcome";
+const DEFAULT_AUTH_NEXT = "/today";
 const AUTH_WELCOME_HREF = `/auth/login?next=${encodeURIComponent(DEFAULT_AUTH_NEXT)}`;
 
 function isSafeNextPath(candidate) {
-  return Boolean(candidate && candidate.startsWith("/") && !candidate.startsWith("//"));
+  return Boolean(
+    candidate &&
+    candidate.startsWith("/") &&
+    !candidate.startsWith("//") &&
+    !candidate.includes("\\") &&
+    !/%5c/i.test(candidate)
+  );
 }
 
 function authLoginHref(nextPath = DEFAULT_AUTH_NEXT) {
@@ -128,8 +134,8 @@ function renderHeroCtas(sessionState, authWelcomeHref) {
   if (sessionState === "synced") {
     return (
       <>
-        <a href="/dashboard" style={ctaButtonStyle("primary")}>
-          Open dashboard
+        <a href="/today" style={ctaButtonStyle("primary")}>
+          Open Today
         </a>
         <a href="#trust" style={ctaButtonStyle("secondary")}>
           How your data is used
@@ -193,8 +199,8 @@ function renderNavCtas(sessionState, authWelcomeHref) {
   if (sessionState === "synced") {
     return (
       <>
-        <a href="/dashboard" style={navButtonStyle("primary")}>
-          Open dashboard
+        <a href="/today" style={navButtonStyle("primary")}>
+          Open Today
         </a>
         <a href={HERO_DOSSIER_URL} style={navButtonStyle("secondary")}>
           View sample coach dossier

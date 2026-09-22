@@ -206,7 +206,7 @@ def _coaching(
         return {
             "insight": "Your training picture is out of date.",
             "explanation": "Refresh the connection before using older signals to change training.",
-            "next_action": {"label": "Refresh fitness data", "href": "/welcome"},
+            "next_action": {"label": "Review fitness connection", "href": "/settings"},
         }
     if activities:
         return {
@@ -215,12 +215,12 @@ def _coaching(
                 "Open one editable recommendation tied to your saved goal, phase, and recent "
                 "valid runs. Missing or stale recovery and intensity signals stay visible as uncertainty."
             ),
-            "next_action": {"label": "Open today's run", "href": "/dashboard#todays-run"},
+            "next_action": {"label": "Open today's run", "href": "/today#todays-run"},
         }
     return {
         "insight": "Add a valid run before planning the next one.",
         "explanation": "A known run duration or distance is needed to suggest a grounded range.",
-        "next_action": {"label": "Open today's run", "href": "/dashboard#todays-run"},
+        "next_action": {"label": "Open today's run", "href": "/today#todays-run"},
     }
 
 

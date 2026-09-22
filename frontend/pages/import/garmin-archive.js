@@ -125,7 +125,7 @@ export default function GarminArchiveImport() {
       {job?.status === "completed" && (
         <StatusNotice tone="success">
           Import complete: {job.activities || 0} activities processed.{" "}
-          <a href="/journey#activities">Review imported activities</a>.
+          <a href="/training">Review imported activities</a>.
         </StatusNotice>
       )}
 
