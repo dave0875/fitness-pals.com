@@ -11,12 +11,12 @@ test("homepage exposes a loading or skeleton state while session is resolving", 
 
 test("homepage renders state-aware authenticated CTAs", () => {
   assert.ok(
-    source.includes("Connect Garmin") &&
-      source.includes("Import my training history") &&
+    source.includes("Start with my goal") &&
+      source.includes("See activation progress") &&
       source.includes("Open Today")
   );
   assert.ok(source.includes("/api/onboarding/status"));
-  assert.match(source, /authenticatedNoGarmin|readyToSync|synced|anonymous/i);
+  assert.match(source, /activationNeeded|importing|synced|anonymous/i);
 });
 
 test("homepage preserves or defaults the next redirect for brokered login", () => {
