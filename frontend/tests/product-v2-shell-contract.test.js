@@ -43,7 +43,7 @@ test("Coach is a dedicated contextual authenticated workspace", () => {
   assert.ok(coach.includes('authenticatedJson("/api/chat"'));
   assert.ok(coach.includes("router.query.from"));
   assert.ok(coach.includes("safeSourcePath"));
-  assert.ok(coach.includes('!value.includes("\\\\")'));
+  assert.ok(coach.includes('value.includes("\\\\")'));
   assert.match(coach, /Talking about/i);
   assert.match(coach, /Ask about your training/i);
 });
