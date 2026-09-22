@@ -70,7 +70,10 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
                     "Location": "https://auth.fitness-pals.com/application/o/authorize/"
                 },
             )
-        if any(url.endswith(route) for route in ("/today", "/coach", "/progress", "/training")):
+        if any(
+            url.endswith(route)
+            for route in ("/today", "/coach", "/progress", "/training", "/settings")
+        ):
             return FakeResponse(200, "<html>Fitness Pals</html>")
         if url.endswith("/api/auth/session"):
             raise http_error(url, 401, {"detail": "Credentials missing"})
@@ -104,6 +107,31 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
                         "requires_activation": False,
                         "usable_now": True,
                     }
+                },
+            )
+        if url.endswith("/api/athlete-home"):
+            assert authorization == f"Bearer {token}"
+            return FakeResponse(
+                200,
+                {
+                    "state": "ready",
+                    "freshness": {
+                        "state": "partial",
+                        "signals": {
+                            "activities": {"state": "fresh"},
+                            "sleep": {"state": "stale"},
+                        },
+                    },
+                },
+            )
+        if url.endswith("/api/archive-imports/capabilities"):
+            assert authorization == f"Bearer {token}"
+            return FakeResponse(
+                200,
+                {
+                    "drive": {"available": True},
+                    "upload": {"available": True},
+                    "latest_job": None,
                 },
             )
         if url.endswith("/api/today-plan/context"):
@@ -144,9 +172,11 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         opener=opener,
     )
 
-    assert len(seen) == 17
-    assert sum(authorization is not None for _, authorization in seen) == 4
+    assert len(seen) == 20
+    assert sum(authorization is not None for _, authorization in seen) == 6
     assert any(url.endswith("/api/onboarding/status") for url, _ in seen)
+    assert any(url.endswith("/api/athlete-home") for url, _ in seen)
+    assert any(url.endswith("/api/archive-imports/capabilities") for url, _ in seen)
     assert any(url.endswith("/api/today-plan/context") for url, _ in seen)
     assert any(url.endswith("/api/chat/threads") for url, _ in seen)
     assert any(
