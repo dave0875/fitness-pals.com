@@ -196,7 +196,7 @@ def test_activation_distinguishes_connected_stale_expired_failed_and_unsupported
         token=_garmin_token(user.id, expired=True),
     )
     assert expired["activation"]["state"] == "authorization_expired"
-    assert expired["activation"]["action"]["href"] == "/settings"
+    assert expired["activation"]["action"]["href"] == "/import/garmin-archive"
 
     failed = _status(
         monkeypatch,
