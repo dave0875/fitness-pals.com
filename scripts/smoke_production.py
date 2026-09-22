@@ -203,6 +203,30 @@ def production_probes(
             expected_text=expected_release,
         ),
         Probe(
+            name="Today page route",
+            url=f"{web}/today",
+            expected_statuses=(200,),
+            route_contract=True,
+        ),
+        Probe(
+            name="Coach page route",
+            url=f"{web}/coach",
+            expected_statuses=(200,),
+            route_contract=True,
+        ),
+        Probe(
+            name="Progress page route",
+            url=f"{web}/progress",
+            expected_statuses=(200,),
+            route_contract=True,
+        ),
+        Probe(
+            name="Training page route",
+            url=f"{web}/training",
+            expected_statuses=(200,),
+            route_contract=True,
+        ),
+        Probe(
             name="Grafana health",
             url=f"{grafana}/api/health",
             expected_statuses=(200,),
