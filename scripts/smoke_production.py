@@ -260,6 +260,14 @@ def production_probes(
             required_json_keys=("activation",),
         ),
         Probe(
+            name="authenticated Today decision context",
+            url=f"{web}/api/today-plan/context",
+            expected_statuses=(200,),
+            headers={"Authorization": f"Bearer {auth_token}"},
+            require_json_object=True,
+            required_json_keys=("week", "trajectory", "match"),
+        ),
+        Probe(
             name="authenticated Coach thread index",
             url=f"{web}/api/chat/threads",
             expected_statuses=(200,),
