@@ -34,6 +34,8 @@ test("shell has a compact mobile navigation treatment", () => {
   assert.ok(shellStyles.includes(".coachLink"));
   assert.ok(shellSource.includes("styles.accountName"));
   assert.ok(shellSource.includes("styles.settingsLabel"));
+  assert.match(shellStyles, /@media[\s\S]*\.account\s*\{[\s\S]*gap:\s*0\.4rem/);
+  assert.match(shellStyles, /@media[\s\S]*\.brand strong,[\s\S]*display:\s*none/);
 });
 
 test("protected routes enter sign in with their full safe return path", () => {
