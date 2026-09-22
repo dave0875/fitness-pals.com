@@ -46,7 +46,7 @@ export default function ActivityDetailPage() {
       query.set("goal", router.query.goal);
     }
     const suffix = query.toString() ? `?${query.toString()}` : "";
-    return "/training";
+    return `/training${suffix}`;
   }, [router.query.goal, router.query.sport, router.query.window]);
 
   useEffect(() => {
