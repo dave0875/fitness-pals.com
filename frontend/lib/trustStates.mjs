@@ -46,6 +46,7 @@ export function connectionTrustState(status, home, capabilities) {
   const syncState = status?.first_sync?.state || null;
   const archiveState = capabilities?.latest_job?.status || null;
   const updating = pendingSync(status) || pendingArchive(capabilities);
+  const sourceLabel = status?.garmin_connected ? "Connected source" : "Disconnected source";
 
   if (activationState === "authorization_expired" || syncState === "authorization_required") {
     return {
@@ -55,6 +56,7 @@ export function connectionTrustState(status, home, capabilities) {
         ? "Saved training history remains available, but future source updates need authorization."
         : "Future source updates need authorization before training history can arrive.",
       historyAvailable,
+      sourceLabel,
       updating: false,
     };
   }
@@ -71,6 +73,7 @@ export function connectionTrustState(status, home, capabilities) {
         ? "Existing saved training history is unchanged. Review the failed import or retry the supported refresh."
         : "No usable history arrived from the latest attempt. Review the import and try again.",
       historyAvailable,
+      sourceLabel,
       updating: false,
     };
   }
@@ -83,6 +86,7 @@ export function connectionTrustState(status, home, capabilities) {
         ? "Saved history remains usable. Use one of the supported archive paths for additional data."
         : "This connection cannot import activities here yet. Use a supported archive path instead.",
       historyAvailable,
+      sourceLabel,
       updating: false,
     };
   }
@@ -93,6 +97,7 @@ export function connectionTrustState(status, home, capabilities) {
       label: "History available while an update runs",
       detail: "Existing canonical history is usable while additional training data continues importing.",
       historyAvailable,
+      sourceLabel,
       updating: true,
     };
   }
@@ -103,6 +108,7 @@ export function connectionTrustState(status, home, capabilities) {
       label: "Training history is updating",
       detail: "No usable activity history has arrived yet. This work continues after you leave Settings.",
       historyAvailable,
+      sourceLabel,
       updating: true,
     };
   }
@@ -113,6 +119,7 @@ export function connectionTrustState(status, home, capabilities) {
       label: "Saved history only",
       detail: "Canonical training history is retained, but this account is not receiving future live updates.",
       historyAvailable,
+      sourceLabel,
       updating: false,
     };
   }
@@ -123,6 +130,7 @@ export function connectionTrustState(status, home, capabilities) {
       label: "No training history yet",
       detail: "Add a supported training source or archive when you are ready to unlock athlete-specific guidance.",
       historyAvailable,
+      sourceLabel,
       updating: false,
     };
   }
@@ -133,6 +141,7 @@ export function connectionTrustState(status, home, capabilities) {
       label: "Training data needs a refresh",
       detail: "Saved history remains visible, but its newest relevant signal is older than expected.",
       historyAvailable,
+      sourceLabel,
       updating: false,
     };
   }
@@ -143,6 +152,7 @@ export function connectionTrustState(status, home, capabilities) {
       label: "Some signals need attention",
       detail: "Usable training history is available, but one or more supporting signals are stale or unknown.",
       historyAvailable,
+      sourceLabel,
       updating: false,
     };
   }
@@ -153,6 +163,7 @@ export function connectionTrustState(status, home, capabilities) {
       label: "Training source connected",
       detail: "Fitness Pals can use the canonical history currently available for this account.",
       historyAvailable,
+      sourceLabel,
       updating: false,
     };
   }
