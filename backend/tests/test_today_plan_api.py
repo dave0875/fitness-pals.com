@@ -85,10 +85,11 @@ def test_dashboard_api_path_reaches_completed_and_next_action_state(monkeypatch)
         )
         assert accepted.json()["state"] == "accepted"
 
+        saved_plan = db.query(NextSessionPlan).filter(NextSessionPlan.id == plan_id).one()
         matching = Activity(
             id=uuid.uuid4(),
             user_id=athlete_id,
-            start_time=now,
+            start_time=saved_plan.created_at + timedelta(seconds=1),
             duration_seconds=27 * 60,
             distance_m=2.75 * 1609.344,
             sport="run",
