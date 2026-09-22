@@ -142,7 +142,10 @@ def verify_probe(
     raise SystemExit(f"{probe.name} failed for {probe.url}: {last_error}")
 
 
-def login_probe(web_base_url: str, auth_base_url: str = "https://auth.fitness-pals.com") -> Probe:
+def login_probe(
+    web_base_url: str,
+    auth_base_url: str = "https://auth.fitness-pals.com",
+) -> Probe:
     """Return the login-entry redirect contract."""
     return Probe(
         name="login redirect",
@@ -171,19 +174,13 @@ def production_probes(
     expected_issuer = f"{auth}/application/o/{WEB_OIDC_PROVIDER_SLUG}/"
     return [
         Probe(
-            name=(
-                "Authentik readiness "
-                f"(expected tunnel {PRODUCTION_TUNNEL_NAME})"
-            ),
+            name=f"Authentik readiness (expected tunnel {PRODUCTION_TUNNEL_NAME})",
             url=f"{auth}/-/health/ready/",
             expected_statuses=(200,),
             route_contract=True,
         ),
         Probe(
-            name=(
-                "Authentik OIDC discovery "
-                f"(expected tunnel {PRODUCTION_TUNNEL_NAME})"
-            ),
+            name=f"Authentik OIDC discovery (expected tunnel {PRODUCTION_TUNNEL_NAME})",
             url=f"{expected_issuer}.well-known/openid-configuration",
             expected_statuses=(200,),
             expected_json={"issuer": expected_issuer},
@@ -276,11 +273,20 @@ def production_probes(
             required_json_keys=("threads",),
         ),
         Probe(
-            name="authenticated athlete journey",
-            url=f"{web}/api/journey?window=30d&sport=all&goal=all",
+            name="authenticated bounded Progress evidence",
+            url=(
+                f"{web}/api/journey?window=30d&sport=all&goal=all"
+                "&activity_page=1&activity_page_size=25"
+            ),
             expected_statuses=(200,),
             headers={"Authorization": f"Bearer {auth_token}"},
             require_json_object=True,
+            required_json_keys=(
+                "totals",
+                "comparison",
+                "activities",
+                "activity_pagination",
+            ),
         ),
     ]
 

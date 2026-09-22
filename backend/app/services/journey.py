@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
+from math import ceil
+from statistics import median
 from typing import Any, cast
 from urllib.parse import urlencode
 from uuid import UUID
@@ -45,12 +47,25 @@ SPORT_ALIASES = {
 }
 
 
+def _sport_family(activity_sport: str | None) -> str:
+    normalized = (activity_sport or "").strip().lower()
+    for family, aliases in SPORT_ALIASES.items():
+        if normalized in aliases:
+            return family
+    return normalized
+
+
 def _sport_matches(activity_sport: str | None, selected_sport: str) -> bool:
     """Match product sport families to canonical provider-specific values."""
     if selected_sport == "all":
         return True
     normalized = (activity_sport or "").strip().lower()
     return normalized in SPORT_ALIASES.get(selected_sport, {selected_sport})
+
+
+def _same_sport(left: str | None, right: str | None) -> bool:
+    """Compare canonical sports using the same product sport families as filters."""
+    return _sport_family(left) == _sport_family(right)
 
 
 def _utc(value: datetime | date) -> datetime:
@@ -97,7 +112,6 @@ def _activity_payload(activity: Activity, goal: str | None = None) -> dict[str, 
         "status": activity.status,
         "goal": goal,
     }
-
 
 
 def _goal_periods(db: Session, user_id: UUID) -> list[tuple[datetime, str]]:
@@ -196,7 +210,11 @@ def _period_summaries(
             {
                 "period_start": period_start.isoformat(),
                 "activity_count": bucket["activity_count"],
-                "distance_m": round(bucket["distance_m"], 2) if bucket["known_distance_count"] else None,
+                "distance_m": (
+                    round(bucket["distance_m"], 2)
+                    if bucket["known_distance_count"]
+                    else None
+                ),
                 "duration_seconds": bucket["duration_seconds"],
                 "active_days": len(bucket["active_days"]),
                 "average_sleep_hours": (
@@ -209,6 +227,108 @@ def _period_summaries(
     return result
 
 
+def _activity_totals(activities: list[Activity]) -> dict[str, Any]:
+    """Aggregate a complete selected activity set independent of row pagination."""
+    distances = [
+        distance
+        for activity in activities
+        if (distance := valid_distance_m(activity.distance_m, activity.sport))
+        is not None
+    ]
+    return {
+        "activity_count": len(activities),
+        "distance_m": round(sum(distances), 2) if distances else None,
+        "duration_seconds": sum(
+            int(activity.duration_seconds or 0) for activity in activities
+        ),
+        "active_days": len({_utc(activity.start_time).date() for activity in activities}),
+    }
+
+
+def _percent_change(current: float | int | None, previous: float | int | None) -> float | None:
+    if current is None or previous in {None, 0}:
+        return None
+    return round(((float(current) - float(previous)) / float(previous)) * 100.0, 1)
+
+
+def _window_comparison(
+    all_activities: list[Activity],
+    activity_goals: dict[UUID, str | None],
+    *,
+    selected_window: str,
+    selected_goal_filter: str,
+    current_time: datetime,
+) -> dict[str, Any]:
+    """Compare the selected finite window with the immediately preceding equal window."""
+    days = WINDOW_DAYS.get(selected_window)
+    if days is None:
+        return {
+            "state": "unavailable",
+            "basis": "All available history has no equal previous comparison window.",
+            "current": None,
+            "previous": None,
+            "changes": None,
+        }
+
+    current_start = current_time - timedelta(days=days)
+    previous_start = current_start - timedelta(days=days)
+
+    def goal_matches(activity: Activity) -> bool:
+        return (
+            selected_goal_filter == "all"
+            or activity_goals.get(activity.id) == selected_goal_filter
+        )
+
+    current = [
+        activity
+        for activity in all_activities
+        if _utc(activity.start_time) >= current_start and goal_matches(activity)
+    ]
+    previous = [
+        activity
+        for activity in all_activities
+        if previous_start <= _utc(activity.start_time) < current_start
+        and goal_matches(activity)
+    ]
+    current_totals = _activity_totals(current)
+    previous_totals = _activity_totals(previous)
+    return {
+        "state": "available",
+        "basis": f"Previous {days} days",
+        "current": current_totals,
+        "previous": previous_totals,
+        "changes": {
+            "activity_count_percent": _percent_change(
+                current_totals["activity_count"], previous_totals["activity_count"]
+            ),
+            "distance_percent": _percent_change(
+                current_totals["distance_m"], previous_totals["distance_m"]
+            ),
+            "duration_percent": _percent_change(
+                current_totals["duration_seconds"], previous_totals["duration_seconds"]
+            ),
+            "active_days_percent": _percent_change(
+                current_totals["active_days"], previous_totals["active_days"]
+            ),
+        },
+    }
+
+
+def _pagination(total_items: int, page: int, page_size: int) -> dict[str, int]:
+    safe_page_size = max(1, min(100, int(page_size)))
+    total_pages = max(1, ceil(total_items / safe_page_size))
+    safe_page = max(1, min(int(page), total_pages))
+    start = (safe_page - 1) * safe_page_size
+    return {
+        "page": safe_page,
+        "page_size": safe_page_size,
+        "total_items": total_items,
+        "total_pages": total_pages,
+        "from": start + 1 if total_items else 0,
+        "to": min(start + safe_page_size, total_items),
+    }
+
+
 def build_journey(
     db: Session,
     user_id: UUID,
@@ -217,6 +337,8 @@ def build_journey(
     sport: str = "all",
     goal: str | None = None,
     goal_filter: str = "all",
+    activity_page: int = 1,
+    activity_page_size: int = 25,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Build one athlete's filterable journey from canonical records."""
@@ -227,21 +349,27 @@ def build_journey(
     start = _window_start(selected_window, current_time)
     goal_periods = _goal_periods(db, user_id)
 
-    candidate_activities = [
+    all_activities = [
         activity
         for activity in db.query(Activity).filter(Activity.user_id == user_id).all()
         if getattr(activity, "user_id", None) == user_id
         and getattr(activity, "status", None) != "conflict"
-        and (start is None or _utc(activity.start_time) >= start)
         and _sport_matches(activity.sport, selected_sport)
     ]
-    candidate_activities.sort(key=lambda item: _utc(item.start_time), reverse=True)
-    activity_goals = {
+    all_activities.sort(key=lambda item: _utc(item.start_time), reverse=True)
+    all_activity_goals = {
         activity.id: _goal_for_moment(activity.start_time, goal_periods)
-        for activity in candidate_activities
+        for activity in all_activities
     }
+
+    window_activities = [
+        activity
+        for activity in all_activities
+        if start is None or _utc(activity.start_time) >= start
+    ]
     goal_counts: dict[str, int] = defaultdict(int)
-    for attributed_goal in activity_goals.values():
+    for activity in window_activities:
+        attributed_goal = all_activity_goals.get(activity.id)
         if attributed_goal:
             goal_counts[attributed_goal] += 1
     available_goals = [
@@ -252,13 +380,14 @@ def build_journey(
         }
         for key in sorted(goal_counts)
     ]
+
     activities = (
-        candidate_activities
+        window_activities
         if selected_goal_filter == "all"
         else [
             activity
-            for activity in candidate_activities
-            if activity_goals.get(activity.id) == selected_goal_filter
+            for activity in window_activities
+            if all_activity_goals.get(activity.id) == selected_goal_filter
         ]
     )
 
@@ -275,12 +404,10 @@ def build_journey(
             if _goal_for_moment(cast(date, session.calendar_date), goal_periods)
             == selected_goal_filter
         ]
-    sleep_sessions.sort(key=lambda item: _utc(cast(date, item.calendar_date)), reverse=True)
+    sleep_sessions.sort(
+        key=lambda item: _utc(cast(date, item.calendar_date)), reverse=True
+    )
 
-    activity_payloads = [
-        _activity_payload(activity, activity_goals.get(activity.id))
-        for activity in activities
-    ]
     known_intensities = [
         intensity
         for intensity in (_activity_intensity(activity) for activity in activities)
@@ -297,17 +424,33 @@ def build_journey(
         *(_utc(cast(date, session.calendar_date)) for session in sleep_sessions[:1]),
     ]
     data_through = max(data_candidates) if data_candidates else None
+
     def signal(value: datetime | None) -> dict[str, Any]:
         return {
-            "state": "unknown" if value is None else ("stale" if current_time - value > timedelta(hours=72) else "fresh"),
+            "state": (
+                "unknown"
+                if value is None
+                else "stale"
+                if current_time - value > timedelta(hours=72)
+                else "fresh"
+            ),
             "data_through": value.isoformat() if value else None,
         }
+
     signals = {
         "activities": signal(_utc(activities[0].start_time) if activities else None),
-        "sleep": signal(_utc(cast(date, sleep_sessions[0].calendar_date)) if sleep_sessions else None),
+        "sleep": signal(
+            _utc(cast(date, sleep_sessions[0].calendar_date))
+            if sleep_sessions
+            else None
+        ),
         "intensity": signal(
             max(
-                (_utc(activity.start_time) for activity in activities if _activity_intensity(activity) is not None),
+                (
+                    _utc(activity.start_time)
+                    for activity in activities
+                    if _activity_intensity(activity) is not None
+                ),
                 default=None,
             )
         ),
@@ -332,26 +475,21 @@ def build_journey(
     weekly = _period_summaries(activities, sleep_sessions, "week")
     monthly = _period_summaries(activities, sleep_sessions, "month")
     totals = {
-        "activity_count": len(activity_payloads),
-        "distance_m": (
-            round(sum(item["distance_m"] or 0 for item in activity_payloads), 2)
-            if any(item["distance_m"] is not None for item in activity_payloads)
-            else None
-        ),
-        "duration_seconds": sum(
-            item["duration_seconds"] or 0 for item in activity_payloads
-        ),
-        "active_days": len(
-            {_utc(activity.start_time).date() for activity in activities}
-        ),
+        **_activity_totals(activities),
         "intensity_distribution": intensity_distribution,
     }
 
     milestones = []
-    if activities:
-        valid_activities = [item for item in activities if valid_distance_m(item.distance_m, item.sport) is not None]
-    if activities and valid_activities:
-        longest = max(valid_activities, key=lambda item: valid_distance_m(item.distance_m, item.sport) or 0)
+    valid_activities = [
+        item
+        for item in activities
+        if valid_distance_m(item.distance_m, item.sport) is not None
+    ]
+    if valid_activities:
+        longest = max(
+            valid_activities,
+            key=lambda item: valid_distance_m(item.distance_m, item.sport) or 0,
+        )
         milestones.append(
             {
                 "kind": "longest_activity",
@@ -371,6 +509,14 @@ def build_journey(
                 "distance_m": strongest["distance_m"],
             }
         )
+
+    pagination = _pagination(len(activities), activity_page, activity_page_size)
+    row_start = (pagination["page"] - 1) * pagination["page_size"]
+    row_end = row_start + pagination["page_size"]
+    activity_payloads = [
+        _activity_payload(activity, all_activity_goals.get(activity.id))
+        for activity in activities[row_start:row_end]
+    ]
 
     goal_payload = (
         {"key": goal, "label": GOAL_LABELS.get(goal, goal.replace("_", " ").title())}
@@ -398,12 +544,14 @@ def build_journey(
         "goal_attribution": {
             "attributed_count": sum(goal_counts.values()),
             "unattributed_count": sum(
-                1 for value in activity_goals.values() if value is None
+                1
+                for activity in window_activities
+                if all_activity_goals.get(activity.id) is None
             ),
         },
         "dossier_handoff": {
             "state": "library",
-            "label": "Open dossiers for this journey",
+            "label": "Open saved analyses for this window",
             "href": (
                 "/dossiers?"
                 + urlencode(
@@ -416,10 +564,78 @@ def build_journey(
             ),
         },
         "totals": totals,
+        "comparison": _window_comparison(
+            all_activities,
+            all_activity_goals,
+            selected_window=selected_window,
+            selected_goal_filter=selected_goal_filter,
+            current_time=current_time,
+        ),
         "weekly_summaries": weekly,
         "monthly_summaries": monthly,
         "milestones": milestones,
         "activities": activity_payloads,
+        "activity_pagination": pagination,
+    }
+
+
+def _activity_comparison(
+    db: Session,
+    user_id: UUID,
+    activity: Activity,
+) -> dict[str, Any]:
+    prior = [
+        item
+        for item in db.query(Activity).filter(Activity.user_id == user_id).all()
+        if getattr(item, "user_id", None) == user_id
+        and getattr(item, "status", None) != "conflict"
+        and getattr(item, "id", None) != activity.id
+        and _utc(item.start_time) < _utc(activity.start_time)
+        and _same_sport(item.sport, activity.sport)
+    ]
+    prior.sort(key=lambda item: _utc(item.start_time), reverse=True)
+    sample = prior[:10]
+    if not sample:
+        return {
+            "state": "unavailable",
+            "sample_size": 0,
+            "basis": "No earlier same-sport canonical activities are available.",
+            "distance_median": None,
+            "duration_seconds_median": None,
+            "distance_percent_vs_median": None,
+            "duration_percent_vs_median": None,
+        }
+
+    distances = [
+        distance
+        for item in sample
+        if (distance := valid_distance_m(item.distance_m, item.sport)) is not None
+    ]
+    durations = [
+        float(item.duration_seconds)
+        for item in sample
+        if item.duration_seconds is not None and item.duration_seconds > 0
+    ]
+    current_distance = valid_distance_m(activity.distance_m, activity.sport)
+    current_duration = (
+        float(activity.duration_seconds)
+        if activity.duration_seconds is not None and activity.duration_seconds > 0
+        else None
+    )
+    distance_median = round(float(median(distances)), 2) if distances else None
+    duration_median = round(float(median(durations)), 2) if durations else None
+    return {
+        "state": "available",
+        "sample_size": len(sample),
+        "basis": f"Previous {len(sample)} same-sport canonical activities.",
+        "distance_median": distance_median,
+        "duration_seconds_median": duration_median,
+        "distance_percent_vs_median": _percent_change(
+            current_distance, distance_median
+        ),
+        "duration_percent_vs_median": _percent_change(
+            current_duration, duration_median
+        ),
     }
 
 
@@ -475,6 +691,7 @@ def build_activity_detail(
     ]
     return {
         "activity": payload,
+        "comparison": _activity_comparison(db, user_id, activity),
         "provenance": provenance,
         "data_quality": {
             "state": "partial" if missing else "complete",

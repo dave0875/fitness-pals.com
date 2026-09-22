@@ -26,7 +26,7 @@ function safeFilter(value, fallback) {
 }
 
 function formatDate(value) {
-  if (!value) return "Unknown";
+  if (!value) return "Unavailable";
   return new Intl.DateTimeFormat("en", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -136,16 +136,16 @@ export default function DossierLibrary() {
   return (
     <AuthenticatedShell active="progress">
       <Head>
-        <title>Coaching dossiers | Fitness Pals</title>
+        <title>Saved analyses | Fitness Pals</title>
       </Head>
 
       <header className={styles.pageHeader}>
         <div>
           <p className={styles.eyebrow}>Private coaching history</p>
-          <h1>Your coaching dossiers</h1>
+          <h1>Saved analyses</h1>
           <p>
-            Generate and revisit immutable coaching narratives grounded in your
-            selected Journey evidence.
+            Generate and revisit immutable deeper analyses grounded in the exact
+            Progress evidence you selected.
           </p>
         </div>
         <button
@@ -153,17 +153,17 @@ export default function DossierLibrary() {
           onClick={generateDossier}
           disabled={!flow.canGenerate || ["generating", "queued"].includes(actionState)}
         >
-          {["generating", "queued"].includes(actionState) ? "Generation in progress…" : "Generate dossier"}
+          {["generating", "queued"].includes(actionState) ? "Analysis in progress…" : "Generate analysis"}
         </button>
       </header>
 
       <p className={styles.selection}>
-        New dossier boundary: {selection.window} · {selection.sport} · {selection.goal}
+        New analysis boundary: {selection.window} · {selection.sport} · {selection.goal}
       </p>
 
       {viewState === "loading" && (
         <section className={styles.statePanel} role="status">
-          Loading your private dossier library…
+          Loading your private saved analyses…
         </section>
       )}
       {viewState === "unauthenticated" && (
@@ -173,17 +173,17 @@ export default function DossierLibrary() {
       )}
       {viewState === "error" && (
         <section className={styles.statePanel} role="alert">
-          The dossier library is temporarily unavailable.
+          Saved analyses are temporarily unavailable.
         </section>
       )}
       {actionState === "failed" && (
         <StatusNotice tone="warning">
-          The request did not complete. Your existing dossiers were not changed.
+          The request did not complete. Your existing saved analyses were not changed.
         </StatusNotice>
       )}
       {actionState === "completed" && library?.latest && (
         <StatusNotice tone="success">
-          Your dossier is ready. <Link href={`/dossiers/${library.latest.id}`}>Open generated dossier</Link>.
+          Your analysis is ready. <Link href={`/dossiers/${library.latest.id}`}>Open generated analysis</Link>.
         </StatusNotice>
       )}
 
@@ -191,18 +191,18 @@ export default function DossierLibrary() {
         <>
           <StatusNotice tone={eligibility?.eligible ? "success" : "neutral"}>
             {eligibility?.eligible
-              ? `${eligibility.activity_count} activities match this selection. Dossier generation is available.`
+              ? `${eligibility.activity_count} activities match this selection. Deep analysis is available.`
               : eligibility?.reason}
           </StatusNotice>
           <section className={styles.card}>
             <div className={styles.sectionHeading}>
               <div>
-                <p className={styles.eyebrow}>Generation queue</p>
+                <p className={styles.eyebrow}>Analysis queue</p>
                 <h2>Current requests</h2>
               </div>
             </div>
             {flow.currentJobs.length === 0 ? (
-              <p>No dossier generation is currently pending.</p>
+              <p>No deep analysis is currently pending.</p>
             ) : (
               <ul className={styles.jobList}>
                 {flow.currentJobs.map((job) => (
@@ -234,14 +234,14 @@ export default function DossierLibrary() {
             <div className={styles.sectionHeading}>
               <div>
                 <p className={styles.eyebrow}>Version history</p>
-                <h2>Completed dossiers</h2>
+                <h2>Completed saved analyses</h2>
               </div>
               <span>{library.artifacts.length} versions</span>
             </div>
             {library.artifacts.length === 0 ? (
               <p>
-                Generate your first dossier after enough canonical activity history
-                is available.
+                Generate your first deep analysis after enough canonical activity
+                history is available.
               </p>
             ) : (
               <ol className={styles.artifactList}>
@@ -269,7 +269,7 @@ export default function DossierLibrary() {
               <h2>See the editorial format</h2>
               <p>
                 This sample demonstrates presentation quality. It is not generated
-                from your account and is not part of your private history.
+                from your account and is not part of your private saved analyses.
               </p>
             </div>
             <a href="/coach-dossiers/urban-feet-coach-dossier-fourth-edition-2026-07-31">
