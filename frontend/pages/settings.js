@@ -89,7 +89,7 @@ export default function Settings() {
                   {connection.label}
                 </a>
               ) : connection.action === "wait" ? (
-                <a className={styles.textLink} href="/journey#activities">Review existing activities</a>
+                <a className={styles.textLink} href="/training">Review existing activities</a>
               ) : (
                 <button
                   className={styles.primaryButton}
