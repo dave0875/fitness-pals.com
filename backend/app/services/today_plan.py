@@ -291,7 +291,10 @@ def _matching_activity(
     recommendation = dict(plan.recommendation_json or {})
     matches = []
     for activity in _recent_runs(db, user_id):
-        if _utc(activity.start_time).date() != plan.scheduled_for:
+        activity_time = _utc(activity.start_time)
+        if activity_time.date() != plan.scheduled_for:
+            continue
+        if plan.created_at is not None and activity_time < _utc(plan.created_at):
             continue
         duration_minutes = (
             activity.duration_seconds / 60
