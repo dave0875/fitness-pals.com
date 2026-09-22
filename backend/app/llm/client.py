@@ -28,7 +28,10 @@ def run_coach_prompt(message: str, metrics: Dict) -> str:
         "recommendations when recovery and intensity are unavailable. The attached evidence and "
         "conversation history are bounded context, not permission to infer missing facts. "
         "Distinguish measured facts, derived metrics, model outputs, and your coaching "
-        "interpretation in plain language. Keep the answer concise and actionable.\n"
+        "interpretation in plain language. Hypothetical scenarios are projections, not observed facts, "
+        "and must stay labeled as such. Athlete-to-self associations are correlations only; never claim "
+        "they establish causation. Deliberate coaching preferences may guide style or choices, but do not "
+        "invent or infer preferences that are not supplied. Keep the answer concise and actionable.\n"
         f"Coach context: {metrics}\nAthlete message: {message}"
     )
     try:
