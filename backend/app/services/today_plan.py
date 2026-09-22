@@ -135,6 +135,207 @@ def _recent_runs(db, user_id: UUID) -> list[Activity]:
     return sorted(activities, key=lambda item: _utc(item.start_time), reverse=True)
 
 
+def _activity_title(activity: Activity) -> str:
+    metadata = activity.metadata_json if isinstance(activity.metadata_json, dict) else {}
+    title = metadata.get("name") or metadata.get("title")
+    if isinstance(title, str) and title.strip():
+        return title.strip()
+    return (activity.sport or "Activity").replace("_", " ").title()
+
+
+def _activity_payload(activity: Activity) -> dict[str, Any]:
+    distance = valid_distance_m(activity.distance_m, activity.sport)
+    return {
+        "id": str(activity.id),
+        "title": _activity_title(activity),
+        "date": _utc(activity.start_time).date().isoformat(),
+        "distance_miles": round(distance / METERS_PER_MILE, 1) if distance is not None else None,
+        "duration_minutes": (
+            round(activity.duration_seconds / 60)
+            if activity.duration_seconds is not None and activity.duration_seconds > 0
+            else None
+        ),
+        "href": f"/activities/{activity.id}",
+    }
+
+
+def _volume_summary(runs: list[Activity], start: date, end: date) -> dict[str, Any]:
+    selected = [
+        activity
+        for activity in runs
+        if start <= _utc(activity.start_time).date() <= end
+    ]
+    distance_m = sum(
+        distance
+        for activity in selected
+        if (distance := valid_distance_m(activity.distance_m, activity.sport)) is not None
+    )
+    return {
+        "runs": len(selected),
+        "miles": round(distance_m / METERS_PER_MILE, 1),
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+    }
+
+
+def _goal_trajectory(
+    db,
+    user_id: UUID,
+    goal: AthleteGoal | None,
+    *,
+    now: datetime,
+) -> dict[str, Any]:
+    runs = _recent_runs(db, user_id)
+    today = now.date()
+    last_7 = _volume_summary(runs, today - timedelta(days=6), today)
+    prior_7 = _volume_summary(runs, today - timedelta(days=13), today - timedelta(days=7))
+    last_28 = _volume_summary(runs, today - timedelta(days=27), today)
+    days_to_target = None
+    if goal is not None and goal.target_date is not None:
+        days_to_target = (goal.target_date - today).days
+    return {
+        "goal": _serialize_goal(goal) if goal is not None else None,
+        "days_to_target": days_to_target,
+        "last_7_days": last_7,
+        "previous_7_days": prior_7,
+        "last_28_days": last_28,
+        "interpretation": (
+            "These are trajectory inputs, not a readiness score or prediction."
+        ),
+    }
+
+
+def _rolling_week(
+    db,
+    user_id: UUID,
+    plan: NextSessionPlan | None,
+    *,
+    now: datetime,
+) -> dict[str, Any]:
+    today = now.date()
+    start = today - timedelta(days=2)
+    end = start + timedelta(days=6)
+    activities_by_date: dict[date, list[Activity]] = {}
+    for activity in _recent_runs(db, user_id):
+        activity_date = _utc(activity.start_time).date()
+        if start <= activity_date <= end:
+            activities_by_date.setdefault(activity_date, []).append(activity)
+
+    days = []
+    for offset in range(7):
+        day = start + timedelta(days=offset)
+        activities = [
+            _activity_payload(activity)
+            for activity in sorted(
+                activities_by_date.get(day, []),
+                key=lambda item: _utc(item.start_time),
+            )
+        ]
+        plan_payload = None
+        if plan is not None and plan.scheduled_for == day:
+            plan_payload = {
+                "id": str(plan.id),
+                "status": plan.status,
+                "session_purpose": plan.session_purpose,
+            }
+        days.append(
+            {
+                "date": day.isoformat(),
+                "is_today": day == today,
+                "activities": activities,
+                "plan": plan_payload,
+                "state": (
+                    "completed"
+                    if activities
+                    else "planned"
+                    if plan_payload is not None
+                    else "open"
+                ),
+            }
+        )
+    return {
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "days": days,
+        "outside_window_plan": (
+            {
+                "date": plan.scheduled_for.isoformat(),
+                "session_purpose": plan.session_purpose,
+                "status": plan.status,
+            }
+            if plan is not None and not (start <= plan.scheduled_for <= end)
+            else None
+        ),
+    }
+
+
+def _within_range(value: float | int | None, range_value: Any) -> bool:
+    if value is None or not isinstance(range_value, dict):
+        return False
+    try:
+        low = float(range_value["min"])
+        high = float(range_value["max"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    tolerance = 0.25
+    return low * (1 - tolerance) <= float(value) <= high * (1 + tolerance)
+
+
+def _matching_activity(
+    db,
+    user_id: UUID,
+    plan: NextSessionPlan | None,
+) -> dict[str, Any] | None:
+    if plan is None or plan.status not in {"adjusted", "accepted"}:
+        return None
+    recommendation = dict(plan.recommendation_json or {})
+    matches = []
+    for activity in _recent_runs(db, user_id):
+        if _utc(activity.start_time).date() != plan.scheduled_for:
+            continue
+        duration_minutes = (
+            activity.duration_seconds / 60
+            if activity.duration_seconds is not None and activity.duration_seconds > 0
+            else None
+        )
+        distance = valid_distance_m(activity.distance_m, activity.sport)
+        distance_miles = distance / METERS_PER_MILE if distance is not None else None
+        if _within_range(duration_minutes, recommendation.get("duration_minutes")) or _within_range(
+            distance_miles, recommendation.get("distance_miles")
+        ):
+            matches.append(activity)
+    if len(matches) != 1:
+        return None
+    payload = _activity_payload(matches[0])
+    payload["basis"] = "Same scheduled day and within the saved time or distance range."
+    return payload
+
+
+def build_today_context(
+    db,
+    user_id: UUID,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Return non-mutating decision context for the focused Today surface."""
+    current_time = _now(now)
+    goal = _goal_for(db, user_id)
+    plan = _latest_plan(db, user_id)
+    home = build_athlete_home(
+        db,
+        user_id,
+        goal=goal.goal_type if goal is not None else "consistency",
+        now=current_time,
+    )
+    return {
+        "generated_at": current_time.isoformat(),
+        "freshness": home.get("freshness"),
+        "week": _rolling_week(db, user_id, plan, now=current_time),
+        "trajectory": _goal_trajectory(db, user_id, goal, now=current_time),
+        "match": _matching_activity(db, user_id, plan),
+    }
+
+
 def _ranges(runs: list[Activity], phase: str) -> tuple[dict | None, dict | None]:
     durations = [
         activity.duration_seconds / 60
@@ -416,9 +617,9 @@ def apply_plan_action(
         raise HTTPException(status_code=404, detail="Goal not found")
 
     allowed = {
-        "recommended": {"accept", "adjust", "skip"},
-        "adjusted": {"accept", "adjust", "skip", "complete"},
-        "accepted": {"adjust", "skip", "complete"},
+        "recommended": {"accept", "adjust", "move", "skip"},
+        "adjusted": {"accept", "adjust", "move", "skip", "complete"},
+        "accepted": {"adjust", "move", "skip", "complete"},
     }
     if action not in allowed.get(plan.status, set()):
         raise HTTPException(
@@ -427,10 +628,12 @@ def apply_plan_action(
         )
 
     if action == "adjust":
-        try:
-            scheduled_for = date.fromisoformat(str(payload["scheduled_for"]))
-        except (KeyError, TypeError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail="A valid scheduled_for date is required") from exc
+        scheduled_for = plan.scheduled_for
+        if payload.get("scheduled_for") is not None:
+            try:
+                scheduled_for = date.fromisoformat(str(payload["scheduled_for"]))
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(status_code=422, detail="A valid scheduled_for date is required") from exc
         duration = _parse_range(payload.get("duration_minutes"), "duration_minutes")
         distance = _parse_range(payload.get("distance_miles"), "distance_miles")
         effort = str(payload.get("effort_range") or "").strip()
@@ -446,6 +649,18 @@ def apply_plan_action(
         }
         plan.adjustment_json = dict(payload)
         plan.status = "adjusted"
+    elif action == "move":
+        try:
+            scheduled_for = date.fromisoformat(str(payload["scheduled_for"]))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail="A valid scheduled_for date is required") from exc
+        plan.adjustment_json = {
+            **(plan.adjustment_json if isinstance(plan.adjustment_json, dict) else {}),
+            "moved_from": plan.scheduled_for.isoformat(),
+            "scheduled_for": scheduled_for.isoformat(),
+        }
+        plan.scheduled_for = scheduled_for
+        plan.status = "adjusted"
     elif action == "accept":
         plan.status = "accepted"
         plan.decided_at = current_time
@@ -457,10 +672,22 @@ def apply_plan_action(
         perceived_effort = str(payload.get("perceived_effort") or "")
         if perceived_effort not in {"easier", "as_expected", "harder"}:
             raise HTTPException(status_code=422, detail="Completion effort is required")
+        matched_activity_id = str(payload.get("matched_activity_id") or "").strip()
+        completion_source = "manual"
+        if matched_activity_id:
+            match = _matching_activity(db, user_id, plan)
+            if match is None or match["id"] != matched_activity_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Matched activity is no longer a safe completion candidate",
+                )
+            completion_source = "canonical_match"
         plan.status = "completed"
         plan.feedback_json = {
             "perceived_effort": perceived_effort,
             "note": str(payload.get("note") or "").strip(),
+            "completion_source": completion_source,
+            "matched_activity_id": matched_activity_id or None,
         }
         plan.decided_at = plan.decided_at or current_time
         plan.completed_at = current_time
