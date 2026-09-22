@@ -449,7 +449,7 @@ export default function Dashboard() {
                     <button className={styles.primaryButton} type="button" onClick={requestNextPlan} disabled={planBusy}>
                       Plan the next session
                     </button>
-                  ) : !editingPlan && (
+                  ) : !editingPlan && !movingPlan && (
                     <div className={styles.buttonRow}>
                       {todayPlan.plan.status !== "accepted" && (
                         <button className={styles.primaryButton} type="button" onClick={acceptPlan} disabled={planBusy}>Accept</button>
