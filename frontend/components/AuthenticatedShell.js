@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { authenticatedFetch } from "../lib/authFetch.mjs";
+import { currentViewport, trackUxEvent } from "../lib/uxTelemetry.mjs";
 import styles from "../styles/AuthenticatedShell.module.css";
 
 const navigation = [
@@ -59,6 +60,15 @@ export default function AuthenticatedShell({ active = "today", children }) {
     };
   }, [router.asPath, router.isReady]);
 
+  useEffect(() => {
+    if (!router.isReady) return;
+    trackUxEvent({
+      event: "surface_view",
+      surface: active,
+      viewport: currentViewport(),
+    });
+  }, [active, router.isReady]);
+
   const coachHref = `/coach?from=${encodeURIComponent(safeReturnPath(router.asPath))}`;
 
   return (
@@ -75,7 +85,20 @@ export default function AuthenticatedShell({ active = "today", children }) {
           </span>
         </a>
         <div className={styles.account}>
-          <a className={styles.coachLink} href={coachHref}>Ask Coach</a>
+          <a
+            className={styles.coachLink}
+            href={coachHref}
+            onClick={() =>
+              trackUxEvent({
+                event: "action",
+                surface: active,
+                action: "ask_coach",
+                viewport: currentViewport(),
+              })
+            }
+          >
+            Ask Coach
+          </a>
           <a href="/settings" className={styles.accountLink} aria-label="Account settings">
             <span className={styles.accountName}>{displayName(profile)}</span>
             <span className={styles.settingsLabel}>Settings</span>
