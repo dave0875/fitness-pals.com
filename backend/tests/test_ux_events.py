@@ -19,7 +19,7 @@ def test_ux_event_schema_rejects_free_form_or_identifying_fields() -> None:
     }
     for forbidden in ("message", "query", "user_id", "email", "activity_id", "value"):
         with pytest.raises(ValidationError):
-            ux_events.UxEvent(**base, **{forbidden: "sensitive"})
+            ux_events.UxEvent.model_validate({**base, forbidden: "sensitive"})
 
 
 def test_ux_event_log_excludes_authenticated_user_identity(monkeypatch) -> None:
