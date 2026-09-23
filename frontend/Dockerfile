@@ -11,7 +11,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 COPY . .
-RUN npm run build
+RUN npm run build && npm run check:performance
 
 EXPOSE 3000
 
