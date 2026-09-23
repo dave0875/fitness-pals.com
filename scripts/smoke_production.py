@@ -279,6 +279,14 @@ def production_probes(
             required_json_keys=("drive", "upload", "latest_job"),
         ),
         Probe(
+            name="authenticated athlete intelligence",
+            url=f"{web}/api/intelligence",
+            expected_statuses=(200,),
+            headers={"Authorization": f"Bearer {auth_token}"},
+            require_json_object=True,
+            required_json_keys=("briefing", "trajectory", "associations", "preferences"),
+        ),
+        Probe(
             name="authenticated Today decision context",
             url=f"{web}/api/today-plan/context",
             expected_statuses=(200,),

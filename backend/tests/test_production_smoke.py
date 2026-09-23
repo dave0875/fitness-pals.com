@@ -134,6 +134,17 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
                     "latest_job": None,
                 },
             )
+        if url.endswith("/api/intelligence"):
+            assert authorization == f"Bearer {token}"
+            return FakeResponse(
+                200,
+                {
+                    "briefing": {"state": "available"},
+                    "trajectory": {"interpretation": "Inputs only"},
+                    "associations": [],
+                    "preferences": [],
+                },
+            )
         if url.endswith("/api/today-plan/context"):
             assert authorization == f"Bearer {token}"
             return FakeResponse(
@@ -172,11 +183,12 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         opener=opener,
     )
 
-    assert len(seen) == 20
-    assert sum(authorization is not None for _, authorization in seen) == 6
+    assert len(seen) == 21
+    assert sum(authorization is not None for _, authorization in seen) == 7
     assert any(url.endswith("/api/onboarding/status") for url, _ in seen)
     assert any(url.endswith("/api/athlete-home") for url, _ in seen)
     assert any(url.endswith("/api/archive-imports/capabilities") for url, _ in seen)
+    assert any(url.endswith("/api/intelligence") for url, _ in seen)
     assert any(url.endswith("/api/today-plan/context") for url, _ in seen)
     assert any(url.endswith("/api/chat/threads") for url, _ in seen)
     assert any(
