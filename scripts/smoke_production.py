@@ -17,6 +17,15 @@ from typing import Any, Callable
 DEFAULT_USER_AGENT = "curl/8.7.1 fitness-pals-smoke/1.0"
 PRODUCTION_TUNNEL_NAME = "prod-fitness-pals"
 WEB_OIDC_PROVIDER_SLUG = "fitness-pals-web"
+PHASE8_JOURNEYS = (
+    "new_athlete",
+    "returning_athlete",
+    "workout_analysis",
+    "training_decision",
+    "broken_connection",
+    "failed_job",
+    "mobile",
+)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -45,6 +54,7 @@ class Probe:
     required_json_keys: tuple[str, ...] = ()
     redirect_host: str | None = None
     route_contract: bool = False
+    journeys: tuple[str, ...] = ()
 
 
 def _open(request: urllib.request.Request, timeout: int):
@@ -152,6 +162,7 @@ def login_probe(
         url=f"{web_base_url.rstrip('/')}/auth/login?next=%2Ftoday",
         expected_statuses=(302, 303, 307, 308),
         redirect_host=urllib.parse.urlparse(auth_base_url).hostname,
+        journeys=("returning_athlete",),
     )
 
 
@@ -193,7 +204,21 @@ def production_probes(
             expected_json={"status": "ok"},
             route_contract=True,
         ),
+        Probe(
+            name="public front door",
+            url=f"{web}/",
+            expected_statuses=(200,),
+            route_contract=True,
+            journeys=("new_athlete",),
+        ),
         login_probe(web, auth_base_url),
+        Probe(
+            name="activation page route",
+            url=f"{web}/welcome",
+            expected_statuses=(200,),
+            route_contract=True,
+            journeys=("new_athlete",),
+        ),
         Probe(
             name="unauthenticated session",
             url=f"{web}/api/auth/session",
@@ -217,30 +242,50 @@ def production_probes(
             url=f"{web}/today",
             expected_statuses=(200,),
             route_contract=True,
+            journeys=("returning_athlete", "training_decision"),
+        ),
+        Probe(
+            name="Today mobile route",
+            url=f"{web}/today",
+            expected_statuses=(200,),
+            headers={"User-Agent": "Mozilla/5.0 (iPhone; Fitness-Pals-Acceptance)"},
+            route_contract=True,
+            journeys=("mobile",),
         ),
         Probe(
             name="Coach page route",
             url=f"{web}/coach",
             expected_statuses=(200,),
             route_contract=True,
+            journeys=("returning_athlete", "training_decision"),
         ),
         Probe(
             name="Progress page route",
             url=f"{web}/progress",
             expected_statuses=(200,),
             route_contract=True,
+            journeys=("workout_analysis",),
         ),
         Probe(
             name="Training page route",
             url=f"{web}/training",
             expected_statuses=(200,),
             route_contract=True,
+            journeys=("workout_analysis", "failed_job"),
         ),
         Probe(
             name="Settings page route",
             url=f"{web}/settings",
             expected_statuses=(200,),
             route_contract=True,
+            journeys=("broken_connection",),
+        ),
+        Probe(
+            name="archive recovery page route",
+            url=f"{web}/import/garmin-archive",
+            expected_statuses=(200,),
+            route_contract=True,
+            journeys=("broken_connection", "failed_job"),
         ),
         Probe(
             name="Grafana health",
@@ -261,6 +306,7 @@ def production_probes(
             headers={"Authorization": f"Bearer {auth_token}"},
             require_json_object=True,
             required_json_keys=("activation",),
+            journeys=("new_athlete", "returning_athlete"),
         ),
         Probe(
             name="authenticated athlete trust state",
@@ -269,6 +315,7 @@ def production_probes(
             headers={"Authorization": f"Bearer {auth_token}"},
             require_json_object=True,
             required_json_keys=("state", "freshness"),
+            journeys=("broken_connection",),
         ),
         Probe(
             name="authenticated archive capabilities",
@@ -277,6 +324,7 @@ def production_probes(
             headers={"Authorization": f"Bearer {auth_token}"},
             require_json_object=True,
             required_json_keys=("drive", "upload", "latest_job"),
+            journeys=("broken_connection", "failed_job"),
         ),
         Probe(
             name="authenticated athlete intelligence",
@@ -293,6 +341,7 @@ def production_probes(
             headers={"Authorization": f"Bearer {auth_token}"},
             require_json_object=True,
             required_json_keys=("week", "trajectory", "match"),
+            journeys=("training_decision",),
         ),
         Probe(
             name="authenticated Coach thread index",
@@ -317,6 +366,7 @@ def production_probes(
                 "activities",
                 "activity_pagination",
             ),
+            journeys=("workout_analysis",),
         ),
     ]
 
@@ -331,17 +381,19 @@ def verify_production(
     request_timeout_seconds: int = 15,
     opener: OpenUrl = _open,
     **urls: str,
-) -> None:
-    """Verify every mandatory production probe."""
+) -> dict[str, object]:
+    """Verify every mandatory production probe and emit the Phase 8 release report."""
     if not auth_token:
         raise SystemExit("RUNTRAINER_SMOKE_AUTH_TOKEN is required")
     if route_timeout_seconds is None:
         route_timeout_seconds = timeout_seconds
-    for probe in production_probes(
+    probes = production_probes(
         expected_release=expected_release,
         auth_token=auth_token,
         **urls,
-    ):
+    )
+    passed_journeys: set[str] = set()
+    for probe in probes:
         verify_probe(
             probe,
             timeout_seconds=(
@@ -351,6 +403,22 @@ def verify_production(
             request_timeout_seconds=request_timeout_seconds,
             opener=opener,
         )
+        passed_journeys.update(probe.journeys)
+
+    missing = [journey for journey in PHASE8_JOURNEYS if journey not in passed_journeys]
+    if missing:
+        raise SystemExit(
+            "Phase 8 acceptance report incomplete; missing journey coverage: "
+            + ", ".join(missing)
+        )
+    report = {
+        "release": expected_release,
+        "status": "pass",
+        "journeys": list(PHASE8_JOURNEYS),
+        "probe_count": len(probes),
+    }
+    print("Phase 8 acceptance report: " + json.dumps(report, sort_keys=True))
+    return report
 
 
 def main() -> int:

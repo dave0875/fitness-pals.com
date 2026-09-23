@@ -24,6 +24,7 @@ from app.routes.ingest import router as ingest_router
 from app.routes.archive_imports import router as archive_imports_router
 from app.routes.today_plan import router as today_plan_router
 from app.routes.intelligence import router as intelligence_router
+from app.routes.ux_events import router as ux_events_router
 from app.config import get_settings
 from app.db import engine
 
@@ -74,6 +75,7 @@ app.include_router(ingest_router)
 app.include_router(archive_imports_router)
 app.include_router(today_plan_router)
 app.include_router(intelligence_router)
+app.include_router(ux_events_router)
 
 
 @app.get("/health")

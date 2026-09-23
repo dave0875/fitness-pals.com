@@ -70,9 +70,17 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
                     "Location": "https://auth.fitness-pals.com/application/o/authorize/"
                 },
             )
-        if any(
+        if url == "https://fitness-pals.com/" or any(
             url.endswith(route)
-            for route in ("/today", "/coach", "/progress", "/training", "/settings")
+            for route in (
+                "/welcome",
+                "/today",
+                "/coach",
+                "/progress",
+                "/training",
+                "/settings",
+                "/import/garmin-archive",
+            )
         ):
             return FakeResponse(200, "<html>Fitness Pals</html>")
         if url.endswith("/api/auth/session"):
@@ -174,7 +182,7 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
             )
         raise AssertionError(f"unexpected URL {url}")
 
-    smoke_production.verify_production(
+    report = smoke_production.verify_production(
         expected_release=release,
         auth_token=token,
         timeout_seconds=1,
@@ -183,8 +191,14 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         opener=opener,
     )
 
-    assert len(seen) == 21
+    assert len(seen) == 25
     assert sum(authorization is not None for _, authorization in seen) == 7
+    assert report == {
+        "release": release,
+        "status": "pass",
+        "journeys": list(smoke_production.PHASE8_JOURNEYS),
+        "probe_count": 25,
+    }
     assert any(url.endswith("/api/onboarding/status") for url, _ in seen)
     assert any(url.endswith("/api/athlete-home") for url, _ in seen)
     assert any(url.endswith("/api/archive-imports/capabilities") for url, _ in seen)

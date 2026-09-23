@@ -5,7 +5,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node scripts/run-tests.js"
+    "test": "node scripts/run-tests.js",
+    "check:performance": "node scripts/check-performance-budgets.js"
   },
   "dependencies": {
     "next": "15.5.25",
