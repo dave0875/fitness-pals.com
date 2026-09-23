@@ -1,12 +1,14 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { PERFORMANCE_BUDGETS } = require("../lib/productV2ReleaseContract.mjs");
-
 const root = path.join(__dirname, "..");
 const nextRoot = path.join(root, ".next");
 const manifestPath = path.join(nextRoot, "build-manifest.json");
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+const PERFORMANCE_BUDGETS = {
+  maxRouteJsBytes: 900 * 1024,
+  maxCriticalJsBytes: 2500 * 1024,
+};
 const routes = ["/today", "/coach", "/progress", "/training", "/settings", "/welcome"];
 
 function routeFiles(route) {
