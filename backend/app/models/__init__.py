@@ -5,7 +5,13 @@ from .oidc_identity import OidcIdentity
 from .data_source import DataSource
 from .conversation import Conversation
 from .provider import ProviderApp, UserProviderToken
-from .activity import Activity, ActivitySource, IngestRun, IngestDecision
+from .activity import (
+    Activity,
+    ActivitySource,
+    ActivityTrainingEvidence,
+    IngestRun,
+    IngestDecision,
+)
 from .sleep import SleepSession
 from .sync import SyncJob, SyncCheckpoint
 from .dossier import DossierJob, DossierArtifact
@@ -23,6 +29,7 @@ __all__ = [
     "UserProviderToken",
     "Activity",
     "ActivitySource",
+    "ActivityTrainingEvidence",
     "IngestRun",
     "IngestDecision",
     "SleepSession",
