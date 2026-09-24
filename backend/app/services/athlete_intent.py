@@ -114,6 +114,8 @@ def _intent(goal: AthleteGoal, now: datetime) -> dict[str, Any]:
         )
 
     source = _text(details.get("intent_source"), 40) or "athlete_goal"
+    created_at = _utc(getattr(goal, "created_at", None))
+    updated_at = _utc(getattr(goal, "updated_at", None))
     provenance = {
         "kind": "explicit",
         "source": source,
@@ -142,16 +144,8 @@ def _intent(goal: AthleteGoal, now: datetime) -> dict[str, Any]:
         },
         "lifecycle": {
             "state": "current",
-            "created_at": (
-                _utc(getattr(goal, "created_at", None)).isoformat()
-                if _utc(getattr(goal, "created_at", None))
-                else None
-            ),
-            "updated_at": (
-                _utc(getattr(goal, "updated_at", None)).isoformat()
-                if _utc(getattr(goal, "updated_at", None))
-                else None
-            ),
+            "created_at": created_at.isoformat() if created_at is not None else None,
+            "updated_at": updated_at.isoformat() if updated_at is not None else None,
             "ended_at": None,
         },
         "provenance": provenance,
