@@ -15,8 +15,8 @@ from sqlalchemy.orm import Session
 
 from app.models import Activity, ActivitySource, SleepSession, SyncJob
 from app.services.activity_quality import valid_distance_m
-from app.services.athlete_intent import GOAL_LABELS, build_future_intent
-from app.services.athlete_goal_graph import build_goal_graph
+from app.services.athlete_intent import GOAL_LABELS
+from app.services.athlete_state import build_athlete_state
 from app.services.training_evidence import (
     evidence_map,
     evidence_payload,
@@ -518,8 +518,13 @@ def build_journey(
 
     training_rows = {activity.id: owned_training_rows[activity.id] for activity in activities if activity.id in owned_training_rows}
     whole_training = summarize_activities(activities, training_rows)
-    future_intent = build_future_intent(db, user_id, now=current_time)
-    goal_graph = build_goal_graph(db, user_id, now=current_time)
+    canonical_state = build_athlete_state(db, user_id, now=current_time, days=14)
+    future_intent = canonical_state.get("future_intent")
+    future_intent = future_intent if isinstance(future_intent, dict) else {}
+    goal_graph = canonical_state.get("goal_graph")
+    goal_graph = goal_graph if isinstance(goal_graph, dict) else {}
+    decision = canonical_state.get("decision")
+    decision = decision if isinstance(decision, dict) else {}
     current_intent = future_intent.get("intent")
     intent_relationship = {
         "state": "descriptive" if isinstance(current_intent, dict) else "unknown",
@@ -602,6 +607,7 @@ def build_journey(
         "whole_training": whole_training,
         "future_intent": future_intent,
         "goal_graph": goal_graph,
+        "decision": decision,
         "intent_relationship": intent_relationship,
         "comparison": _window_comparison(
             all_activities,
