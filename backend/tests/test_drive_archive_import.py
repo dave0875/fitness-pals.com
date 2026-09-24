@@ -21,6 +21,7 @@ from starlette.requests import Request
 
 from app.models import (
     Activity,
+    ActivityTrainingEvidence,
     ArchiveImportJob,
     ArchiveImportObject,
     IngestRun,
@@ -561,9 +562,15 @@ def test_archive_formats_share_a_canonical_activity_fingerprint():
     )
 
     activities = [item for item in db.items if isinstance(item, Activity)]
+    evidence = [
+        item for item in db.items if isinstance(item, ActivityTrainingEvidence)
+    ]
     assert len(activities) == 1
+    assert len(evidence) == 1
     assert activities[0].user_id == athlete.id
     assert activities[0].fingerprint_hash == "canonical-workout-hash"
+    assert evidence[0].activity_id == activities[0].id
+    assert evidence[0].modality == "running"
 
 
 def test_summarized_drive_json_is_normalized_with_provenance():
@@ -602,6 +609,20 @@ def test_summarized_drive_json_is_normalized_with_provenance():
     assert activity.distance_m == 10000
     assert activity.metadata_json["source_object_id"] == "json-object"
     assert activity.metadata_json["source_object_version"] == "json-md5"
+
+
+def test_summarized_json_missing_distance_and_duration_stay_unknown():
+    normalized = garmin_archive_import._normalize_summary(
+        {
+            "activityId": 456,
+            "name": "Strength",
+            "sportType": "strength_training",
+            "beginTimestamp": 1788976800000,
+        }
+    )
+
+    assert normalized["distance"] is None
+    assert normalized["duration"] is None
 
 
 def test_root_oauth_drive_scope_only_selects_activity_sources():
