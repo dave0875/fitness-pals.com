@@ -9,7 +9,7 @@ import uuid
 from fastapi import HTTPException
 import pytest
 
-from app.models import Activity, ActivitySource, SleepSession, SyncJob
+from app.models import Activity, ActivitySource, ActivityTrainingEvidence, SleepSession, SyncJob
 from app.services.journey import build_activity_detail, build_journey
 
 
@@ -147,6 +147,35 @@ def test_journey_maps_product_sport_filters_to_canonical_provider_values():
     assert strength_work["activities"][0]["distance_m"] is None
     assert strength_work["whole_training"]["strength_sessions"] == 1
     assert strength_work["whole_training"]["duration_seconds"] == 3600
+
+
+def test_journey_strength_filter_uses_richer_subsport_evidence():
+    now = datetime(2026, 9, 24, 12, tzinfo=timezone.utc)
+    athlete_id = uuid.uuid4()
+    strength = make_activity(athlete_id, now, 1, None, "training")
+    training = ActivityTrainingEvidence(
+        activity_id=strength.id,
+        modality="strength",
+        provider_sport="training",
+        provider_sub_sport="strength_training",
+        source_provider="garmin_archive",
+    )
+    db = FakeSession([strength, training])
+
+    result = build_journey(
+        db,
+        athlete_id,
+        window="30d",
+        sport="strength",
+        goal=None,
+        now=now,
+    )
+
+    assert [item["id"] for item in result["activities"]] == [str(strength.id)]
+    assert result["activities"][0]["sport"] == "training"
+    assert result["activities"][0]["modality"] == "strength"
+    assert result["activities"][0]["training_evidence"]["provider_sub_sport"] == "strength_training"
+    assert result["activities"][0]["distance_m"] is None
 
 
 def test_journey_marks_missing_signals_unknown_and_stale():
