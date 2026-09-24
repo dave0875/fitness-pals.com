@@ -220,25 +220,36 @@ def build_athlete_state(
             },
         }
 
-    grouped: dict[date, list[SleepSession]] = {}
-    cutoff = current_time.date() - timedelta(days=history_days - 1)
+    grouped_all: dict[date, list[SleepSession]] = {}
     for row in rows:
         observation_date = getattr(row, "calendar_date", None)
-        if isinstance(observation_date, date) and cutoff <= observation_date <= current_time.date():
-            grouped.setdefault(observation_date, []).append(row)
+        if isinstance(observation_date, date) and observation_date <= current_time.date():
+            grouped_all.setdefault(observation_date, []).append(row)
 
+    latest_day = max(grouped_all, default=None)
+    latest = (
+        _day_state(grouped_all[latest_day], latest_day, current_time)
+        if latest_day is not None
+        else None
+    )
+
+    cutoff = current_time.date() - timedelta(days=history_days - 1)
     history = [
-        _day_state(grouped[day], day, current_time)
-        for day in sorted(grouped, reverse=True)
+        _day_state(grouped_all[day], day, current_time)
+        for day in sorted(grouped_all, reverse=True)
+        if day >= cutoff
     ]
-    latest = history[0] if history else None
 
     hrv_cutoff = current_time.date() - timedelta(days=6)
+    hrv_states = [
+        _day_state(grouped_all[day], day, current_time)
+        for day in sorted(grouped_all, reverse=True)
+        if day >= hrv_cutoff
+    ]
     hrv_values = [
         item["signals"]["overnight_hrv"]["value"]
-        for item in history
-        if date.fromisoformat(item["date"]) >= hrv_cutoff
-        and item["signals"]["overnight_hrv"]["value"] is not None
+        for item in hrv_states
+        if item["signals"]["overnight_hrv"]["value"] is not None
     ]
     hrv_average = round(sum(hrv_values) / len(hrv_values), 2) if hrv_values else None
     latest_hrv = latest["signals"]["overnight_hrv"] if latest else None
