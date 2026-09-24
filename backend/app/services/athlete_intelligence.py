@@ -461,7 +461,8 @@ def build_athlete_intelligence(
     sleep_sessions = _owned_sleep(db, user_id)
     goal = _goal_for(db, user_id)
     comparison = _self_comparison(activities, current_time)
-    trajectory = build_today_context(db, user_id, now=current_time)["trajectory"]
+    today_context = build_today_context(db, user_id, now=current_time)
+    trajectory = today_context["trajectory"]
 
     return {
         "generated_at": current_time.isoformat(),
@@ -469,6 +470,7 @@ def build_athlete_intelligence(
         "briefing": _briefing(comparison),
         "athlete_to_self": comparison,
         "trajectory": trajectory,
+        "future_intent": today_context["future_intent"],
         "freshness": _freshness(activities, sleep_sessions, current_time),
         "associations": [_sleep_run_association(activities, sleep_sessions)],
         "preferences": _preferences(goal),
