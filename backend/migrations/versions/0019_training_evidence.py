@@ -40,13 +40,14 @@ def upgrade() -> None:
         sa.Column("structure", sa.JSON(), nullable=True),
         sa.Column("observed_fields", sa.JSON(), nullable=True),
         sa.Column("derived_fields", sa.JSON(), nullable=True),
+        sa.Column("field_provenance", sa.JSON(), nullable=True),
         sa.Column("source_provider", sa.String(), nullable=True),
         sa.Column("source_object_id", sa.String(), nullable=True),
         sa.Column("source_object_name", sa.String(), nullable=True),
         sa.Column("source_object_version", sa.String(), nullable=True),
         sa.Column("source_content_hash", sa.String(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.UniqueConstraint("activity_id", name="uq_activity_training_evidence_activity"),
     )
     op.create_index("ix_activity_training_evidence_activity_id", "activity_training_evidence", ["activity_id"])
