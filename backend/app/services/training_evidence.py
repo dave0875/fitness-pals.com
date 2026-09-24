@@ -26,6 +26,25 @@ PRODUCT_FILTERS = {
     "strength": "strength", "swim": "swimming", "row": "rowing",
     "cardio": "indoor_cardio",
 }
+OBSERVED_FIELDS = (
+    "provider_sport",
+    "provider_sub_sport",
+    "activity_name",
+    "timer_seconds",
+    "elapsed_seconds",
+    "moving_seconds",
+    "avg_heart_rate",
+    "max_heart_rate",
+    "calories",
+    "avg_power",
+    "max_power",
+    "normalized_power",
+    "avg_cadence",
+    "max_cadence",
+    "aerobic_training_effect",
+    "anaerobic_training_effect",
+    "structure_json",
+)
 
 
 def _text(value: Any) -> str | None:
@@ -99,17 +118,36 @@ def normalize_training_evidence(item: dict[str, Any], provider: str) -> dict[str
         "source_content_hash": item.get("sourceContentHash"),
     }
     observed = [
-        key for key, value in values.items()
-        if key not in {"modality", "source_provider"} and value not in (None, {}, [])
+        key for key in OBSERVED_FIELDS if values.get(key) not in (None, {}, [])
     ]
     values["observed_fields"] = observed
     values["derived_fields"] = ["modality"]
     return values
 
 
-def persist_training_evidence(db, activity: Activity, run, item: dict[str, Any], provider: str, now: datetime) -> ActivityTrainingEvidence:
-    """Upsert richer evidence onto the canonical Activity without changing its identity."""
+def _source_reference(normalized: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "provider": normalized.get("source_provider"),
+        "object_id": normalized.get("source_object_id"),
+        "object_name": normalized.get("source_object_name"),
+        "object_version": normalized.get("source_object_version"),
+        "content_hash": normalized.get("source_content_hash"),
+    }
+
+
+def persist_training_evidence(
+    db,
+    activity: Activity,
+    run,
+    item: dict[str, Any],
+    provider: str,
+    now: datetime,
+) -> ActivityTrainingEvidence:
+    """Upsert evidence without letting a sparse replay erase richer observations."""
     normalized = normalize_training_evidence(item, provider)
+    observed = list(normalized.get("observed_fields") or [])
+    source_ref = _source_reference(normalized)
+    incoming_provenance = {field: source_ref for field in observed}
     try:
         row = (
             db.query(ActivityTrainingEvidence)
@@ -118,18 +156,39 @@ def persist_training_evidence(db, activity: Activity, run, item: dict[str, Any],
         )
     except Exception:
         row = next(
-            (candidate for candidate in getattr(db, "items", [])
-             if isinstance(candidate, ActivityTrainingEvidence) and candidate.activity_id == activity.id),
+            (
+                candidate
+                for candidate in getattr(db, "items", [])
+                if isinstance(candidate, ActivityTrainingEvidence)
+                and candidate.activity_id == activity.id
+            ),
             None,
         )
     if row is None:
-        row = ActivityTrainingEvidence(activity_id=activity.id, ingest_run_id=run.id, **normalized)
+        row = ActivityTrainingEvidence(
+            activity_id=activity.id,
+            ingest_run_id=run.id,
+            field_provenance_json=incoming_provenance,
+            **normalized,
+        )
         db.add(row)
     else:
         row.ingest_run_id = run.id
-        for key, value in normalized.items():
-            if value not in (None, {}, []):
-                setattr(row, key, value)
+        for key in observed:
+            setattr(row, key, normalized[key])
+        row.modality = normalized["modality"]
+        row.source_provider = normalized.get("source_provider")
+        row.source_object_id = normalized.get("source_object_id")
+        row.source_object_name = normalized.get("source_object_name")
+        row.source_object_version = normalized.get("source_object_version")
+        row.source_content_hash = normalized.get("source_content_hash")
+        row.observed_fields = sorted(set(row.observed_fields or []) | set(observed))
+        row.derived_fields = sorted(
+            set(row.derived_fields or []) | set(normalized.get("derived_fields") or [])
+        )
+        provenance = dict(row.field_provenance_json or {})
+        provenance.update(incoming_provenance)
+        row.field_provenance_json = provenance
         row.updated_at = now
     db.commit()
     try:
