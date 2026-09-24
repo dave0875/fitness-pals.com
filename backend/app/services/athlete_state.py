@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from app.models import SleepSession
+from app.services.training_evidence import build_whole_training_summary
 
 FRESHNESS_WINDOW = timedelta(hours=72)
 MAX_HISTORY_DAYS = 90
@@ -194,6 +195,7 @@ def build_athlete_state(
     else:
         current_time = current_time.astimezone(timezone.utc)
     history_days = max(1, min(int(days), MAX_HISTORY_DAYS))
+    training_state = build_whole_training_summary(db, user_id, now=current_time, days=30)
 
     try:
         rows = _rows_for_athlete(db, user_id)
@@ -205,6 +207,7 @@ def build_athlete_state(
             "data_through": None,
             "latest": None,
             "history": [],
+            "training": training_state,
             "derived": {
                 "hrv_7d_average": {
                     "value": None,
@@ -266,6 +269,7 @@ def build_athlete_state(
         "data_through": latest["data_through"] if latest else None,
         "latest": latest,
         "history": history,
+        "training": training_state,
         "derived": {
             "hrv_7d_average": {
                 "value": hrv_average,

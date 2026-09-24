@@ -16,6 +16,7 @@ from app.models import IngestRun, Activity, ActivitySource
 from app.services.garmin import activity_fit
 from app.services.activity_quality import valid_distance_m
 from app.services.garmin import garmin_fit_download
+from app.services.training_evidence import persist_training_evidence
 from app.types import CurrentUserLike, InfluxClientLike
 
 logger = logging.getLogger("garmin.activity")
@@ -387,6 +388,15 @@ def persist_activity_summaries(
                 activity.distance_m = None  # type: ignore[assignment]
             if activity.metadata_json is None:
                 activity.metadata_json = meta  # type: ignore[assignment]
+
+        persist_training_evidence(
+            db,
+            activity,
+            run,
+            item,
+            provider,
+            now,
+        )
 
         source = _find_existing_activity_source(
             db,
