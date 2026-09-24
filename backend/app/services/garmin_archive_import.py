@@ -14,6 +14,8 @@ from app.services.garmin.activity import persist_activity_summaries
 from app.services.garmin.fit_sdk import decode_fit_bytes, normalized_developer_fields
 from app.services.google_drive_archive import DriveArchiveObject
 
+MAX_STRUCTURE_ITEMS = 500
+
 
 class NoSupportedGarminActivities(ValueError):
     """The object is valid archive material but contains no importable activities."""
@@ -46,8 +48,10 @@ def _summarized_items(payload: Any) -> list[dict[str, Any]]:
 
 
 def _normalize_summary(item: dict[str, Any]) -> dict[str, Any]:
-    distance_cm = float(item.get("distance") or 0)
-    duration_ms = float(item.get("duration") or 0)
+    raw_distance = item.get("distance")
+    raw_duration = item.get("duration")
+    distance_cm = float(raw_distance) if raw_distance not in (None, "") else None
+    duration_ms = float(raw_duration) if raw_duration not in (None, "") else None
     return {
         "activityId": item.get("activityId"),
         "activityName": item.get("name") or item.get("activityName"),
@@ -55,8 +59,8 @@ def _normalize_summary(item: dict[str, Any]) -> dict[str, Any]:
         "startTimeGmt": _milliseconds_to_iso(
             item.get("startTimeGmt") or item.get("beginTimestamp")
         ),
-        "distance": distance_cm / 100 if distance_cm else 0,
-        "duration": duration_ms / 1000 if duration_ms else 0,
+        "distance": distance_cm / 100 if distance_cm is not None else None,
+        "duration": duration_ms / 1000 if duration_ms is not None else None,
         "providerUserId": item.get("userProfileId"),
     }
 
@@ -133,8 +137,8 @@ def _fit_activities(content: bytes, source: DriveArchiveObject) -> list[dict[str
         provider_sub_sport = str(raw_sub_sport) if raw_sub_sport not in (None, "") else None
         first_lap = int(session.get("first_lap_index") or 0)
         num_laps = int(session.get("num_laps") or 0)
-        selected_laps = laps[first_lap:first_lap + num_laps] if num_laps else []
-        selected_sets = sets if len(sessions) == 1 else []
+        selected_laps = laps[first_lap:first_lap + min(num_laps, MAX_STRUCTURE_ITEMS)] if num_laps else []
+        selected_sets = sets[:MAX_STRUCTURE_ITEMS] if len(sessions) == 1 else []
         dev = normalized_developer_fields(session, field_descriptions)
 
         def value(*names: str) -> Any:
