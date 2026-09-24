@@ -15,6 +15,13 @@ from sqlalchemy.orm import Session
 
 from app.models import Activity, ActivitySource, SleepSession, SyncJob
 from app.services.activity_quality import valid_distance_m
+from app.services.training_evidence import (
+    evidence_map,
+    evidence_payload,
+    sport_family,
+    sport_matches,
+    summarize_activities,
+)
 
 
 WINDOW_DAYS = {"30d": 30, "90d": 90, "365d": 365}
@@ -25,47 +32,17 @@ GOAL_LABELS = {
     "consistency": "Consistency",
 }
 KNOWN_INTENSITIES = {"easy", "moderate", "hard"}
-SPORT_ALIASES = {
-    "run": {
-        "run",
-        "running",
-        "treadmill_running",
-        "trail_running",
-        "track_running",
-        "indoor_running",
-    },
-    "bike": {
-        "bike",
-        "biking",
-        "cycling",
-        "indoor_cycling",
-        "mountain_biking",
-        "road_biking",
-    },
-    "walk": {"walk", "walking", "hiking"},
-    "strength": {"strength", "strength_training", "weight_training"},
-}
-
-
 def _sport_family(activity_sport: str | None) -> str:
-    normalized = (activity_sport or "").strip().lower()
-    for family, aliases in SPORT_ALIASES.items():
-        if normalized in aliases:
-            return family
-    return normalized
+    return sport_family(activity_sport)
 
 
 def _sport_matches(activity_sport: str | None, selected_sport: str) -> bool:
-    """Match product sport families to canonical provider-specific values."""
-    if selected_sport == "all":
-        return True
-    normalized = (activity_sport or "").strip().lower()
-    return normalized in SPORT_ALIASES.get(selected_sport, {selected_sport})
+    """Match product sport families through the canonical taxonomy seam."""
+    return sport_matches(activity_sport, selected_sport)
 
 
 def _same_sport(left: str | None, right: str | None) -> bool:
-    """Compare canonical sports using the same product sport families as filters."""
-    return _sport_family(left) == _sport_family(right)
+    return sport_family(left) == sport_family(right)
 
 
 def _utc(value: datetime | date) -> datetime:
@@ -99,12 +76,19 @@ def _activity_intensity(activity: Activity) -> str | None:
     return value if value in KNOWN_INTENSITIES else None
 
 
-def _activity_payload(activity: Activity, goal: str | None = None) -> dict[str, Any]:
-    """Serialize only canonical activity fields used by the journey UI."""
+def _activity_payload(
+    activity: Activity,
+    goal: str | None = None,
+    training_row=None,
+) -> dict[str, Any]:
+    """Serialize canonical identity plus compact whole-training evidence."""
+    training = evidence_payload(activity, training_row)
     return {
         "id": str(activity.id),
         "title": _activity_title(activity),
         "sport": activity.sport or "unknown",
+        "modality": training["modality"],
+        "training_evidence": training,
         "start_time": _utc(activity.start_time).isoformat(),
         "distance_m": valid_distance_m(activity.distance_m, activity.sport),
         "duration_seconds": activity.duration_seconds,
@@ -510,11 +494,17 @@ def build_journey(
             }
         )
 
+    training_rows = evidence_map(db, activities)
+    whole_training = summarize_activities(activities, training_rows)
     pagination = _pagination(len(activities), activity_page, activity_page_size)
     row_start = (pagination["page"] - 1) * pagination["page_size"]
     row_end = row_start + pagination["page_size"]
     activity_payloads = [
-        _activity_payload(activity, all_activity_goals.get(activity.id))
+        _activity_payload(
+            activity,
+            all_activity_goals.get(activity.id),
+            training_rows.get(activity.id),
+        )
         for activity in activities[row_start:row_end]
     ]
 
@@ -564,6 +554,7 @@ def build_journey(
             ),
         },
         "totals": totals,
+        "whole_training": whole_training,
         "comparison": _window_comparison(
             all_activities,
             all_activity_goals,
@@ -683,7 +674,8 @@ def build_activity_detail(
             }
         )
 
-    payload = _activity_payload(activity)
+    training_rows = evidence_map(db, [activity])
+    payload = _activity_payload(activity, training_row=training_rows.get(activity.id))
     missing = [
         key
         for key in ("distance_m", "duration_seconds", "intensity")
