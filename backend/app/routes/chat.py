@@ -251,9 +251,10 @@ def _evidence(
         )
 
     goal_graph = metrics.get("goal_graph")
-    primary_event = goal_graph.get("primary_event") if isinstance(goal_graph, dict) else None
+    goal_graph_payload = goal_graph if isinstance(goal_graph, dict) else {}
+    primary_event = goal_graph_payload.get("primary_event")
     if isinstance(primary_event, dict):
-        support_count = len(goal_graph.get("supporting_events") or [])
+        support_count = len(goal_graph_payload.get("supporting_events") or [])
         event_bits = [
             value
             for value in (
