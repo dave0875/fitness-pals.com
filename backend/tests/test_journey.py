@@ -143,6 +143,10 @@ def test_journey_maps_product_sport_filters_to_canonical_provider_values():
     assert [item["id"] for item in strength_work["activities"]] == [
         str(strength.id)
     ]
+    assert strength_work["activities"][0]["modality"] == "strength"
+    assert strength_work["activities"][0]["distance_m"] is None
+    assert strength_work["whole_training"]["strength_sessions"] == 1
+    assert strength_work["whole_training"]["duration_seconds"] == 3600
 
 
 def test_journey_marks_missing_signals_unknown_and_stale():
@@ -181,6 +185,8 @@ def test_journey_and_detail_mask_invalid_distance_but_keep_activity():
     only_invalid = build_journey(FakeSession([strength]), athlete_id, now=now)
     assert only_invalid["totals"]["distance_m"] is None
     assert only_invalid["weekly_summaries"][0]["distance_m"] is None
+    assert only_invalid["whole_training"]["activity_count"] == 1
+    assert only_invalid["whole_training"]["by_modality"][0]["modality"] == "strength"
 
 
 def test_journey_does_not_call_old_sleep_fresh_because_workout_is_fresh():
