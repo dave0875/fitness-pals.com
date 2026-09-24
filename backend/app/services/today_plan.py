@@ -13,25 +13,15 @@ from fastapi import HTTPException
 from app.models import Activity, AthleteGoal, NextSessionPlan
 from app.services.activity_quality import is_run, valid_distance_m
 from app.services.athlete_home import build_athlete_home
+from app.services.athlete_intent import (
+    GOAL_LABELS,
+    PHASE_LABELS,
+    build_future_intent,
+    goal_brief,
+)
 
 
 METERS_PER_MILE = 1609.344
-GOAL_LABELS = {
-    "marathon": "Marathon",
-    "half": "Half marathon",
-    "race": "Race preparation",
-    "consistency": "Consistency",
-    "aerobic_fitness": "Aerobic fitness",
-    "recovery": "Recovery",
-    "healthy_activity": "Healthy activity",
-    "other": "Another goal",
-    "not_sure": "I’m not sure",
-}
-PHASE_LABELS = {
-    "build": "Training / build",
-    "maintenance": "Maintenance",
-    "recovery": "Post-race / recovery",
-}
 TERMINAL_STATUSES = {"completed", "skipped"}
 OPEN_STATUSES = {"recommended", "adjusted", "accepted"}
 
@@ -76,13 +66,7 @@ def _latest_plan(db, user_id: UUID) -> NextSessionPlan | None:
 
 
 def _serialize_goal(goal: AthleteGoal) -> dict[str, Any]:
-    return {
-        "type": goal.goal_type,
-        "label": GOAL_LABELS[goal.goal_type],
-        "phase": goal.phase,
-        "phase_label": PHASE_LABELS[goal.phase],
-        "target_date": goal.target_date.isoformat() if goal.target_date else None,
-    }
+    return goal_brief(goal)
 
 
 def _serialize_plan(plan: NextSessionPlan) -> dict[str, Any]:
@@ -333,6 +317,7 @@ def build_today_context(
     return {
         "generated_at": current_time.isoformat(),
         "freshness": home.get("freshness"),
+        "future_intent": build_future_intent(db, user_id, now=current_time),
         "week": _rolling_week(db, user_id, plan, now=current_time),
         "trajectory": _goal_trajectory(db, user_id, goal, now=current_time),
         "match": _matching_activity(db, user_id, plan),
@@ -537,6 +522,7 @@ def save_goal(
     phase: str,
     target_date: date | None,
     intent_json: dict[str, Any] | None = None,
+    intent_source: str = "today",
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Persist an explicit goal and start a fresh recommendation."""
@@ -546,6 +532,20 @@ def save_goal(
         raise HTTPException(status_code=422, detail="Unsupported training phase")
     current_time = _now(now)
     goal = _goal_for(db, user_id)
+    existing_intent = (
+        dict(goal.intent_json or {})
+        if goal is not None and isinstance(goal.intent_json, dict)
+        else {}
+    )
+    if intent_json is not None:
+        existing_intent.update(intent_json)
+    existing_intent.update(
+        {
+            "intent_source": intent_source,
+            "intent_kind": "explicit",
+            "confirmed_at": current_time.isoformat(),
+        }
+    )
     if goal is None:
         goal = AthleteGoal(
             id=uuid.uuid4(),
@@ -553,7 +553,7 @@ def save_goal(
             goal_type=goal_type,
             phase=phase,
             target_date=target_date,
-            intent_json=intent_json,
+            intent_json=existing_intent,
             created_at=current_time,
             updated_at=current_time,
         )
@@ -562,8 +562,7 @@ def save_goal(
         goal.goal_type = goal_type
         goal.phase = phase
         goal.target_date = target_date
-        if intent_json is not None:
-            goal.intent_json = intent_json
+        goal.intent_json = existing_intent
         goal.updated_at = current_time
 
     active = _latest_plan(db, user_id)
