@@ -242,7 +242,7 @@ def build_goal_graph(
     }
 
 
-def _find_event(db, user_id: UUID, goal_id: UUID, event_id: UUID) -> AthleteGoalEvent:
+def _find_event(db, user_id: UUID, goal_id: Any, event_id: UUID) -> AthleteGoalEvent:
     event = next(
         (
             item for item in _owned(db, AthleteGoalEvent, user_id)
@@ -495,15 +495,16 @@ def save_goal_objective(
         )
         db.add(objective)
     else:
-        objective = next(
+        owned_objective = next(
             (
                 item for item in _owned(db, AthleteGoalObjective, user_id)
                 if item.goal_id == goal.id and item.id == objective_id
             ),
             None,
         )
-        if objective is None:
+        if owned_objective is None:
             raise HTTPException(status_code=404, detail="Goal objective not found")
+        objective = owned_objective
 
     objective.event_id = event_id
     objective.label = clean_label
