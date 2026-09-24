@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from app.models import SleepSession
+from app.services.athlete_decision import compose_athlete_decision
 from app.services.athlete_intent import build_future_intent
 from app.services.athlete_goal_graph import build_goal_graph
 from app.services.training_evidence import build_whole_training_summary
@@ -204,6 +205,12 @@ def build_athlete_state(
     try:
         rows = _rows_for_athlete(db, user_id)
     except Exception:  # pylint: disable=broad-except
+        decision = compose_athlete_decision(
+            goal_graph=goal_graph,
+            recovery={"state": "error", "data_through": None, "latest": None},
+            training=training_state,
+            generated_at=current_time.isoformat(),
+        )
         return {
             "source": "canonical_postgres",
             "state": "error",
@@ -214,6 +221,7 @@ def build_athlete_state(
             "training": training_state,
             "future_intent": future_intent,
             "goal_graph": goal_graph,
+            "decision": decision,
             "derived": {
                 "hrv_7d_average": {
                     "value": None,
@@ -268,16 +276,26 @@ def build_athlete_state(
         else ("stale" if latest_hrv and latest_hrv["status"] == "stale" else "known")
     )
 
+    state = latest["state"] if latest else "unknown"
+    data_through = latest["data_through"] if latest else None
+    decision = compose_athlete_decision(
+        goal_graph=goal_graph,
+        recovery={"state": state, "data_through": data_through, "latest": latest},
+        training=training_state,
+        generated_at=current_time.isoformat(),
+    )
+
     return {
         "source": "canonical_postgres",
-        "state": latest["state"] if latest else "unknown",
+        "state": state,
         "generated_at": current_time.isoformat(),
-        "data_through": latest["data_through"] if latest else None,
+        "data_through": data_through,
         "latest": latest,
         "history": history,
         "training": training_state,
         "future_intent": future_intent,
         "goal_graph": goal_graph,
+        "decision": decision,
         "derived": {
             "hrv_7d_average": {
                 "value": hrv_average,
