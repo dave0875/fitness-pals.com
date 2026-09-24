@@ -73,6 +73,9 @@ class ActivityTrainingEvidence(PrimaryUUIDMixin, TimestampMixin, Base):  # pylin
     structure_json: Mapped[Dict[str, Any] | None] = mapped_column("structure", JSON, nullable=True)
     observed_fields: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     derived_fields: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    field_provenance_json: Mapped[Dict[str, Any] | None] = mapped_column(
+        "field_provenance", JSON, nullable=True
+    )
     source_provider: Mapped[str | None] = mapped_column(String, nullable=True)
     source_object_id: Mapped[str | None] = mapped_column(String, nullable=True)
     source_object_name: Mapped[str | None] = mapped_column(String, nullable=True)
