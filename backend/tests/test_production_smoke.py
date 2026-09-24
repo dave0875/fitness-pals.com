@@ -159,6 +159,112 @@ def goal_graph_payload() -> dict[str, object]:
     }
 
 
+def decision_payload() -> dict[str, object]:
+    return {
+        "source": "canonical_postgres",
+        "version": "athlete_orbit_v1",
+        "state": "caution",
+        "generated_at": "2026-09-24T12:00:00+00:00",
+        "action": {
+            "code": "conservative_goal_session",
+            "label": "Keep the next goal-aligned session conservative",
+            "href": "/today#todays-run",
+            "priority": "recovery",
+            "training_bias": "conservative",
+        },
+        "freshness": {
+            "state": "partial",
+            "recovery": "stale",
+            "training": "fresh",
+        },
+        "rationale": [
+            {
+                "code": "goal_anchor",
+                "summary": "The canonical Goal Graph anchors this decision.",
+            }
+        ],
+        "uncertainty": [
+            {
+                "code": "recovery_stale",
+                "summary": (
+                    "Recovery evidence is stale and is not used as proof "
+                    "of current readiness."
+                ),
+            }
+        ],
+        "conflicts": [],
+        "evidence": {
+            "goal": {
+                "state": "known",
+                "goal_type": "marathon",
+                "phase": "build",
+                "primary_event": {
+                    "id": "event-1",
+                    "type": "marathon",
+                    "label": "NYC Marathon",
+                    "date": "2026-11-01",
+                    "days_to_event": 38,
+                    "priority": 1,
+                },
+                "supporting_event_count": 0,
+                "objective_count": 0,
+            },
+            "recovery": {
+                "state": "stale",
+                "data_through": "2026-09-20",
+                "known_signals": [
+                    "overnight_hrv",
+                    "sleep_duration",
+                    "sleep_score",
+                ],
+                "stale_signals": [
+                    "overnight_hrv",
+                    "sleep_duration",
+                    "sleep_score",
+                ],
+                "unavailable_signals": ["resting_heart_rate"],
+            },
+            "training": {
+                "state": "fresh",
+                "data_through": "2026-09-24T10:00:00+00:00",
+                "window_days": 30,
+                "activity_count": 3,
+                "duration_seconds": 9000,
+                "known_duration_count": 3,
+                "by_modality": [
+                    {
+                        "modality": "running",
+                        "activity_count": 2,
+                        "duration_seconds": 6000,
+                        "known_duration_count": 2,
+                    },
+                    {
+                        "modality": "strength",
+                        "activity_count": 1,
+                        "duration_seconds": 3000,
+                        "known_duration_count": 1,
+                    },
+                ],
+                "cross_training_sessions": 1,
+                "strength_sessions": 1,
+            },
+        },
+        "provenance": {
+            "kind": "derived",
+            "basis": [
+                "athlete_goal_graph",
+                "athlete_state_recovery",
+                "whole_training_summary",
+            ],
+            "caveat": (
+                "Decision support only. It does not establish medical readiness, "
+                "diagnose a condition, or predict a race outcome."
+            ),
+        },
+        "error": None,
+    }
+
+
 def athlete_state_payload() -> dict[str, object]:
     provenance = {
         "canonical_model": "sleep_session",
@@ -245,6 +351,7 @@ def athlete_state_payload() -> dict[str, object]:
         "training": training,
         "future_intent": future_intent_payload(),
         "goal_graph": goal_graph_payload(),
+        "decision": decision_payload(),
         "derived": {
             "hrv_7d_average": {
                 "value": 41,
@@ -275,6 +382,7 @@ def athlete_home_payload() -> dict[str, object]:
             "sleep_score": 78,
             "overnight_hrv": 41,
         },
+        "decision": decision_payload(),
     }
 
 
@@ -298,6 +406,7 @@ def metrics_payload(state: dict[str, object]) -> dict[str, object]:
         "training": state["training"],
         "future_intent": state["future_intent"],
         "goal_graph": state["goal_graph"],
+        "decision": state["decision"],
         "error": None,
     }
 
@@ -398,7 +507,7 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
                     "trajectory": {"interpretation": "Inputs only"},
                     "future_intent": state["future_intent"],
                     "goal_graph": state["goal_graph"],
-        "goal_graph": state["goal_graph"],
+                    "decision": state["decision"],
                     "associations": [],
                     "preferences": [],
                 },
@@ -412,7 +521,7 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
                     "trajectory": {},
                     "future_intent": state["future_intent"],
                     "goal_graph": state["goal_graph"],
-        "goal_graph": state["goal_graph"],
+                    "decision": state["decision"],
                     "match": None,
                 },
             )
@@ -427,7 +536,7 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
                     "totals": {"activity_count": 0},
                     "future_intent": state["future_intent"],
                     "goal_graph": state["goal_graph"],
-        "goal_graph": state["goal_graph"],
+                    "decision": state["decision"],
                     "intent_relationship": {
                         "state": "descriptive",
                         "observed_activity_count": 0,
@@ -486,6 +595,7 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         "whole_training_contract": "pass",
         "future_intent_contract": "pass",
         "goal_graph_contract": "pass",
+        "decision_contract": "pass",
     }
     assert any(url.endswith("/api/onboarding/status") for url, _ in seen)
     assert any(url.endswith("/api/athlete-home") for url, _ in seen)
