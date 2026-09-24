@@ -176,6 +176,8 @@ def test_metrics_summary_derives_legacy_hrv_average_from_athlete_state():
     assert summary["hrv_avg_window_days"] == 7
     assert summary["hrv_avg_sample_count"] == 2
     assert summary["metric_states"]["hrv_avg"] == "fresh"
+    assert isinstance(summary["goal_graph"], dict)
+    assert summary["goal_graph"] == summary["athlete_state"]["goal_graph"]
     assert summary["athlete_state"]["latest"]["signals"]["overnight_hrv"]["value"] == 40
 
 
