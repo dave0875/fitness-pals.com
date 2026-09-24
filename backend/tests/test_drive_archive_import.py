@@ -573,6 +573,70 @@ def test_archive_formats_share_a_canonical_activity_fingerprint():
     assert evidence[0].modality == "running"
 
 
+def test_sparse_replay_does_not_reassign_rich_metric_provenance():
+    athlete = _user()
+    fit_run = IngestRun(id=uuid.uuid4(), user_id=athlete.id, provider="garmin_archive")
+    json_run = IngestRun(id=uuid.uuid4(), user_id=athlete.id, provider="garmin_archive")
+    db = FakeSession([athlete, fit_run, json_run])
+    base = {
+        "startTimeGmt": "2026-09-09T22:49:13+00:00",
+        "duration": 3600,
+        "distance": 30000,
+        "activityType": "cycling",
+        "canonicalFingerprint": "same-ride",
+    }
+
+    persist_activity_summaries(
+        db,
+        athlete,
+        fit_run,
+        [{
+            **base,
+            "activityId": "fit-ride",
+            "sourceObjectId": "fit-object",
+            "sourceObjectName": "ride.fit",
+            "sourceObjectVersion": "fit-v1",
+            "sourceContentHash": "fit-hash",
+            "trainingEvidence": {
+                "provider_sport": "cycling",
+                "avg_heart_rate": 146,
+                "avg_power": 211,
+            },
+        }],
+        provider="garmin_archive",
+    )
+    persist_activity_summaries(
+        db,
+        athlete,
+        json_run,
+        [{
+            **base,
+            "activityId": "json-ride",
+            "sourceObjectId": "json-object",
+            "sourceObjectName": "summary.json",
+            "sourceObjectVersion": "json-v1",
+            "sourceContentHash": "json-hash",
+        }],
+        provider="garmin_archive",
+    )
+
+    rows = [
+        item for item in db.items if isinstance(item, ActivityTrainingEvidence)
+    ]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.avg_heart_rate == 146
+    assert row.avg_power == 211
+    assert row.field_provenance_json["avg_power"] == {
+        "provider": "garmin_archive",
+        "object_id": "fit-object",
+        "object_name": "ride.fit",
+        "object_version": "fit-v1",
+        "content_hash": "fit-hash",
+    }
+    assert "avg_power" in row.observed_fields
+
+
 def test_summarized_drive_json_is_normalized_with_provenance():
     athlete = _user()
     db = FakeSession([athlete])
