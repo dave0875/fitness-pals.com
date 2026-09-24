@@ -663,11 +663,32 @@ def test_official_garmin_fit_sdk_session_messages_are_normalized(monkeypatch):
                         "start_time": datetime(
                             2026, 9, 20, 11, 52, 49, tzinfo=timezone.utc
                         ),
-                        "sport": "running",
-                        "total_distance": 10000.0,
-                        "total_timer_time": 3600.0,
+                        "sport": "cycling",
+                        "sub_sport": "indoor_cycling",
+                        "total_distance": 30000.0,
+                        "total_timer_time": 4500.0,
+                        "total_elapsed_time": 4700.0,
+                        "avg_heart_rate": 146,
+                        "max_heart_rate": 172,
+                        "avg_power": 211,
+                        "max_power": 540,
+                        "normalized_power": 228,
+                        "total_calories": 820,
+                        "first_lap_index": 0,
+                        "num_laps": 1,
                     }
-                ]
+                ],
+                "lap_mesgs": [
+                    {
+                        "start_time": datetime(
+                            2026, 9, 20, 11, 52, 49, tzinfo=timezone.utc
+                        ),
+                        "total_timer_time": 600.0,
+                        "avg_heart_rate": 140,
+                        "avg_power": 200,
+                        "intensity": "active",
+                    }
+                ],
             },
             {},
         )
@@ -677,10 +698,82 @@ def test_official_garmin_fit_sdk_session_messages_are_normalized(monkeypatch):
     activities = garmin_archive_import._fit_activities(b"fit-bytes", source)
 
     assert len(activities) == 1
-    assert activities[0]["activityType"] == "running"
-    assert activities[0]["distance"] == 10000.0
-    assert activities[0]["duration"] == 3600.0
+    assert activities[0]["activityType"] == "cycling"
+    assert activities[0]["subSport"] == "indoor_cycling"
+    assert activities[0]["distance"] == 30000.0
+    assert activities[0]["duration"] == 4500.0
     assert activities[0]["startTimeGmt"] == "2026-09-20T11:52:49+00:00"
+    training = activities[0]["trainingEvidence"]
+    assert training["avg_heart_rate"] == 146
+    assert training["max_heart_rate"] == 172
+    assert training["avg_power"] == 211
+    assert training["max_power"] == 540
+    assert training["normalized_power"] == 228
+    assert training["calories"] == 820
+    assert training["structure"]["laps"][0]["timer_seconds"] == 600.0
+
+
+def test_strength_fit_preserves_sets_without_distance_semantics(monkeypatch):
+    source = DriveArchiveObject(
+        object_id="strength-fit",
+        name="2026-09-23-strength.fit",
+        mime_type="application/fits",
+        version="v2",
+        modified_time=None,
+        size_bytes=10,
+    )
+
+    monkeypatch.setattr(
+        garmin_archive_import,
+        "decode_fit_bytes",
+        lambda _content: (
+            {
+                "session_mesgs": [
+                    {
+                        "start_time": datetime(
+                            2026, 9, 23, 22, 0, tzinfo=timezone.utc
+                        ),
+                        "sport": "training",
+                        "sub_sport": "strength_training",
+                        "total_timer_time": 2700.0,
+                        "avg_heart_rate": 128,
+                    }
+                ],
+                "set_mesgs": [
+                    {
+                        "timestamp": datetime(
+                            2026, 9, 23, 22, 5, tzinfo=timezone.utc
+                        ),
+                        "duration": 42.0,
+                        "repetitions": 10,
+                        "weight": 22.5,
+                        "set_type": "active",
+                        "category": "squat",
+                    }
+                ],
+            },
+            {},
+        ),
+    )
+
+    activities = garmin_archive_import._fit_activities(b"strength", source)
+
+    assert len(activities) == 1
+    assert activities[0]["subSport"] == "strength_training"
+    assert activities[0]["distance"] is None
+    evidence = activities[0]["trainingEvidence"]
+    assert evidence["avg_heart_rate"] == 128
+    assert evidence["avg_power"] is None
+    assert evidence["structure"]["sets"][0] == {
+        "index": 0,
+        "timestamp": "2026-09-23T22:05:00+00:00",
+        "duration_seconds": 42.0,
+        "repetitions": 10.0,
+        "weight_kg": 22.5,
+        "set_type": "active",
+        "category": "squat",
+        "exercise_name": None,
+    }
 
 
 def test_no_activity_drive_object_is_durable_skip(monkeypatch):
