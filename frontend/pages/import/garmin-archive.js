@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import AuthenticatedShell, { StatusNotice } from "../../components/AuthenticatedShell";
 import { authenticatedFetch } from "../../lib/authFetch.mjs";
-import { archiveState } from "../../lib/coreFlowStates.mjs";
+import { archiveProgress, archiveState } from "../../lib/coreFlowStates.mjs";
 import styles from "../../styles/AthletePages.module.css";
 
 
@@ -33,20 +33,41 @@ export default function GarminArchiveImport() {
   }, [loadCapabilities]);
 
   const flow = archiveState(capabilities, job);
+  const progress = archiveProgress(job);
 
   useEffect(() => {
-    if (!flow.pending || !job?.status_url) return undefined;
-    const timer = window.setInterval(async () => {
+    const statusUrl = job?.status_url;
+    if (!flow.pending || !statusUrl) return undefined;
+
+    let active = true;
+    const refreshStatus = async () => {
       try {
-        const response = await authenticatedFetch(job.status_url);
+        const response = await authenticatedFetch(statusUrl, {
+          cache: "no-store",
+          headers: { "Cache-Control": "no-cache" },
+        });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.detail || "Archive status could not be checked.");
+        if (!active) return;
         setJob(payload);
+        setMessage("");
       } catch (error) {
-        setMessage(error.message || "Archive status could not be checked.");
+        if (active) setMessage(error.message || "Archive status could not be checked.");
       }
-    }, 3000);
-    return () => window.clearInterval(timer);
+    };
+
+    refreshStatus();
+    const timer = window.setInterval(refreshStatus, 3000);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refreshStatus();
+    };
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [flow.pending, job?.status_url]);
 
   async function runDriveImport() {
@@ -120,10 +141,22 @@ export default function GarminArchiveImport() {
       {message && <StatusNotice tone={job?.status === "failed" ? "warning" : "neutral"}>{message}</StatusNotice>}
       {flow.pending && (
         <StatusNotice>
-          Import in progress: {String(job.status).replaceAll("_", " ")}. You can leave this page safely.{" "}
+          <strong>{progress.label}.</strong> {progress.detail} You can leave this page safely.{" "}
           <a href="/coach?from=%2Fimport%2Fgarmin-archive&prompt=Help%20me%20use%20my%20saved%20goal%20while%20my%20training%20history%20finishes%20importing.">
             Continue with Coach
           </a>.
+          {progress.total > 0 && (
+            <div>
+              <progress
+                aria-label="Garmin archive import progress"
+                max={progress.total}
+                value={progress.processed}
+              >
+                {progress.percent}%
+              </progress>
+              <span> {progress.percent}%</span>
+            </div>
+          )}
         </StatusNotice>
       )}
       {job?.status === "failed" && (

@@ -286,6 +286,7 @@ def process_archive_import_job(db: Session, job: ArchiveImportJob) -> dict[str, 
     db.commit()
 
     downloads: Any
+    objects_total = 0
     if job.source_type == "google_drive":
         authorization = (job.source_metadata_json or {}).get("authorization")
         drive = (
@@ -293,7 +294,8 @@ def process_archive_import_job(db: Session, job: ArchiveImportJob) -> dict[str, 
             if authorization == "user_oauth"
             else _drive_client()
         )
-        objects = drive.list_supported_objects(job.source_locator or "")
+        objects = list(drive.list_supported_objects(job.source_locator or ""))
+        objects_total = len(objects)
         downloads = ((item, lambda item=item: drive.download(item)) for item in objects)
     elif job.source_type == "upload":
         content = _storage_client().read_bytes(job)
@@ -306,17 +308,33 @@ def process_archive_import_job(db: Session, job: ArchiveImportJob) -> dict[str, 
             modified_time=None,
             size_bytes=job.size_bytes,
         )
+        objects_total = 1
         downloads = ((item, lambda: content),)
     else:
         raise ValueError(f"Unsupported archive source: {job.source_type}")
 
-    summary = {"objects_imported": 0, "objects_skipped": 0, "objects_failed": 0, "activities": 0}
+    summary = {
+        "objects_total": objects_total,
+        "objects_processed": 0,
+        "objects_imported": 0,
+        "objects_skipped": 0,
+        "objects_failed": 0,
+        "activities": 0,
+    }
+    job.result_json = dict(summary)
+    job.updated_at = _now()
+    db.commit()
+
     for source, content_loader in downloads:
         outcome, activity_count = _process_object(db, job, source, content_loader)
         summary[f"objects_{outcome}"] += 1
+        summary["objects_processed"] += 1
         summary["activities"] += activity_count
+        job.result_json = dict(summary)
+        job.updated_at = _now()
+        db.commit()
 
-    job.result_json = summary
+    job.result_json = dict(summary)
     job.finished_at = _now()
     job.updated_at = _now()
     if summary["objects_failed"]:

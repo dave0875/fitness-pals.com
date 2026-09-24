@@ -33,6 +33,68 @@ export function archiveState(capabilities, job) {
   };
 }
 
+export function archiveProgress(job) {
+  const total = Math.max(0, Number(job?.objects_total) || 0);
+  const imported = Math.max(0, Number(job?.objects_imported) || 0);
+  const skipped = Math.max(0, Number(job?.objects_skipped) || 0);
+  const failed = Math.max(0, Number(job?.objects_failed) || 0);
+  const reportedProcessed = Math.max(0, Number(job?.objects_processed) || 0);
+  const processed = Math.min(
+    total || Number.MAX_SAFE_INTEGER,
+    Math.max(reportedProcessed, imported + skipped + failed),
+  );
+  const activities = Math.max(0, Number(job?.activities) || 0);
+  const percent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : null;
+
+  if (job?.status === "completed") {
+    return {
+      processed: total || processed,
+      total,
+      percent: 100,
+      activities,
+      label: "Import complete",
+      detail: total
+        ? `${total} file${total === 1 ? "" : "s"} checked · ${activities} activit${activities === 1 ? "y" : "ies"} processed.`
+        : `${activities} activit${activities === 1 ? "y" : "ies"} processed.`,
+    };
+  }
+
+  if (job?.status === "failed") {
+    return {
+      processed,
+      total,
+      percent,
+      activities,
+      label: "Import stopped",
+      detail: total
+        ? `${processed} of ${total} files checked before the import stopped.`
+        : "The import stopped before progress could be completed.",
+    };
+  }
+
+  if (total > 0) {
+    return {
+      processed,
+      total,
+      percent,
+      activities,
+      label: `Importing: ${processed} of ${total} files checked`,
+      detail: activities
+        ? `${activities} activit${activities === 1 ? "y" : "ies"} processed so far.`
+        : "No activities have been added from the checked files yet.",
+    };
+  }
+
+  return {
+    processed,
+    total,
+    percent,
+    activities,
+    label: job?.status === "processing" ? "Preparing import progress…" : "Import queued",
+    detail: "Waiting for the worker to report the first checkpoint.",
+  };
+}
+
 function sameFilters(left, right) {
   return ["window", "sport", "goal"].every((key) => left?.[key] === right?.[key]);
 }
