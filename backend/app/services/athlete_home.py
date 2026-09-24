@@ -10,10 +10,10 @@ from app.models import (
     Activity,
     DossierArtifact,
     DossierJob,
-    SleepSession,
     SyncCheckpoint,
 )
 from app.services.activity_quality import valid_distance_m
+from app.services.athlete_state import build_athlete_state
 
 METERS_PER_MILE = 1609.344
 
@@ -25,15 +25,6 @@ def _utc(value: datetime | date) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
-
-
-def _first_value(payload: dict[str, Any], *keys: str) -> Any:
-    """Return the first present non-null value from a provider-neutral summary lookup."""
-    for key in keys:
-        value = payload.get(key)
-        if value is not None:
-            return value
-    return None
 
 
 def _goal(goal: str | None) -> dict[str, str] | None:
@@ -65,39 +56,6 @@ def _activity_payload(activity: Activity) -> dict[str, Any]:
         "start_time": _utc(activity.start_time).isoformat(),
         "distance_m": valid_distance_m(activity.distance_m, activity.sport),
         "duration_seconds": activity.duration_seconds,
-    }
-
-
-def _recovery(latest_sleep: SleepSession | None) -> dict[str, Any]:
-    """Build recovery facts while representing unavailable values as unknown."""
-    if latest_sleep is None or not isinstance(latest_sleep.summary_json, dict):
-        return {
-            "state": "unknown",
-            "label": "Recovery data unavailable",
-            "sleep_hours": None,
-            "sleep_score": None,
-            "overnight_hrv": None,
-        }
-
-    summary = latest_sleep.summary_json
-    sleep_seconds = _first_value(
-        summary,
-        "sleepTimeSeconds",
-        "totalSleepSeconds",
-        "durationSeconds",
-    )
-    score_payload = summary.get("sleepScores")
-    score = score_payload.get("overall") if isinstance(score_payload, dict) else None
-    if score is None:
-        score = _first_value(summary, "sleepScore", "overallSleepScore")
-    hrv = _first_value(summary, "avgOvernightHrv", "overnightHrv", "hrv")
-
-    return {
-        "state": "available",
-        "label": "Latest recovery",
-        "sleep_hours": round(float(sleep_seconds) / 3600, 1) if sleep_seconds is not None else None,
-        "sleep_score": score,
-        "overnight_hrv": hrv,
     }
 
 
@@ -317,15 +275,11 @@ def build_athlete_home(
         key=lambda activity: _utc(activity.start_time),
         reverse=True,
     )
-    sleep_sessions = sorted(
-        [
-            session
-            for session in db.query(SleepSession).all()
-            if getattr(session, "user_id", None) == user_id
-        ],
-        key=lambda session: _utc(session.calendar_date),
-        reverse=True,
-    )
+    athlete_state = build_athlete_state(db, user_id, now=current_time, days=14)
+    latest_recovery = athlete_state.get("latest")
+    recovery_date = None
+    if isinstance(latest_recovery, dict) and latest_recovery.get("date"):
+        recovery_date = date.fromisoformat(latest_recovery["date"])
     checkpoints = [
         checkpoint
         for checkpoint in db.query(SyncCheckpoint).all()
@@ -342,10 +296,9 @@ def build_athlete_home(
         if getattr(job, "user_id", None) == user_id
     ]
 
-    latest_sleep = sleep_sessions[0] if sleep_sessions else None
     data_candidates = [
         *(_utc(activity.start_time) for activity in activities[:1]),
-        *(_utc(session.calendar_date) for session in sleep_sessions[:1]),
+        *([_utc(recovery_date)] if recovery_date is not None else []),
         *(
             _utc(checkpoint.last_synced_at)
             for checkpoint in checkpoints
@@ -357,7 +310,7 @@ def build_athlete_home(
     missing = []
     if not activities:
         missing.append("activities")
-    if not sleep_sessions:
+    if athlete_state.get("state") in {"unknown", "error"}:
         missing.append("sleep")
 
     if data_through is None:
@@ -374,7 +327,7 @@ def build_athlete_home(
         freshness_label = "Fitness data is current"
 
     activity_time = _utc(activities[0].start_time) if activities else None
-    sleep_time = _utc(latest_sleep.calendar_date) if latest_sleep else None
+    sleep_time = _utc(recovery_date) if recovery_date is not None else None
     intensity_activity = next(
         (
             activity for activity in activities
@@ -401,10 +354,28 @@ def build_athlete_home(
     if signals["sleep"]["state"] == "stale":
         missing.append("current_sleep")
 
-    recovery = _recovery(latest_sleep)
-    if recovery["state"] == "available" and signals["sleep"]["state"] == "stale":
-        recovery["state"] = "stale"
-        recovery["label"] = "Latest recovery is stale"
+    latest_signals = (
+        latest_recovery.get("signals", {})
+        if isinstance(latest_recovery, dict)
+        else {}
+    )
+    sleep_duration = latest_signals.get("sleep_duration", {})
+    sleep_score = latest_signals.get("sleep_score", {})
+    overnight_hrv = latest_signals.get("overnight_hrv", {})
+    recovery_state = athlete_state.get("state", "unknown")
+    recovery = {
+        "state": "available" if recovery_state == "fresh" else recovery_state,
+        "label": (
+            "Latest recovery"
+            if recovery_state == "fresh"
+            else "Latest recovery is stale"
+            if recovery_state == "stale"
+            else "Recovery data unavailable"
+        ),
+        "sleep_hours": sleep_duration.get("value"),
+        "sleep_score": sleep_score.get("value"),
+        "overnight_hrv": overnight_hrv.get("value"),
+    }
     training_consistency = _training_consistency(activities, current_time)
     readiness = {
         "state": "unknown", "score": None, "label": "Readiness unavailable",
