@@ -23,6 +23,7 @@ from app.routes import providers_garmin
 from app.routes.ingest import router as ingest_router
 from app.routes.archive_imports import router as archive_imports_router
 from app.routes.today_plan import router as today_plan_router
+from app.routes.goal_graph import router as goal_graph_router
 from app.routes.intelligence import router as intelligence_router
 from app.routes.athlete_state import router as athlete_state_router
 from app.routes.ux_events import router as ux_events_router
@@ -44,6 +45,8 @@ REQUIRED_TABLES = (
     "archive_import_objects",
     "refresh_token_sessions",
     "athlete_goals",
+    "athlete_goal_events",
+    "athlete_goal_objectives",
     "next_session_plans",
 )
 
@@ -75,6 +78,7 @@ app.include_router(dossiers_router)
 app.include_router(ingest_router)
 app.include_router(archive_imports_router)
 app.include_router(today_plan_router)
+app.include_router(goal_graph_router)
 app.include_router(intelligence_router)
 app.include_router(athlete_state_router)
 app.include_router(ux_events_router)

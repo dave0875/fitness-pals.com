@@ -17,7 +17,7 @@ from .sync import SyncJob, SyncCheckpoint
 from .dossier import DossierJob, DossierArtifact
 from .archive_import import ArchiveImportJob, ArchiveImportObject
 from .refresh_token import RefreshTokenSession
-from .coaching import AthleteGoal, NextSessionPlan
+from .coaching import AthleteGoal, AthleteGoalEvent, AthleteGoalObjective, NextSessionPlan
 
 __all__ = [
     "User",
@@ -41,5 +41,7 @@ __all__ = [
     "ArchiveImportObject",
     "RefreshTokenSession",
     "AthleteGoal",
+    "AthleteGoalEvent",
+    "AthleteGoalObjective",
     "NextSessionPlan",
 ]

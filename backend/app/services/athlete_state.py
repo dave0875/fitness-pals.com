@@ -9,6 +9,7 @@ from uuid import UUID
 
 from app.models import SleepSession
 from app.services.athlete_intent import build_future_intent
+from app.services.athlete_goal_graph import build_goal_graph
 from app.services.training_evidence import build_whole_training_summary
 
 FRESHNESS_WINDOW = timedelta(hours=72)
@@ -198,6 +199,7 @@ def build_athlete_state(
     history_days = max(1, min(int(days), MAX_HISTORY_DAYS))
     training_state = build_whole_training_summary(db, user_id, now=current_time, days=30)
     future_intent = build_future_intent(db, user_id, now=current_time)
+    goal_graph = build_goal_graph(db, user_id, now=current_time)
 
     try:
         rows = _rows_for_athlete(db, user_id)
@@ -211,6 +213,7 @@ def build_athlete_state(
             "history": [],
             "training": training_state,
             "future_intent": future_intent,
+            "goal_graph": goal_graph,
             "derived": {
                 "hrv_7d_average": {
                     "value": None,
@@ -274,6 +277,7 @@ def build_athlete_state(
         "history": history,
         "training": training_state,
         "future_intent": future_intent,
+        "goal_graph": goal_graph,
         "derived": {
             "hrv_7d_average": {
                 "value": hrv_average,

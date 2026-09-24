@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 import uuid
 
-from sqlalchemy import Date, DateTime, ForeignKey, JSON, String, UniqueConstraint
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -47,3 +47,51 @@ class NextSessionPlan(PrimaryUUIDMixin, UserOwnedMixin, TimestampMixin, Base):  
     feedback_json: Mapped[dict | None] = mapped_column("feedback", JSON, nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AthleteGoalEvent(PrimaryUUIDMixin, UserOwnedMixin, TimestampMixin, Base):  # pylint: disable=too-few-public-methods
+    """One explicit event node in an athlete-owned Goal Graph."""
+
+    __tablename__ = "athlete_goal_events"
+
+    goal_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("athlete_goals.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    role: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    label: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    event_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    distance_label: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    target_performance: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    target_time_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
+    lifecycle_state: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    provenance_json: Mapped[dict | None] = mapped_column("provenance", JSON, nullable=True)
+
+
+class AthleteGoalObjective(PrimaryUUIDMixin, UserOwnedMixin, TimestampMixin, Base):  # pylint: disable=too-few-public-methods
+    """One explicit intermediate objective in an athlete-owned Goal Graph."""
+
+    __tablename__ = "athlete_goal_objectives"
+
+    goal_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("athlete_goals.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    event_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("athlete_goal_events.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    target_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
+    lifecycle_state: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    details_json: Mapped[dict | None] = mapped_column("details", JSON, nullable=True)
+    provenance_json: Mapped[dict | None] = mapped_column("provenance", JSON, nullable=True)

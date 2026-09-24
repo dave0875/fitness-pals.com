@@ -678,6 +678,82 @@ def _validate_future_intent_acceptance(
         raise ValueError("Progress must keep intent relationships descriptive")
 
 
+def _validate_goal_graph_acceptance(
+    payloads: dict[str, object | None],
+) -> None:
+    """Cross-check the canonical bounded Goal Graph across athlete surfaces."""
+    surfaces = {
+        "Athlete State": _require_dict(
+            payloads.get("authenticated Athlete State"), "Athlete State"
+        ).get("goal_graph"),
+        "canonical metrics": _require_dict(
+            payloads.get("authenticated canonical metrics"), "canonical metrics"
+        ).get("goal_graph"),
+        "athlete intelligence": _require_dict(
+            payloads.get("authenticated athlete intelligence"), "athlete intelligence"
+        ).get("goal_graph"),
+        "Today context": _require_dict(
+            payloads.get("authenticated Today decision context"), "Today context"
+        ).get("goal_graph"),
+        "Progress": _require_dict(
+            payloads.get("authenticated bounded Progress evidence"), "Progress"
+        ).get("goal_graph"),
+    }
+    graphs = {
+        name: _require_dict(value, f"{name} Goal Graph")
+        for name, value in surfaces.items()
+    }
+    canonical = graphs["Athlete State"]
+    if canonical.get("source") != "canonical_postgres":
+        raise ValueError("Goal Graph must come from canonical_postgres")
+    if canonical.get("state") not in {"known", "unknown"}:
+        raise ValueError("Goal Graph must be known or unknown in production")
+    if canonical.get("error") is not None:
+        raise ValueError("Goal Graph returned an error")
+
+    def stable(value: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: value.get(key)
+            for key in (
+                "state", "goal", "primary_event", "supporting_events",
+                "calendar", "objectives",
+            )
+        }
+
+    identity = stable(canonical)
+    for name, graph in graphs.items():
+        if graph.get("source") != "canonical_postgres":
+            raise ValueError(f"{name} Goal Graph source drifted")
+        if stable(graph) != identity:
+            raise ValueError(f"{name} Goal Graph contradicts Athlete State")
+
+    primary = canonical.get("primary_event")
+    if isinstance(primary, dict):
+        if primary.get("role") != "primary":
+            raise ValueError("active primary Goal Graph event must be explicitly primary")
+        lifecycle = _require_dict(primary.get("lifecycle"), "primary event lifecycle")
+        if lifecycle.get("state") != "planned":
+            raise ValueError("terminal Goal Graph event cannot masquerade as active primary")
+        provenance = _require_dict(primary.get("provenance"), "primary event provenance")
+        if provenance.get("kind") != "explicit":
+            raise ValueError("primary Goal Graph event must preserve explicit provenance")
+        target_time = primary.get("target_time_seconds")
+        if target_time is not None and (
+            isinstance(target_time, bool)
+            or not isinstance(target_time, int)
+            or target_time <= 0
+        ):
+            raise ValueError("Goal Graph target time must be positive or unknown")
+        derived = _require_dict(primary.get("derived"), "primary event derived context")
+        derived_provenance = _require_dict(
+            derived.get("provenance"), "primary event derived provenance"
+        )
+        if derived_provenance.get("kind") != "derived":
+            raise ValueError("Goal Graph calendar relationship must be labeled derived")
+        if "does not predict" not in str(derived.get("caveat") or "").lower():
+            raise ValueError("Goal Graph must reject race-outcome prediction")
+
+
 def verify_production(
     *,
     expected_release: str,
@@ -723,6 +799,11 @@ def verify_production(
     except ValueError as exc:
         raise SystemExit(f"Future intent production acceptance failed: {exc}") from exc
     print("PASS future intent production acceptance: athlete-owned surfaces agree")
+    try:
+        _validate_goal_graph_acceptance(payloads)
+    except ValueError as exc:
+        raise SystemExit(f"Goal Graph production acceptance failed: {exc}") from exc
+    print("PASS Goal Graph production acceptance: athlete-owned surfaces agree")
 
     missing = [journey for journey in PHASE8_JOURNEYS if journey not in passed_journeys]
     if missing:
@@ -738,6 +819,7 @@ def verify_production(
         "athlete_state_contract": "pass",
         "whole_training_contract": "pass",
         "future_intent_contract": "pass",
+        "goal_graph_contract": "pass",
     }
     print("Production acceptance report: " + json.dumps(report, sort_keys=True))
     return report
