@@ -7,6 +7,7 @@ import uuid
 from app.models import Activity, SleepSession
 from app.routes.athlete_state import athlete_state
 from app.services.activity_summary import build_canonical_summary
+from app.services.athlete_home import build_athlete_home
 from app.services.athlete_state import build_athlete_state
 
 
@@ -190,3 +191,38 @@ def test_api_contract_returns_only_authenticated_athlete_state():
     result = athlete_state(days=14, user=SimpleNamespace(id=athlete_id), db=db)
 
     assert result["latest"]["signals"]["overnight_hrv"]["value"] == 44
+
+
+def test_dashboard_and_canonical_summary_agree_on_recovery_availability():
+    now = datetime(2026, 9, 24, 12, tzinfo=timezone.utc)
+    athlete_id = uuid.uuid4()
+    row = sleep(
+        athlete_id,
+        date(2026, 9, 24),
+        {"sleepTimeSeconds": 27000, "sleepScores": {"overall": 82}, "avgOvernightHrv": 41},
+    )
+    db = FakeSession([activity(athlete_id, now), row])
+
+    state = build_athlete_state(db, athlete_id, now=now)
+    home = build_athlete_home(db, athlete_id, goal="marathon", now=now)
+    metrics = build_canonical_summary(db, athlete_id, now=now)
+
+    assert home["recovery"]["overnight_hrv"] == 41
+    assert metrics["athlete_state"]["latest"]["signals"]["overnight_hrv"]["value"] == 41
+    assert metrics["metric_states"]["hrv_avg"] == "fresh"
+    assert state["latest"]["signals"]["overnight_hrv"]["status"] == "known"
+
+
+def test_dashboard_and_canonical_summary_agree_when_recovery_is_missing():
+    now = datetime(2026, 9, 24, 12, tzinfo=timezone.utc)
+    athlete_id = uuid.uuid4()
+    db = FakeSession([activity(athlete_id, now)])
+
+    home = build_athlete_home(db, athlete_id, goal="marathon", now=now)
+    metrics = build_canonical_summary(db, athlete_id, now=now)
+
+    assert home["recovery"]["state"] == "unknown"
+    assert home["recovery"]["overnight_hrv"] is None
+    assert metrics["athlete_state"]["state"] == "unknown"
+    assert metrics["hrv_avg"] is None
+    assert metrics["metric_states"]["hrv_avg"] == "unknown"
