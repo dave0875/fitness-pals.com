@@ -194,6 +194,7 @@ def build_canonical_summary(
         "athlete_state": athlete_state,
         "training": athlete_state.get("training"),
         "future_intent": athlete_state.get("future_intent"),
+        "goal_graph": athlete_state.get("goal_graph"),
         "pace_histogram": None,
         "training_load": None,
         "error": None,
