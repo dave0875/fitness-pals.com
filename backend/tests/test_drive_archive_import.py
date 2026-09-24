@@ -366,6 +366,61 @@ def test_drive_job_checkpoints_each_version_and_replay_is_idempotent(monkeypatch
     assert checkpoints[0].status == "completed"
 
 
+def test_archive_job_persists_live_progress_after_each_checkpoint(monkeypatch):
+    athlete = _user()
+    db = FakeSession([athlete])
+    objects = [
+        DriveArchiveObject(
+            object_id=f"drive-file-{index}",
+            name=f"activity-{index}.fit",
+            mime_type="application/fits",
+            version=f"version-{index}",
+            modified_time=None,
+            size_bytes=10,
+        )
+        for index in (1, 2)
+    ]
+    monkeypatch.setattr(
+        archive_import_jobs,
+        "_drive_client",
+        lambda: SimpleNamespace(
+            list_supported_objects=lambda _folder: objects,
+            download=lambda _object: b"fit-bytes",
+        ),
+    )
+
+    observed = []
+
+    def fake_process(_db, job, source, _content_loader):
+        observed.append((source.object_id, dict(job.result_json or {})))
+        return "imported", 1
+
+    monkeypatch.setattr(archive_import_jobs, "_process_object", fake_process)
+    job = archive_import_jobs.create_drive_import_job(
+        db, athlete, folder_id="folder-one"
+    )
+
+    result = archive_import_jobs.process_archive_import_job(db, job)
+
+    assert observed[0][1] == {
+        "objects_total": 2,
+        "objects_processed": 0,
+        "objects_imported": 0,
+        "objects_skipped": 0,
+        "objects_failed": 0,
+        "activities": 0,
+    }
+    assert observed[1][1]["objects_processed"] == 1
+    assert observed[1][1]["objects_imported"] == 1
+    assert observed[1][1]["activities"] == 1
+    assert result["objects_total"] == 2
+    assert result["objects_processed"] == 2
+    assert result["objects_imported"] == 2
+    assert result["activities"] == 2
+    assert job.result_json == result
+    assert job.status == "completed"
+
+
 def test_user_authorized_drive_job_uses_athletes_encrypted_grant(monkeypatch):
     athlete = _user()
     token = UserProviderToken(
