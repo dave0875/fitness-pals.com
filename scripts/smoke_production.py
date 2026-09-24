@@ -343,6 +343,7 @@ def production_probes(
                 "data_through",
                 "latest",
                 "history",
+                "training",
                 "derived",
                 "error",
             ),
@@ -361,6 +362,7 @@ def production_probes(
                 "mileage",
                 "hrv_avg",
                 "athlete_state",
+                "training",
                 "error",
             ),
         ),
@@ -409,6 +411,7 @@ def production_probes(
             require_json_object=True,
             required_json_keys=(
                 "totals",
+                "whole_training",
                 "comparison",
                 "activities",
                 "activity_pagination",
@@ -528,6 +531,36 @@ def _validate_athlete_state_acceptance(
                     f"canonical metrics {signal_name} contradicts Athlete State"
                 )
 
+    training = _require_dict(state.get("training"), "Athlete State training")
+    if training.get("state") not in {"fresh", "stale", "unknown"}:
+        raise ValueError("Athlete State training must expose a trustworthy freshness state")
+    modalities = training.get("by_modality")
+    if not isinstance(modalities, list):
+        raise ValueError("Athlete State training by_modality must be a list")
+    for item in modalities:
+        modality = _require_dict(item, "training modality")
+        if not isinstance(modality.get("activity_count"), int):
+            raise ValueError("training modality activity_count must be explicit")
+        duration = modality.get("duration_seconds")
+        known_duration_count = modality.get("known_duration_count")
+        if known_duration_count == 0 and duration is not None:
+            raise ValueError("missing training duration must remain unavailable")
+
+    metrics_training = _require_dict(metrics.get("training"), "metrics training")
+    if metrics_training != training:
+        raise ValueError("canonical metrics training contradicts Athlete State training")
+
+    journey = _require_dict(
+        payloads.get("authenticated bounded Progress evidence"),
+        "Progress evidence",
+    )
+    journey_training = _require_dict(
+        journey.get("whole_training"),
+        "Progress whole-training summary",
+    )
+    if journey_training.get("activity_count") is None:
+        raise ValueError("Progress whole-training summary must expose activity_count")
+
     derived = _require_dict(state.get("derived"), "Athlete State derived")
     hrv = _require_dict(derived.get("hrv_7d_average"), "Athlete State HRV average")
     if metrics.get("hrv_avg") != hrv.get("value"):
@@ -581,7 +614,7 @@ def verify_production(
         _validate_athlete_state_acceptance(payloads)
     except ValueError as exc:
         raise SystemExit(f"Athlete State production acceptance failed: {exc}") from exc
-    print("PASS Athlete State production acceptance: canonical recovery surfaces agree")
+    print("PASS Athlete State production acceptance: recovery and whole-training surfaces agree")
 
     missing = [journey for journey in PHASE8_JOURNEYS if journey not in passed_journeys]
     if missing:
@@ -595,6 +628,7 @@ def verify_production(
         "journeys": list(PHASE8_JOURNEYS),
         "probe_count": len(probes),
         "athlete_state_contract": "pass",
+        "whole_training_contract": "pass",
     }
     print("Production acceptance report: " + json.dumps(report, sort_keys=True))
     return report
