@@ -73,6 +73,11 @@ def upgrade() -> None:
     ):
         op.create_index(name, "athlete_goal_objectives", columns)
 
+    # Offline SQL generation cannot execute SELECTs and returns no Result object.
+    # Production/live upgrades still run the faithful compatibility backfill below.
+    if op.get_context().as_sql:
+        return
+
     bind = op.get_bind()
     rows = bind.execute(
         sa.text(
