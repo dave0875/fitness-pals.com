@@ -31,6 +31,10 @@ class GoalRequest(BaseModel):
     goal_type: str
     phase: str
     target_date: date | None = None
+    target_distance: str | None = Field(default=None, max_length=80)
+    target_performance: str | None = Field(default=None, max_length=120)
+    target_time_seconds: int | None = Field(default=None, gt=0, le=172800)
+    custom_goal: str | None = Field(default=None, max_length=240)
 
 
 class PlanActionRequest(BaseModel):
@@ -71,6 +75,13 @@ def put_goal(
         goal_type=body.goal_type,
         phase=body.phase,
         target_date=body.target_date,
+        intent_json={
+            "target_distance": body.target_distance,
+            "target_performance": body.target_performance,
+            "target_time_seconds": body.target_time_seconds,
+            "custom_goal": body.custom_goal,
+        },
+        intent_source="today",
     )
 
 
