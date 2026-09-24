@@ -31,7 +31,7 @@ def _hrv_compat(athlete_state: dict[str, Any]) -> tuple[float | None, str, int]:
         return None, "unknown", 0
     value = hrv.get("value")
     sample_count = int(hrv.get("sample_count") or 0)
-    status = hrv.get("status")
+    status = str(hrv.get("status") or "")
     metric_state = {"known": "fresh", "stale": "stale"}.get(status, "unknown")
     return value, metric_state, sample_count
 
