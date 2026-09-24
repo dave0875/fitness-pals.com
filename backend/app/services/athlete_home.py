@@ -155,33 +155,6 @@ def _training_consistency(activities: list[Activity], now: datetime) -> dict[str
     }
 
 
-def _coaching(
-    activities: list[Activity],
-    freshness_state: str,
-) -> dict[str, Any]:
-    """Route the athlete to one goal-aware next-session decision."""
-    if freshness_state == "stale":
-        return {
-            "insight": "Your training picture is out of date.",
-            "explanation": "Refresh the connection before using older signals to change training.",
-            "next_action": {"label": "Review fitness connection", "href": "/settings"},
-        }
-    if activities:
-        return {
-            "insight": "Make the next session serve your goal.",
-            "explanation": (
-                "Open one editable recommendation tied to your saved goal, phase, and recent "
-                "valid runs. Missing or stale recovery and intensity signals stay visible as uncertainty."
-            ),
-            "next_action": {"label": "Open today's run", "href": "/today#todays-run"},
-        }
-    return {
-        "insight": "Add a valid run before planning the next one.",
-        "explanation": "A known run duration or distance is needed to suggest a grounded range.",
-        "next_action": {"label": "Open today's run", "href": "/today#todays-run"},
-    }
-
-
 def _coaching_from_decision(decision: dict[str, Any]) -> dict[str, Any]:
     """Project the canonical decision into the existing athlete-home coaching card."""
     action = decision.get("action") if isinstance(decision, dict) else {}
