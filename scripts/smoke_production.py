@@ -48,6 +48,7 @@ class Probe:
     url: str
     expected_statuses: tuple[int, ...]
     headers: dict[str, str] = field(default_factory=dict)
+    method: str = "GET"
     expected_text: str | None = None
     expected_json: dict[str, object] | None = None
     require_json_object: bool = False
@@ -75,7 +76,7 @@ def _validate_response(
     status: int,
     headers: Any,
     body: bytes,
-) -> None:
+) -> object | None:
     if status not in probe.expected_statuses:
         statuses = ", ".join(str(value) for value in probe.expected_statuses)
         raise ValueError(f"expected HTTP {statuses}, received {status}")
@@ -121,6 +122,8 @@ def _validate_response(
                 f"expected redirect host {probe.redirect_host!r}, received {actual_host!r}"
             )
 
+    return payload
+
 
 def verify_probe(
     probe: Probe,
@@ -129,20 +132,24 @@ def verify_probe(
     retry_interval_seconds: float = 2,
     request_timeout_seconds: int = 15,
     opener: OpenUrl = _open,
-) -> None:
+) -> object | None:
     """Retry a semantic production probe until it passes or its deadline expires."""
     deadline = time.time() + timeout_seconds
     last_error: Exception | None = None
     while True:
         try:
             headers = {"User-Agent": DEFAULT_USER_AGENT, **probe.headers}
-            request = urllib.request.Request(probe.url, headers=headers)
+            request = urllib.request.Request(
+                probe.url,
+                headers=headers,
+                method=probe.method,
+            )
             status, response_headers, body = _read_response(
                 opener, request, request_timeout_seconds
             )
-            _validate_response(probe, status, response_headers, body)
+            payload = _validate_response(probe, status, response_headers, body)
             print(f"PASS {probe.name}: HTTP {status} {probe.url}")
-            return
+            return payload
         except Exception as exc:  # pylint: disable=broad-except
             last_error = exc
         if time.time() >= deadline:
@@ -222,6 +229,12 @@ def production_probes(
         Probe(
             name="unauthenticated session",
             url=f"{web}/api/auth/session",
+            expected_statuses=(401,),
+            expected_json={"detail": "Credentials missing"},
+        ),
+        Probe(
+            name="unauthenticated Athlete State",
+            url=f"{web}/api/athlete-state?days=14",
             expected_statuses=(401,),
             expected_json={"detail": "Credentials missing"},
         ),
@@ -318,6 +331,40 @@ def production_probes(
             journeys=("broken_connection",),
         ),
         Probe(
+            name="authenticated Athlete State",
+            url=f"{web}/api/athlete-state?days=14",
+            expected_statuses=(200,),
+            headers={"Authorization": f"Bearer {auth_token}"},
+            require_json_object=True,
+            required_json_keys=(
+                "source",
+                "state",
+                "generated_at",
+                "data_through",
+                "latest",
+                "history",
+                "derived",
+                "error",
+            ),
+        ),
+        Probe(
+            name="authenticated canonical metrics",
+            url=f"{web}/api/metrics/summary",
+            expected_statuses=(200,),
+            headers={"Authorization": f"Bearer {auth_token}"},
+            method="POST",
+            require_json_object=True,
+            required_json_keys=(
+                "source",
+                "state",
+                "metric_states",
+                "mileage",
+                "hrv_avg",
+                "athlete_state",
+                "error",
+            ),
+        ),
+        Probe(
             name="authenticated archive capabilities",
             url=f"{web}/api/archive-imports/capabilities",
             expected_statuses=(200,),
@@ -371,6 +418,130 @@ def production_probes(
     ]
 
 
+
+def _require_dict(value: object | None, context: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{context} must be a JSON object")
+    return value
+
+
+def _validate_athlete_state_acceptance(
+    payloads: dict[str, object | None],
+) -> None:
+    """Cross-check canonical recovery semantics across production consumers."""
+    state = _require_dict(
+        payloads.get("authenticated Athlete State"),
+        "Athlete State",
+    )
+    home = _require_dict(
+        payloads.get("authenticated athlete trust state"),
+        "athlete-home",
+    )
+    metrics = _require_dict(
+        payloads.get("authenticated canonical metrics"),
+        "canonical metrics",
+    )
+
+    if state.get("source") != "canonical_postgres":
+        raise ValueError("Athlete State must come from canonical_postgres")
+    if state.get("error") is not None:
+        raise ValueError("Athlete State returned an error")
+
+    latest = state.get("latest")
+    signals: dict[str, Any] | None = None
+    if latest is not None:
+        latest_state = _require_dict(latest, "Athlete State latest")
+        signals = _require_dict(latest_state.get("signals"), "Athlete State signals")
+        for signal_name in (
+            "sleep_duration",
+            "sleep_score",
+            "overnight_hrv",
+            "resting_heart_rate",
+        ):
+            signal = _require_dict(
+                signals.get(signal_name),
+                f"Athlete State signal {signal_name}",
+            )
+            value = signal.get("value")
+            status = signal.get("status")
+            if value is None and status != "unavailable":
+                raise ValueError(
+                    f"{signal_name} missing value must remain unavailable, got {status!r}"
+                )
+            if value is not None and status not in {"known", "stale"}:
+                raise ValueError(
+                    f"{signal_name} known value must be known/stale, got {status!r}"
+                )
+            provenance = _require_dict(
+                signal.get("provenance"),
+                f"Athlete State provenance {signal_name}",
+            )
+            if provenance.get("canonical_model") != "sleep_session":
+                raise ValueError(
+                    f"{signal_name} provenance must identify canonical sleep_session"
+                )
+
+    recovery = _require_dict(home.get("recovery"), "athlete-home recovery")
+    expected_recovery = {
+        "sleep_hours": None if signals is None else signals["sleep_duration"].get("value"),
+        "sleep_score": None if signals is None else signals["sleep_score"].get("value"),
+        "overnight_hrv": None if signals is None else signals["overnight_hrv"].get("value"),
+    }
+    for key, expected in expected_recovery.items():
+        if recovery.get(key) != expected:
+            raise ValueError(
+                f"athlete-home {key} contradicts Athlete State: "
+                f"{recovery.get(key)!r} != {expected!r}"
+            )
+    if recovery.get("state") != state.get("state"):
+        raise ValueError(
+            "athlete-home recovery state contradicts canonical Athlete State"
+        )
+
+    if metrics.get("source") != "canonical_postgres":
+        raise ValueError("canonical metrics must come from canonical_postgres")
+    if metrics.get("error") is not None:
+        raise ValueError("canonical metrics returned an error")
+    for key in ("mileage", "average_weekly_mileage", "long_run_max"):
+        if key not in metrics:
+            raise ValueError(f"canonical activity metric {key!r} is missing")
+
+    metrics_state = _require_dict(metrics.get("athlete_state"), "metrics Athlete State")
+    metrics_latest = metrics_state.get("latest")
+    if latest is None:
+        if metrics_latest is not None:
+            raise ValueError("metrics Athlete State contradicts missing latest recovery")
+    else:
+        metrics_latest_state = _require_dict(metrics_latest, "metrics latest Athlete State")
+        metrics_signals = _require_dict(
+            metrics_latest_state.get("signals"),
+            "metrics Athlete State signals",
+        )
+        assert signals is not None
+        for signal_name in ("sleep_duration", "sleep_score", "overnight_hrv"):
+            metrics_signal = _require_dict(
+                metrics_signals.get(signal_name),
+                f"metrics signal {signal_name}",
+            )
+            if metrics_signal.get("value") != signals[signal_name].get("value"):
+                raise ValueError(
+                    f"canonical metrics {signal_name} contradicts Athlete State"
+                )
+
+    derived = _require_dict(state.get("derived"), "Athlete State derived")
+    hrv = _require_dict(derived.get("hrv_7d_average"), "Athlete State HRV average")
+    if metrics.get("hrv_avg") != hrv.get("value"):
+        raise ValueError("canonical metrics hrv_avg contradicts Athlete State")
+    metric_states = _require_dict(metrics.get("metric_states"), "metric states")
+    expected_hrv_state = {
+        "known": "fresh",
+        "stale": "stale",
+        "unavailable": "unknown",
+    }.get(str(hrv.get("status") or ""), "unknown")
+    if metric_states.get("hrv_avg") != expected_hrv_state:
+        raise ValueError("canonical metrics HRV state contradicts Athlete State")
+
+
 def verify_production(
     *,
     expected_release: str,
@@ -382,7 +553,7 @@ def verify_production(
     opener: OpenUrl = _open,
     **urls: str,
 ) -> dict[str, object]:
-    """Verify every mandatory production probe and emit the Phase 8 release report."""
+    """Verify mandatory production probes and canonical Athlete State semantics."""
     if not auth_token:
         raise SystemExit("RUNTRAINER_SMOKE_AUTH_TOKEN is required")
     if route_timeout_seconds is None:
@@ -393,8 +564,9 @@ def verify_production(
         **urls,
     )
     passed_journeys: set[str] = set()
+    payloads: dict[str, object | None] = {}
     for probe in probes:
-        verify_probe(
+        payloads[probe.name] = verify_probe(
             probe,
             timeout_seconds=(
                 route_timeout_seconds if probe.route_contract else timeout_seconds
@@ -404,6 +576,12 @@ def verify_production(
             opener=opener,
         )
         passed_journeys.update(probe.journeys)
+
+    try:
+        _validate_athlete_state_acceptance(payloads)
+    except ValueError as exc:
+        raise SystemExit(f"Athlete State production acceptance failed: {exc}") from exc
+    print("PASS Athlete State production acceptance: canonical recovery surfaces agree")
 
     missing = [journey for journey in PHASE8_JOURNEYS if journey not in passed_journeys]
     if missing:
@@ -416,8 +594,9 @@ def verify_production(
         "status": "pass",
         "journeys": list(PHASE8_JOURNEYS),
         "probe_count": len(probes),
+        "athlete_state_contract": "pass",
     }
-    print("Phase 8 acceptance report: " + json.dumps(report, sort_keys=True))
+    print("Production acceptance report: " + json.dumps(report, sort_keys=True))
     return report
 
 

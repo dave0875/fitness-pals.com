@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import io
 import json
 import urllib.error
@@ -53,10 +54,121 @@ def http_error(url: str, status: int, body: object = None) -> urllib.error.HTTPE
     )
 
 
+
+def athlete_state_payload() -> dict[str, object]:
+    provenance = {
+        "canonical_model": "sleep_session",
+        "record_id": "sleep-1",
+        "provider": "garmin",
+        "provider_record_id": "20260920",
+        "ingest_run_id": None,
+    }
+    signals = {
+        "sleep_duration": {
+            "value": 7.0,
+            "unit": "hours",
+            "status": "stale",
+            "observation_date": "2026-09-20",
+            "stale_after": "2026-09-23T23:59:59+00:00",
+            "provenance": provenance,
+        },
+        "sleep_score": {
+            "value": 78,
+            "unit": "score",
+            "status": "stale",
+            "observation_date": "2026-09-20",
+            "stale_after": "2026-09-23T23:59:59+00:00",
+            "provenance": provenance,
+        },
+        "overnight_hrv": {
+            "value": 41,
+            "unit": "ms",
+            "status": "stale",
+            "observation_date": "2026-09-20",
+            "stale_after": "2026-09-23T23:59:59+00:00",
+            "provenance": provenance,
+        },
+        "resting_heart_rate": {
+            "value": None,
+            "unit": "bpm",
+            "status": "unavailable",
+            "observation_date": "2026-09-20",
+            "stale_after": "2026-09-23T23:59:59+00:00",
+            "provenance": provenance,
+        },
+    }
+    latest = {
+        "date": "2026-09-20",
+        "state": "stale",
+        "data_through": "2026-09-20",
+        "signals": signals,
+    }
+    return {
+        "source": "canonical_postgres",
+        "state": "stale",
+        "generated_at": "2026-09-24T12:00:00+00:00",
+        "data_through": "2026-09-20",
+        "latest": latest,
+        "history": [latest],
+        "derived": {
+            "hrv_7d_average": {
+                "value": 41,
+                "unit": "ms",
+                "status": "stale",
+                "window_days": 7,
+                "sample_count": 1,
+            }
+        },
+        "error": None,
+    }
+
+
+def athlete_home_payload() -> dict[str, object]:
+    return {
+        "state": "ready",
+        "freshness": {
+            "state": "partial",
+            "signals": {
+                "activities": {"state": "fresh"},
+                "sleep": {"state": "stale"},
+            },
+        },
+        "recovery": {
+            "state": "stale",
+            "label": "Recovery data is stale",
+            "sleep_hours": 7.0,
+            "sleep_score": 78,
+            "overnight_hrv": 41,
+        },
+    }
+
+
+def metrics_payload(state: dict[str, object]) -> dict[str, object]:
+    return {
+        "source": "canonical_postgres",
+        "state": "fresh",
+        "metric_states": {
+            "mileage": "fresh",
+            "average_weekly_mileage": "fresh",
+            "long_run_max": "fresh",
+            "hrv_avg": "stale",
+            "pace_histogram": "unknown",
+            "training_load": "unknown",
+        },
+        "mileage": {"30d": 100000, "60d": 200000, "90d": 300000},
+        "average_weekly_mileage": 25000,
+        "long_run_max": 30000,
+        "hrv_avg": 41,
+        "athlete_state": state,
+        "error": None,
+    }
+
+
 def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
     token = "short-lived-token"
     release = "abc123"
     seen: list[tuple[str, str | None]] = []
+    state = athlete_state_payload()
 
     def opener(request, timeout):
         del timeout
@@ -85,6 +197,11 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
             return FakeResponse(200, "<html>Fitness Pals</html>")
         if url.endswith("/api/auth/session"):
             raise http_error(url, 401, {"detail": "Credentials missing"})
+        if url.endswith("/api/athlete-state?days=14"):
+            if authorization is None:
+                raise http_error(url, 401, {"detail": "Credentials missing"})
+            assert authorization == f"Bearer {token}"
+            return FakeResponse(200, state)
         if url.endswith("/api/health-check"):
             return FakeResponse(200, {"status": "ok"})
         if url.endswith("/-/health/ready/"):
@@ -119,19 +236,11 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
             )
         if url.endswith("/api/athlete-home"):
             assert authorization == f"Bearer {token}"
-            return FakeResponse(
-                200,
-                {
-                    "state": "ready",
-                    "freshness": {
-                        "state": "partial",
-                        "signals": {
-                            "activities": {"state": "fresh"},
-                            "sleep": {"state": "stale"},
-                        },
-                    },
-                },
-            )
+            return FakeResponse(200, athlete_home_payload())
+        if url.endswith("/api/metrics/summary"):
+            assert authorization == f"Bearer {token}"
+            assert request.get_method() == "POST"
+            return FakeResponse(200, metrics_payload(state))
         if url.endswith("/api/archive-imports/capabilities"):
             assert authorization == f"Bearer {token}"
             return FakeResponse(
@@ -191,16 +300,19 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         opener=opener,
     )
 
-    assert len(seen) == 25
-    assert sum(authorization is not None for _, authorization in seen) == 7
+    assert len(seen) == 28
+    assert sum(authorization is not None for _, authorization in seen) == 9
     assert report == {
         "release": release,
         "status": "pass",
         "journeys": list(smoke_production.PHASE8_JOURNEYS),
-        "probe_count": 25,
+        "probe_count": 28,
+        "athlete_state_contract": "pass",
     }
     assert any(url.endswith("/api/onboarding/status") for url, _ in seen)
     assert any(url.endswith("/api/athlete-home") for url, _ in seen)
+    assert sum(url.endswith("/api/athlete-state?days=14") for url, _ in seen) == 2
+    assert any(url.endswith("/api/metrics/summary") for url, _ in seen)
     assert any(url.endswith("/api/archive-imports/capabilities") for url, _ in seen)
     assert any(url.endswith("/api/intelligence") for url, _ in seen)
     assert any(url.endswith("/api/today-plan/context") for url, _ in seen)
@@ -210,6 +322,47 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         "&activity_page=1&activity_page_size=25" in url
         for url, _ in seen
     )
+
+
+
+def test_athlete_state_acceptance_rejects_fabricated_missing_signal() -> None:
+    state = athlete_state_payload()
+    latest = state["latest"]
+    assert isinstance(latest, dict)
+    signals = latest["signals"]
+    assert isinstance(signals, dict)
+    hrv = signals["overnight_hrv"]
+    assert isinstance(hrv, dict)
+    hrv["value"] = None
+    hrv["status"] = "known"
+
+    with pytest.raises(ValueError, match="missing value must remain unavailable"):
+        smoke_production._validate_athlete_state_acceptance(
+            {
+                "authenticated Athlete State": state,
+                "authenticated athlete trust state": athlete_home_payload(),
+                "authenticated canonical metrics": metrics_payload(
+                    athlete_state_payload()
+                ),
+            }
+        )
+
+
+def test_athlete_state_acceptance_rejects_dashboard_recovery_mismatch() -> None:
+    state = athlete_state_payload()
+    home = copy.deepcopy(athlete_home_payload())
+    recovery = home["recovery"]
+    assert isinstance(recovery, dict)
+    recovery["overnight_hrv"] = 99
+
+    with pytest.raises(ValueError, match="contradicts Athlete State"):
+        smoke_production._validate_athlete_state_acceptance(
+            {
+                "authenticated Athlete State": state,
+                "authenticated athlete trust state": home,
+                "authenticated canonical metrics": metrics_payload(state),
+            }
+        )
 
 
 def test_production_smoke_reports_authentik_tunnel_drift_before_login() -> None:
