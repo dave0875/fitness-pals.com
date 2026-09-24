@@ -15,7 +15,7 @@ def test_fitparse_is_not_a_runtime_dependency():
     """The old compatibility parser must not creep back into runtime code."""
     repository_root = Path(__file__).resolve().parents[2]
     requirements = (repository_root / "backend" / "requirements.txt").read_text()
-    assert "garmin-fit-sdk==21.214.0" in requirements
+    assert "garmin-fit-sdk==21.217.0" in requirements
     assert "fitparse" not in requirements.lower()
 
     runtime_paths = [
