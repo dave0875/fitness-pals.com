@@ -23,6 +23,52 @@ test("archive controls distinguish unavailable, pending, failed, and complete", 
   assert.equal(archiveState({ drive: { available: true }, upload: { available: true } }, { status: "completed" }).resultHref, "/training");
 });
 
+test("archive progress turns durable checkpoints into visible progress", async () => {
+  const { archiveProgress } = await import("../lib/coreFlowStates.mjs");
+
+  const queued = archiveProgress({ status: "queued" });
+  assert.equal(queued.percent, null);
+  assert.match(queued.label, /queued/i);
+
+  const processing = archiveProgress({
+    status: "processing",
+    objects_total: 222,
+    objects_processed: 57,
+    objects_imported: 40,
+    objects_skipped: 17,
+    objects_failed: 0,
+    activities: 106,
+  });
+  assert.equal(processing.processed, 57);
+  assert.equal(processing.total, 222);
+  assert.equal(processing.percent, 26);
+  assert.match(processing.label, /57 of 222/i);
+  assert.match(processing.detail, /106 activities/i);
+
+  const completed = archiveProgress({
+    status: "completed",
+    objects_total: 222,
+    objects_processed: 222,
+    activities: 3522,
+  });
+  assert.equal(completed.percent, 100);
+  assert.match(completed.label, /complete/i);
+});
+
+test("archive page polls uncached durable status and renders progress", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const source = fs.readFileSync(
+    path.join(__dirname, "..", "pages", "import", "garmin-archive.js"),
+    "utf8",
+  );
+
+  assert.ok(source.includes('cache: "no-store"'));
+  assert.ok(source.includes('"visibilitychange"'));
+  assert.ok(source.includes("<progress"));
+  assert.ok(source.includes("archiveProgress(job)"));
+});
+
 test("journey pagination keeps a long filtered history finishable", async () => {
   const { paginateActivities } = await import("../lib/coreFlowStates.mjs");
   const activities = Array.from({ length: 106 }, (_, index) => ({ id: index + 1 }));
