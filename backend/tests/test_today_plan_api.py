@@ -14,7 +14,7 @@ from sqlalchemy.pool import StaticPool
 from app.db import get_db
 from app.deps import get_current_user
 from app.main import app
-from app.models import Activity, AthleteGoal, NextSessionPlan
+from app.models import Activity, AthleteGoal, AthleteGoalEvent, AthleteGoalObjective, NextSessionPlan
 from app.services import today_plan as today_plan_service
 
 
@@ -25,7 +25,10 @@ def test_dashboard_api_path_reaches_completed_and_next_action_state(monkeypatch)
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    for table in (Activity.__table__, AthleteGoal.__table__, NextSessionPlan.__table__):
+    for table in (
+        Activity.__table__, AthleteGoal.__table__, AthleteGoalEvent.__table__,
+        AthleteGoalObjective.__table__, NextSessionPlan.__table__,
+    ):
         table.create(engine)
     monkeypatch.setattr(
         today_plan_service,
@@ -125,5 +128,8 @@ def test_dashboard_api_path_reaches_completed_and_next_action_state(monkeypatch)
     finally:
         app.dependency_overrides.clear()
         db.close()
-        for table in (NextSessionPlan.__table__, AthleteGoal.__table__, Activity.__table__):
+        for table in (
+            NextSessionPlan.__table__, AthleteGoalObjective.__table__, AthleteGoalEvent.__table__,
+            AthleteGoal.__table__, Activity.__table__,
+        ):
             table.drop(engine)

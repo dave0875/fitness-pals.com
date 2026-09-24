@@ -250,6 +250,38 @@ def _evidence(
             }
         )
 
+    goal_graph = metrics.get("goal_graph")
+    goal_graph_payload = goal_graph if isinstance(goal_graph, dict) else {}
+    primary_event = goal_graph_payload.get("primary_event")
+    if isinstance(primary_event, dict):
+        support_count = len(goal_graph_payload.get("supporting_events") or [])
+        event_bits = [
+            value
+            for value in (
+                primary_event.get("date"),
+                primary_event.get("distance"),
+                primary_event.get("target_performance"),
+            )
+            if isinstance(value, str) and value
+        ]
+        evidence.append(
+            {
+                "kind": "explicit",
+                "label": "Goal Graph",
+                "title": primary_event.get("label") or "Primary event",
+                "summary": (
+                    "Explicit primary event"
+                    + (f": {', '.join(event_bits)}." if event_bits else ".")
+                    + (
+                        f" {support_count} supporting event(s) retained."
+                        if support_count
+                        else ""
+                    )
+                ),
+                "href": "/settings#goals",
+            }
+        )
+
     mileage = metrics.get("mileage")
     distance_30d = mileage.get("30d") if isinstance(mileage, dict) else None
     if isinstance(distance_30d, (int, float)):

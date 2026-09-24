@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from app.models import Activity, AthleteGoal, NextSessionPlan
 from app.services.activity_quality import is_run, valid_distance_m
 from app.services.athlete_home import build_athlete_home
+from app.services.athlete_goal_graph import build_goal_graph, sync_primary_event_from_goal
 from app.services.athlete_intent import (
     GOAL_LABELS,
     PHASE_LABELS,
@@ -318,6 +319,7 @@ def build_today_context(
         "generated_at": current_time.isoformat(),
         "freshness": home.get("freshness"),
         "future_intent": build_future_intent(db, user_id, now=current_time),
+        "goal_graph": build_goal_graph(db, user_id, now=current_time),
         "week": _rolling_week(db, user_id, plan, now=current_time),
         "trajectory": _goal_trajectory(db, user_id, goal, now=current_time),
         "match": _matching_activity(db, user_id, plan),
@@ -564,6 +566,8 @@ def save_goal(
         goal.target_date = target_date
         goal.intent_json = existing_intent
         goal.updated_at = current_time
+
+    sync_primary_event_from_goal(db, user_id, goal, now=current_time)
 
     active = _latest_plan(db, user_id)
     if active and active.status in OPEN_STATUSES:

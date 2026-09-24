@@ -30,14 +30,17 @@ def test_revision_ids_fit_production_alembic_version_column():
     )
 
 
-def test_migration_branches_have_one_head_after_training_evidence():
-    """Existing branch histories and the activation-intent migration must converge."""
+def test_migration_branches_have_one_head_after_goal_graph():
+    """Existing branch histories and the Goal Graph migration must converge."""
     backend_root = Path(__file__).resolve().parents[1]
     config = Config(str(backend_root / "alembic.ini"))
     config.set_main_option("script_location", str(backend_root / "migrations"))
     scripts = ScriptDirectory.from_config(config)
 
-    assert scripts.get_heads() == ["0019_training_evidence"]
+    assert scripts.get_heads() == ["0020_goal_graph"]
+    goal_graph_revision = scripts.get_revision("0020_goal_graph")
+    assert goal_graph_revision is not None
+    assert goal_graph_revision.down_revision == "0019_training_evidence"
     training_revision = scripts.get_revision("0019_training_evidence")
     assert training_revision is not None
     assert training_revision.down_revision == "0018_activation_intent"

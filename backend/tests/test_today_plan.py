@@ -327,6 +327,7 @@ def test_today_context_exposes_rolling_week_trajectory_and_safe_match():
     assert len(context["week"]["days"]) == 7
     assert any(day["is_today"] for day in context["week"]["days"])
     assert context["trajectory"]["goal"]["type"] == "marathon"
+    assert context["goal_graph"]["primary_event"]["date"] == "2026-11-01"
     assert context["trajectory"]["days_to_target"] == 44
     assert context["trajectory"]["last_7_days"]["runs"] == 3
     assert context["match"]["id"] == str(matching.id)

@@ -110,6 +110,55 @@ def future_intent_payload() -> dict[str, object]:
     }
 
 
+def goal_graph_payload() -> dict[str, object]:
+    return {
+        "source": "canonical_postgres",
+        "state": "known",
+        "generated_at": "2026-09-24T12:00:00+00:00",
+        "goal": {
+            "type": "marathon",
+            "label": "Marathon",
+            "phase": "build",
+            "phase_label": "Training / build",
+            "target_date": "2026-11-01",
+        },
+        "primary_event": {
+            "id": "event-1",
+            "role": "primary",
+            "type": "marathon",
+            "label": "NYC Marathon",
+            "date": "2026-11-01",
+            "distance": "Marathon",
+            "target_performance": "3:15",
+            "target_time_seconds": None,
+            "priority": 1,
+            "lifecycle": {"state": "planned", "created_at": None, "updated_at": None},
+            "provenance": {
+                "kind": "explicit",
+                "source": "goal_graph",
+                "canonical_model": "athlete_goal_event",
+                "record_id": "event-1",
+                "explicit_fields": ["event.role", "event.type", "event.date"],
+            },
+            "derived": {
+                "days_to_event": 38,
+                "date_relation": "future",
+                "provenance": {"kind": "derived", "basis": ["event.date", "generated_at"]},
+                "caveat": (
+                    "Calendar relationship only. It does not predict finish time, "
+                    "readiness, or race outcome."
+                ),
+            },
+        },
+        "supporting_events": [],
+        "calendar": [],
+        "events": [],
+        "objectives": [],
+        "truncated": {"events": False, "objectives": False},
+        "error": None,
+    }
+
+
 def athlete_state_payload() -> dict[str, object]:
     provenance = {
         "canonical_model": "sleep_session",
@@ -195,6 +244,7 @@ def athlete_state_payload() -> dict[str, object]:
         "history": [latest],
         "training": training,
         "future_intent": future_intent_payload(),
+        "goal_graph": goal_graph_payload(),
         "derived": {
             "hrv_7d_average": {
                 "value": 41,
@@ -247,6 +297,7 @@ def metrics_payload(state: dict[str, object]) -> dict[str, object]:
         "athlete_state": state,
         "training": state["training"],
         "future_intent": state["future_intent"],
+        "goal_graph": state["goal_graph"],
         "error": None,
     }
 
@@ -346,6 +397,8 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
                     "briefing": {"state": "available"},
                     "trajectory": {"interpretation": "Inputs only"},
                     "future_intent": state["future_intent"],
+                    "goal_graph": state["goal_graph"],
+        "goal_graph": state["goal_graph"],
                     "associations": [],
                     "preferences": [],
                 },
@@ -358,6 +411,8 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
                     "week": {"days": []},
                     "trajectory": {},
                     "future_intent": state["future_intent"],
+                    "goal_graph": state["goal_graph"],
+        "goal_graph": state["goal_graph"],
                     "match": None,
                 },
             )
@@ -371,6 +426,8 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
                 {
                     "totals": {"activity_count": 0},
                     "future_intent": state["future_intent"],
+                    "goal_graph": state["goal_graph"],
+        "goal_graph": state["goal_graph"],
                     "intent_relationship": {
                         "state": "descriptive",
                         "observed_activity_count": 0,
@@ -428,6 +485,7 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         "athlete_state_contract": "pass",
         "whole_training_contract": "pass",
         "future_intent_contract": "pass",
+        "goal_graph_contract": "pass",
     }
     assert any(url.endswith("/api/onboarding/status") for url, _ in seen)
     assert any(url.endswith("/api/athlete-home") for url, _ in seen)

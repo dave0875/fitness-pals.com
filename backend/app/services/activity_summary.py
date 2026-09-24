@@ -89,6 +89,7 @@ def _empty_summary(
         "athlete_state": canonical_state,
         "training": canonical_state.get("training"),
         "future_intent": canonical_state.get("future_intent"),
+        "goal_graph": canonical_state.get("goal_graph"),
         "pace_histogram": None,
         "training_load": None,
         "error": None,
