@@ -16,6 +16,7 @@ from app.llm.client import CoachUnavailableError, run_coach_prompt
 from app.models import Activity, Conversation
 from app.routes.metrics import summary
 from app.services.activity_quality import valid_distance_m
+from app.services.training_evidence import evidence_map, evidence_payload
 from app.services.athlete_intelligence import build_athlete_intelligence, build_scenario_context
 from app.services.today_plan import build_today_plan
 from app.types import CurrentUserLike
@@ -128,13 +129,17 @@ def _normalize_context(
 
     if context.activity_id is not None:
         activity = _owned_activity(db, user_id, context.activity_id)
+        training_rows = evidence_map(db, [activity])
+        training = evidence_payload(activity, training_rows.get(activity.id))
         payload["activity"] = {
             "id": str(activity.id),
             "title": _activity_title(activity),
             "sport": activity.sport or "unknown",
+            "modality": training["modality"],
             "start_time": _iso(activity.start_time),
             "distance_m": valid_distance_m(activity.distance_m, activity.sport),
             "duration_seconds": activity.duration_seconds,
+            "training_evidence": training,
             "href": f"/activities/{activity.id}",
         }
         payload["label"] = payload.get("label") or payload["activity"]["title"]
@@ -189,6 +194,27 @@ def _evidence(
                 "label": "Measured fact",
                 "title": "Training history freshness",
                 "summary": f"Canonical activity data through {data_through}.",
+                "href": "/training",
+            }
+        )
+
+    training = metrics.get("training")
+    if isinstance(training, dict) and training.get("activity_count"):
+        modalities = [
+            item.get("modality")
+            for item in training.get("by_modality", [])
+            if isinstance(item, dict) and item.get("modality")
+        ]
+        evidence.append(
+            {
+                "kind": "derived",
+                "label": "Canonical training summary",
+                "title": "Whole-training picture",
+                "summary": (
+                    f"{training.get('activity_count')} workouts across "
+                    f"{', '.join(modalities) if modalities else 'known modalities'} "
+                    f"in the last {training.get('window_days', 30)} days."
+                ),
                 "href": "/training",
             }
         )
