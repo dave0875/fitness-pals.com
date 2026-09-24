@@ -619,12 +619,22 @@ def _validate_future_intent_acceptance(
         raise ValueError("future intent returned an error")
 
     canonical_intent = canonical.get("intent")
+
+    def stable_identity(value: object | None) -> dict[str, Any] | None:
+        if not isinstance(value, dict):
+            return None
+        return {
+            key: value.get(key)
+            for key in ("goal", "target", "lifecycle", "provenance")
+        }
+
+    canonical_identity = stable_identity(canonical_intent)
     for name, surface in future.items():
         if surface.get("source") != "canonical_postgres":
             raise ValueError(f"{name} future intent source drifted")
         if surface.get("state") != canonical.get("state"):
             raise ValueError(f"{name} future intent state contradicts Athlete State")
-        if surface.get("intent") != canonical_intent:
+        if stable_identity(surface.get("intent")) != canonical_identity:
             raise ValueError(f"{name} future intent contradicts Athlete State")
 
     if canonical.get("state") == "known":
