@@ -10,10 +10,10 @@ Absent HR, power, distance, laps, sets, or training-effect values remain null/un
 
 ## Provenance
 
-Each evidence row links to the canonical Activity and ingest run and retains the source provider plus Drive object ID/name/version/content hash when available. `observed_fields` identifies directly observed source fields; `modality` is explicitly listed as derived.
+Each evidence row links to the canonical Activity and ingest run and retains the source provider plus Drive object ID/name/version/content hash when available. `observed_fields` identifies directly observed source fields; `modality` is explicitly listed as derived. `field_provenance` records the exact source object for each observed field so a later sparse JSON replay cannot relabel HR or power that actually came from FIT.
 
 ## Replay and backfill
 
-The existing Garmin archive ingest is the replay seam. Re-decoding the same Drive FIT is idempotent: canonical Activity fingerprinting remains unchanged and the one-to-one evidence row is enriched in place. Historical backfill should therefore replay bounded athlete-owned Drive archive objects, preferably dry-run/checkpointed through the existing archive job path, rather than infer rich evidence from lossy Activity rows.
+The existing Garmin archive ingest is the replay seam. Re-decoding the same Drive FIT is idempotent: canonical Activity fingerprinting remains unchanged and the one-to-one evidence row is enriched in place. Historical enrichment must re-decode FIT rather than infer rich evidence from lossy Activity rows. `scripts/backfill_training_evidence.py` is dry-run by default and selects a deterministic bounded FIT set. Apply mode requires an exact athlete email + UUID, an expected file count, and a durable JSON checkpoint. It records before/after evidence counts and per-file failures; replay uses the same canonical fingerprint seam and one-to-one evidence upsert.
 
 For Fenix 8 history, `Garmin/Fenix8_Backup` remains the durable source of truth. PulsAI is not a fill source.
