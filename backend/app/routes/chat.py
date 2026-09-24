@@ -200,10 +200,12 @@ def _evidence(
 
     training = metrics.get("training")
     if isinstance(training, dict) and training.get("activity_count"):
-        modalities = [
-            item.get("modality")
+        modalities: list[str] = [
+            modality
             for item in training.get("by_modality", [])
-            if isinstance(item, dict) and item.get("modality")
+            if isinstance(item, dict)
+            and isinstance((modality := item.get("modality")), str)
+            and modality
         ]
         evidence.append(
             {
