@@ -472,6 +472,7 @@ def build_athlete_intelligence(
         "trajectory": trajectory,
         "future_intent": today_context["future_intent"],
         "goal_graph": today_context["goal_graph"],
+        "decision": today_context["decision"],
         "freshness": _freshness(activities, sleep_sessions, current_time),
         "associations": [_sleep_run_association(activities, sleep_sessions)],
         "preferences": _preferences(goal),

@@ -182,6 +182,30 @@ def _coaching(
     }
 
 
+def _coaching_from_decision(decision: dict[str, Any]) -> dict[str, Any]:
+    """Project the canonical decision into the existing athlete-home coaching card."""
+    action = decision.get("action") if isinstance(decision, dict) else {}
+    action = action if isinstance(action, dict) else {}
+    rationale = decision.get("rationale") if isinstance(decision, dict) else []
+    rationale = rationale if isinstance(rationale, list) else []
+    explanation = next(
+        (
+            item.get("summary")
+            for item in rationale
+            if isinstance(item, dict) and isinstance(item.get("summary"), str)
+        ),
+        "Open the unified athlete decision for its evidence and uncertainty.",
+    )
+    return {
+        "insight": action.get("label") or "Review the next athlete decision",
+        "explanation": explanation,
+        "next_action": {
+            "label": action.get("label") or "Open Today",
+            "href": action.get("href") or "/today#todays-run",
+        },
+    }
+
+
 def _dossier(
     artifacts: list[DossierArtifact],
     jobs: list[DossierJob],
@@ -381,10 +405,9 @@ def build_athlete_home(
         "state": "unknown", "score": None, "label": "Readiness unavailable",
         "explanation": "Training consistency alone cannot establish readiness; current recovery and intensity signals are needed.",
     }
-    coaching = _coaching(
-        activities,
-        "stale" if signals["activities"]["state"] == "stale" else freshness_state,
-    )
+    decision = athlete_state.get("decision")
+    decision = decision if isinstance(decision, dict) else {}
+    coaching = _coaching_from_decision(decision)
 
     return {
         "state": "ready" if activities else "empty",
@@ -400,6 +423,7 @@ def build_athlete_home(
         "readiness": readiness,
         "training_consistency": training_consistency,
         "recovery": recovery,
+        "decision": decision,
         "trend": _trend(activities, current_time),
         "recent_activities": [_activity_payload(activity) for activity in activities[:5]],
         "coaching": coaching,

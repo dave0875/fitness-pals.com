@@ -320,6 +320,7 @@ def build_today_context(
         "freshness": home.get("freshness"),
         "future_intent": build_future_intent(db, user_id, now=current_time),
         "goal_graph": build_goal_graph(db, user_id, now=current_time),
+        "decision": home.get("decision"),
         "week": _rolling_week(db, user_id, plan, now=current_time),
         "trajectory": _goal_trajectory(db, user_id, goal, now=current_time),
         "match": _matching_activity(db, user_id, plan),
