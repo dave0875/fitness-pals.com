@@ -36,8 +36,25 @@ def _sport_family(activity_sport: str | None) -> str:
     return sport_family(activity_sport)
 
 
-def _sport_matches(activity_sport: str | None, selected_sport: str) -> bool:
-    """Match product sport families through the canonical taxonomy seam."""
+def _sport_matches(
+    activity_sport: str | None,
+    selected_sport: str,
+    training_row=None,
+) -> bool:
+    """Match filters using canonical modality evidence when richer FIT semantics exist."""
+    if training_row is not None:
+        if selected_sport == "all":
+            return True
+        wanted = {
+            "run": "running",
+            "bike": "cycling",
+            "walk": "walking_hiking",
+            "strength": "strength",
+            "swim": "swimming",
+            "row": "rowing",
+            "cardio": "indoor_cardio",
+        }.get(selected_sport, selected_sport)
+        return training_row.modality == wanted
     return sport_matches(activity_sport, selected_sport)
 
 
@@ -333,12 +350,21 @@ def build_journey(
     start = _window_start(selected_window, current_time)
     goal_periods = _goal_periods(db, user_id)
 
-    all_activities = [
+    owned_activities = [
         activity
         for activity in db.query(Activity).filter(Activity.user_id == user_id).all()
         if getattr(activity, "user_id", None) == user_id
         and getattr(activity, "status", None) != "conflict"
-        and _sport_matches(activity.sport, selected_sport)
+    ]
+    owned_training_rows = evidence_map(db, owned_activities)
+    all_activities = [
+        activity
+        for activity in owned_activities
+        if _sport_matches(
+            activity.sport,
+            selected_sport,
+            owned_training_rows.get(activity.id),
+        )
     ]
     all_activities.sort(key=lambda item: _utc(item.start_time), reverse=True)
     all_activity_goals = {
@@ -494,7 +520,7 @@ def build_journey(
             }
         )
 
-    training_rows = evidence_map(db, activities)
+    training_rows = {activity.id: owned_training_rows[activity.id] for activity in activities if activity.id in owned_training_rows}
     whole_training = summarize_activities(activities, training_rows)
     pagination = _pagination(len(activities), activity_page, activity_page_size)
     row_start = (pagination["page"] - 1) * pagination["page_size"]
