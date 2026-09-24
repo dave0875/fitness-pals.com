@@ -240,6 +240,7 @@ def test_goal_handshake_persists_rich_intent_in_durable_athlete_goal(monkeypatch
             target_date=None,
             target_distance="5K",
             target_performance="Finish feeling strong",
+            target_time_seconds=1500,
             custom_goal="Run socially twice each week",
         ),
         response=Response(),
@@ -252,8 +253,11 @@ def test_goal_handshake_persists_rich_intent_in_durable_athlete_goal(monkeypatch
     assert stored.phase == "maintenance"
     assert stored.intent_json["target_distance"] == "5K"
     assert stored.intent_json["target_performance"] == "Finish feeling strong"
+    assert stored.intent_json["target_time_seconds"] == 1500
     assert stored.intent_json["custom_goal"] == "Run socially twice each week"
+    assert stored.intent_json["intent_source"] == "onboarding"
     assert result["intent"]["goal_type"] == "other"
+    assert result["intent"]["target_time_seconds"] == 1500
 
 
 def test_im_not_sure_is_a_valid_durable_intent(monkeypatch):
