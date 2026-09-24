@@ -76,10 +76,14 @@ def put_goal(
         phase=body.phase,
         target_date=body.target_date,
         intent_json={
-            "target_distance": body.target_distance,
-            "target_performance": body.target_performance,
-            "target_time_seconds": body.target_time_seconds,
-            "custom_goal": body.custom_goal,
+            key: value
+            for key, value in {
+                "target_distance": body.target_distance,
+                "target_performance": body.target_performance,
+                "target_time_seconds": body.target_time_seconds,
+                "custom_goal": body.custom_goal,
+            }.items()
+            if value is not None
         },
         intent_source="today",
     )
