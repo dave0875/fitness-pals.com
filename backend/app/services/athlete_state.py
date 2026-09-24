@@ -130,8 +130,8 @@ def _rows_for_athlete(db, user_id: UUID) -> list[SleepSession]:
         owned,
         key=lambda row: (
             getattr(row, "calendar_date", date.min),
-            getattr(row, "updated_at", None) or getattr(row, "created_at", None)
-            or datetime.min.replace(tzinfo=timezone.utc),
+            str(getattr(row, "provider", "")),
+            str(getattr(row, "id", "")),
         ),
         reverse=True,
     )
