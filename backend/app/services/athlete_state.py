@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from app.models import SleepSession
+from app.services.athlete_intent import build_future_intent
 from app.services.training_evidence import build_whole_training_summary
 
 FRESHNESS_WINDOW = timedelta(hours=72)
@@ -196,6 +197,7 @@ def build_athlete_state(
         current_time = current_time.astimezone(timezone.utc)
     history_days = max(1, min(int(days), MAX_HISTORY_DAYS))
     training_state = build_whole_training_summary(db, user_id, now=current_time, days=30)
+    future_intent = build_future_intent(db, user_id, now=current_time)
 
     try:
         rows = _rows_for_athlete(db, user_id)
@@ -208,6 +210,7 @@ def build_athlete_state(
             "latest": None,
             "history": [],
             "training": training_state,
+            "future_intent": future_intent,
             "derived": {
                 "hrv_7d_average": {
                     "value": None,
@@ -270,6 +273,7 @@ def build_athlete_state(
         "latest": latest,
         "history": history,
         "training": training_state,
+        "future_intent": future_intent,
         "derived": {
             "hrv_7d_average": {
                 "value": hrv_average,

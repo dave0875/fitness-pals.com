@@ -55,6 +55,61 @@ def http_error(url: str, status: int, body: object = None) -> urllib.error.HTTPE
 
 
 
+def future_intent_payload() -> dict[str, object]:
+    return {
+        "source": "canonical_postgres",
+        "state": "known",
+        "generated_at": "2026-09-24T12:00:00+00:00",
+        "intent": {
+            "goal": {
+                "type": "marathon",
+                "label": "Marathon",
+                "phase": "build",
+                "phase_label": "Training / build",
+                "custom": None,
+            },
+            "target": {
+                "date": "2026-11-01",
+                "distance": "Marathon",
+                "performance": "3:15",
+                "time_seconds": None,
+            },
+            "lifecycle": {
+                "state": "current",
+                "created_at": "2026-09-01T12:00:00+00:00",
+                "updated_at": "2026-09-23T12:00:00+00:00",
+                "ended_at": None,
+            },
+            "provenance": {
+                "kind": "explicit",
+                "source": "onboarding",
+                "canonical_model": "athlete_goal",
+                "record_id": "goal-1",
+                "explicit_fields": [
+                    "goal.type",
+                    "goal.phase",
+                    "target.date",
+                    "target.distance",
+                    "target.performance",
+                ],
+            },
+            "derived": {
+                "days_to_target": 38,
+                "target_date_relation": "future",
+                "provenance": {
+                    "kind": "derived",
+                    "basis": ["target.date", "generated_at"],
+                },
+                "caveat": (
+                    "Calendar relationship only. It does not predict finish time, "
+                    "readiness, or race outcome."
+                ),
+            },
+        },
+        "error": None,
+    }
+
+
 def athlete_state_payload() -> dict[str, object]:
     provenance = {
         "canonical_model": "sleep_session",
@@ -139,6 +194,7 @@ def athlete_state_payload() -> dict[str, object]:
         "latest": latest,
         "history": [latest],
         "training": training,
+        "future_intent": future_intent_payload(),
         "derived": {
             "hrv_7d_average": {
                 "value": 41,
@@ -190,6 +246,7 @@ def metrics_payload(state: dict[str, object]) -> dict[str, object]:
         "hrv_avg": 41,
         "athlete_state": state,
         "training": state["training"],
+        "future_intent": state["future_intent"],
         "error": None,
     }
 
@@ -288,6 +345,7 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
                 {
                     "briefing": {"state": "available"},
                     "trajectory": {"interpretation": "Inputs only"},
+                    "future_intent": state["future_intent"],
                     "associations": [],
                     "preferences": [],
                 },
@@ -296,7 +354,12 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
             assert authorization == f"Bearer {token}"
             return FakeResponse(
                 200,
-                {"week": {"days": []}, "trajectory": {}, "match": None},
+                {
+                    "week": {"days": []},
+                    "trajectory": {},
+                    "future_intent": state["future_intent"],
+                    "match": None,
+                },
             )
         if url.endswith("/api/chat/threads"):
             assert authorization == f"Bearer {token}"
@@ -307,6 +370,19 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
                 200,
                 {
                     "totals": {"activity_count": 0},
+                    "future_intent": state["future_intent"],
+                    "intent_relationship": {
+                        "state": "descriptive",
+                        "observed_activity_count": 0,
+                        "observed_duration_seconds": 0,
+                        "goal_type": "marathon",
+                        "target_date": "2026-11-01",
+                        "basis": (
+                            "Observed canonical training is displayed beside current "
+                            "explicit intent. This does not establish causation and "
+                            "does not predict a race or event outcome."
+                        ),
+                    },
                     "whole_training": {
                         "activity_count": 0,
                         "duration_seconds": None,
@@ -351,6 +427,7 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         "probe_count": 28,
         "athlete_state_contract": "pass",
         "whole_training_contract": "pass",
+        "future_intent_contract": "pass",
     }
     assert any(url.endswith("/api/onboarding/status") for url, _ in seen)
     assert any(url.endswith("/api/athlete-home") for url, _ in seen)
@@ -366,6 +443,41 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         for url, _ in seen
     )
 
+
+
+def test_future_intent_acceptance_rejects_invalid_structured_target_time() -> None:
+    state = athlete_state_payload()
+    future = copy.deepcopy(state["future_intent"])
+    assert isinstance(future, dict)
+    intent = future["intent"]
+    assert isinstance(intent, dict)
+    target = intent["target"]
+    assert isinstance(target, dict)
+    target["time_seconds"] = -1
+
+    invalid_state = copy.deepcopy(state)
+    invalid_state["future_intent"] = future
+    payloads = {
+        "authenticated Athlete State": invalid_state,
+        "authenticated canonical metrics": {
+            **metrics_payload(state),
+            "future_intent": future,
+        },
+        "authenticated athlete intelligence": {"future_intent": future},
+        "authenticated Today decision context": {"future_intent": future},
+        "authenticated bounded Progress evidence": {
+            "future_intent": future,
+            "intent_relationship": {
+                "state": "descriptive",
+                "basis": (
+                    "This does not establish causation and does not predict a race outcome."
+                ),
+            },
+        },
+    }
+
+    with pytest.raises(ValueError, match="structured target time"):
+        smoke_production._validate_future_intent_acceptance(payloads)
 
 
 def test_athlete_state_acceptance_rejects_fabricated_missing_signal() -> None:

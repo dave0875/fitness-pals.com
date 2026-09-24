@@ -412,3 +412,44 @@ def test_matched_completion_requires_current_owned_safe_candidate():
     )
     assert completed["plan"]["feedback"]["completion_source"] == "canonical_match"
     assert completed["plan"]["feedback"]["matched_activity_id"] == str(owned.id)
+
+
+def test_goal_update_merges_explicit_intent_without_erasing_saved_preferences():
+    now = datetime(2026, 9, 24, 12, tzinfo=timezone.utc)
+    athlete_id = uuid.uuid4()
+    existing = AthleteGoal(
+        id=uuid.uuid4(),
+        user_id=athlete_id,
+        goal_type="marathon",
+        phase="build",
+        target_date=date(2026, 11, 1),
+        intent_json={
+            "target_performance": "Finish strong",
+            "coaching_preferences": ["Prefer time-based easy runs"],
+        },
+        created_at=now - timedelta(days=30),
+        updated_at=now - timedelta(days=1),
+    )
+    db = FakeSession([existing])
+
+    save_goal(
+        db,
+        athlete_id,
+        goal_type="marathon",
+        phase="build",
+        target_date=date(2026, 11, 1),
+        intent_json={
+            "target_performance": "Break 3:15",
+            "target_time_seconds": 11700,
+        },
+        intent_source="today",
+        now=now,
+    )
+
+    assert existing.intent_json["target_performance"] == "Break 3:15"
+    assert existing.intent_json["target_time_seconds"] == 11700
+    assert existing.intent_json["coaching_preferences"] == [
+        "Prefer time-based easy runs"
+    ]
+    assert existing.intent_json["intent_kind"] == "explicit"
+    assert existing.intent_json["intent_source"] == "today"

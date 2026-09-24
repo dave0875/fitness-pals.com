@@ -57,6 +57,7 @@ class GoalHandshakeRequest(BaseModel):
     target_date: date | None = None
     target_distance: str | None = Field(default=None, max_length=80)
     target_performance: str | None = Field(default=None, max_length=120)
+    target_time_seconds: int | None = Field(default=None, gt=0, le=172800)
     custom_goal: str | None = Field(default=None, max_length=240)
 
 
@@ -160,6 +161,7 @@ def _intent_payload(
             "target_date": None,
             "target_distance": None,
             "target_performance": None,
+            "target_time_seconds": None,
             "custom_goal": None,
         }
 
@@ -179,6 +181,7 @@ def _intent_payload(
         "target_date": goal.target_date.isoformat() if goal.target_date else None,
         "target_distance": details.get("target_distance"),
         "target_performance": details.get("target_performance"),
+        "target_time_seconds": details.get("target_time_seconds"),
         "custom_goal": details.get("custom_goal"),
     }
 
@@ -550,6 +553,7 @@ def store_goal_handshake(
     details = {
         "target_distance": body.target_distance,
         "target_performance": body.target_performance,
+        "target_time_seconds": body.target_time_seconds,
         "custom_goal": body.custom_goal,
     }
     save_goal(
@@ -559,6 +563,7 @@ def store_goal_handshake(
         phase=body.phase,
         target_date=body.target_date,
         intent_json=details,
+        intent_source="onboarding",
     )
     persisted = _persisted_goal(db, user)
     _set_goal_cookie(response, body.goal)

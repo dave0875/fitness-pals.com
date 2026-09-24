@@ -344,6 +344,7 @@ def production_probes(
                 "latest",
                 "history",
                 "training",
+                "future_intent",
                 "derived",
                 "error",
             ),
@@ -363,6 +364,7 @@ def production_probes(
                 "hrv_avg",
                 "athlete_state",
                 "training",
+                "future_intent",
                 "error",
             ),
         ),
@@ -381,7 +383,13 @@ def production_probes(
             expected_statuses=(200,),
             headers={"Authorization": f"Bearer {auth_token}"},
             require_json_object=True,
-            required_json_keys=("briefing", "trajectory", "associations", "preferences"),
+            required_json_keys=(
+                "briefing",
+                "trajectory",
+                "future_intent",
+                "associations",
+                "preferences",
+            ),
         ),
         Probe(
             name="authenticated Today decision context",
@@ -389,7 +397,7 @@ def production_probes(
             expected_statuses=(200,),
             headers={"Authorization": f"Bearer {auth_token}"},
             require_json_object=True,
-            required_json_keys=("week", "trajectory", "match"),
+            required_json_keys=("week", "trajectory", "future_intent", "match"),
             journeys=("training_decision",),
         ),
         Probe(
@@ -412,6 +420,8 @@ def production_probes(
             required_json_keys=(
                 "totals",
                 "whole_training",
+                "future_intent",
+                "intent_relationship",
                 "comparison",
                 "activities",
                 "activity_pagination",
@@ -575,6 +585,99 @@ def _validate_athlete_state_acceptance(
         raise ValueError("canonical metrics HRV state contradicts Athlete State")
 
 
+def _validate_future_intent_acceptance(
+    payloads: dict[str, object | None],
+) -> None:
+    """Cross-check one canonical athlete-owned future-intent contract."""
+    surfaces = {
+        "Athlete State": _require_dict(
+            payloads.get("authenticated Athlete State"), "Athlete State"
+        ).get("future_intent"),
+        "canonical metrics": _require_dict(
+            payloads.get("authenticated canonical metrics"), "canonical metrics"
+        ).get("future_intent"),
+        "athlete intelligence": _require_dict(
+            payloads.get("authenticated athlete intelligence"), "athlete intelligence"
+        ).get("future_intent"),
+        "Today context": _require_dict(
+            payloads.get("authenticated Today decision context"), "Today context"
+        ).get("future_intent"),
+        "Progress": _require_dict(
+            payloads.get("authenticated bounded Progress evidence"), "Progress"
+        ).get("future_intent"),
+    }
+    future = {
+        name: _require_dict(value, f"{name} future intent")
+        for name, value in surfaces.items()
+    }
+    canonical = future["Athlete State"]
+    if canonical.get("source") != "canonical_postgres":
+        raise ValueError("future intent must come from canonical_postgres")
+    if canonical.get("state") not in {"known", "unknown"}:
+        raise ValueError("future intent must be known or unknown in production")
+    if canonical.get("error") is not None:
+        raise ValueError("future intent returned an error")
+
+    canonical_intent = canonical.get("intent")
+
+    def stable_identity(value: object | None) -> dict[str, Any] | None:
+        if not isinstance(value, dict):
+            return None
+        return {
+            key: value.get(key)
+            for key in ("goal", "target", "lifecycle", "provenance")
+        }
+
+    canonical_identity = stable_identity(canonical_intent)
+    for name, surface in future.items():
+        if surface.get("source") != "canonical_postgres":
+            raise ValueError(f"{name} future intent source drifted")
+        if surface.get("state") != canonical.get("state"):
+            raise ValueError(f"{name} future intent state contradicts Athlete State")
+        if stable_identity(surface.get("intent")) != canonical_identity:
+            raise ValueError(f"{name} future intent contradicts Athlete State")
+
+    if canonical.get("state") == "known":
+        intent = _require_dict(canonical_intent, "canonical future intent")
+        provenance = _require_dict(intent.get("provenance"), "future intent provenance")
+        if provenance.get("kind") != "explicit":
+            raise ValueError("future intent provenance must identify athlete-explicit input")
+        if provenance.get("canonical_model") != "athlete_goal":
+            raise ValueError("future intent provenance must identify athlete_goal")
+        target = _require_dict(intent.get("target"), "future intent target")
+        target_time = target.get("time_seconds")
+        if target_time is not None and (
+            isinstance(target_time, bool)
+            or not isinstance(target_time, int)
+            or target_time <= 0
+        ):
+            raise ValueError("structured target time must be positive or remain unknown")
+        derived = _require_dict(intent.get("derived"), "future intent derived context")
+        derived_provenance = _require_dict(
+            derived.get("provenance"), "future intent derived provenance"
+        )
+        if derived_provenance.get("kind") != "derived":
+            raise ValueError("calendar context must be labeled derived")
+        caveat = str(derived.get("caveat") or "").lower()
+        if "does not predict" not in caveat:
+            raise ValueError("derived future intent must reject outcome prediction")
+    elif canonical_intent is not None:
+        raise ValueError("unknown future intent must not fabricate an intent object")
+
+    journey = _require_dict(
+        payloads.get("authenticated bounded Progress evidence"), "Progress"
+    )
+    relationship = _require_dict(
+        journey.get("intent_relationship"), "Progress intent relationship"
+    )
+    expected_state = "descriptive" if canonical.get("state") == "known" else "unknown"
+    if relationship.get("state") != expected_state:
+        raise ValueError("Progress intent relationship state contradicts future intent")
+    basis = str(relationship.get("basis") or "").lower()
+    if "does not establish causation" not in basis or "does not predict" not in basis:
+        raise ValueError("Progress must keep intent relationships descriptive")
+
+
 def verify_production(
     *,
     expected_release: str,
@@ -615,6 +718,11 @@ def verify_production(
     except ValueError as exc:
         raise SystemExit(f"Athlete State production acceptance failed: {exc}") from exc
     print("PASS Athlete State production acceptance: recovery and whole-training surfaces agree")
+    try:
+        _validate_future_intent_acceptance(payloads)
+    except ValueError as exc:
+        raise SystemExit(f"Future intent production acceptance failed: {exc}") from exc
+    print("PASS future intent production acceptance: athlete-owned surfaces agree")
 
     missing = [journey for journey in PHASE8_JOURNEYS if journey not in passed_journeys]
     if missing:
@@ -629,6 +737,7 @@ def verify_production(
         "probe_count": len(probes),
         "athlete_state_contract": "pass",
         "whole_training_contract": "pass",
+        "future_intent_contract": "pass",
     }
     print("Production acceptance report: " + json.dumps(report, sort_keys=True))
     return report

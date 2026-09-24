@@ -221,6 +221,35 @@ def _evidence(
             }
         )
 
+    future = metrics.get("future_intent")
+    future_payload = future.get("intent") if isinstance(future, dict) else None
+    if isinstance(future_payload, dict):
+        goal_payload = future_payload.get("goal")
+        target_payload = future_payload.get("target")
+        goal_payload = goal_payload if isinstance(goal_payload, dict) else {}
+        target_payload = target_payload if isinstance(target_payload, dict) else {}
+        target_bits = [
+            value
+            for value in (
+                target_payload.get("date"),
+                target_payload.get("distance"),
+                target_payload.get("performance"),
+            )
+            if isinstance(value, str) and value
+        ]
+        evidence.append(
+            {
+                "kind": "explicit",
+                "label": "Athlete intent",
+                "title": goal_payload.get("label") or "Current goal",
+                "summary": (
+                    "Explicit current future intent"
+                    + (f": {', '.join(target_bits)}." if target_bits else ".")
+                ),
+                "href": "/settings#goals",
+            }
+        )
+
     mileage = metrics.get("mileage")
     distance_30d = mileage.get("30d") if isinstance(mileage, dict) else None
     if isinstance(distance_30d, (int, float)):

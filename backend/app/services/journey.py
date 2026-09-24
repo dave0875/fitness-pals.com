@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Activity, ActivitySource, SleepSession, SyncJob
 from app.services.activity_quality import valid_distance_m
+from app.services.athlete_intent import GOAL_LABELS, build_future_intent
 from app.services.training_evidence import (
     evidence_map,
     evidence_payload,
@@ -25,12 +26,6 @@ from app.services.training_evidence import (
 
 
 WINDOW_DAYS = {"30d": 30, "90d": 90, "365d": 365}
-GOAL_LABELS = {
-    "marathon": "Marathon",
-    "half": "Half marathon",
-    "recovery": "Recovery",
-    "consistency": "Consistency",
-}
 KNOWN_INTENSITIES = {"easy", "moderate", "hard"}
 def _sport_family(activity_sport: str | None) -> str:
     return sport_family(activity_sport)
@@ -522,6 +517,28 @@ def build_journey(
 
     training_rows = {activity.id: owned_training_rows[activity.id] for activity in activities if activity.id in owned_training_rows}
     whole_training = summarize_activities(activities, training_rows)
+    future_intent = build_future_intent(db, user_id, now=current_time)
+    current_intent = future_intent.get("intent")
+    intent_relationship = {
+        "state": "descriptive" if isinstance(current_intent, dict) else "unknown",
+        "observed_activity_count": totals["activity_count"],
+        "observed_duration_seconds": totals["duration_seconds"],
+        "goal_type": (
+            current_intent.get("goal", {}).get("type")
+            if isinstance(current_intent, dict)
+            else None
+        ),
+        "target_date": (
+            current_intent.get("target", {}).get("date")
+            if isinstance(current_intent, dict)
+            else None
+        ),
+        "basis": (
+            "Observed canonical training in this Progress window is displayed beside "
+            "the athlete's current explicit future intent. This relationship does not "
+            "establish causation and does not predict a race or event outcome."
+        ),
+    }
     pagination = _pagination(len(activities), activity_page, activity_page_size)
     row_start = (pagination["page"] - 1) * pagination["page_size"]
     row_end = row_start + pagination["page_size"]
@@ -581,6 +598,8 @@ def build_journey(
         },
         "totals": totals,
         "whole_training": whole_training,
+        "future_intent": future_intent,
+        "intent_relationship": intent_relationship,
         "comparison": _window_comparison(
             all_activities,
             all_activity_goals,
