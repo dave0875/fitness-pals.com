@@ -103,6 +103,34 @@ def athlete_state_payload() -> dict[str, object]:
         "data_through": "2026-09-20",
         "signals": signals,
     }
+    training = {
+        "state": "fresh",
+        "data_through": "2026-09-24T10:00:00+00:00",
+        "window_days": 30,
+        "activity_count": 3,
+        "duration_seconds": 9000,
+        "known_duration_count": 3,
+        "by_modality": [
+            {
+                "modality": "running",
+                "activity_count": 2,
+                "duration_seconds": 6000,
+                "known_duration_count": 2,
+            },
+            {
+                "modality": "strength",
+                "activity_count": 1,
+                "duration_seconds": 3000,
+                "known_duration_count": 1,
+            },
+        ],
+        "cross_training_sessions": 1,
+        "strength_sessions": 1,
+        "hr_supported_workouts": 2,
+        "hr_supported_duration_seconds": 6000,
+        "power_supported_cycling_workouts": 0,
+        "power_supported_cycling_duration_seconds": None,
+    }
     return {
         "source": "canonical_postgres",
         "state": "stale",
@@ -110,6 +138,7 @@ def athlete_state_payload() -> dict[str, object]:
         "data_through": "2026-09-20",
         "latest": latest,
         "history": [latest],
+        "training": training,
         "derived": {
             "hrv_7d_average": {
                 "value": 41,
@@ -160,6 +189,7 @@ def metrics_payload(state: dict[str, object]) -> dict[str, object]:
         "long_run_max": 30000,
         "hrv_avg": 41,
         "athlete_state": state,
+        "training": state["training"],
         "error": None,
     }
 
@@ -277,6 +307,18 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
                 200,
                 {
                     "totals": {"activity_count": 0},
+                    "whole_training": {
+                        "activity_count": 0,
+                        "duration_seconds": None,
+                        "known_duration_count": 0,
+                        "by_modality": [],
+                        "cross_training_sessions": 0,
+                        "strength_sessions": 0,
+                        "hr_supported_workouts": 0,
+                        "hr_supported_duration_seconds": None,
+                        "power_supported_cycling_workouts": 0,
+                        "power_supported_cycling_duration_seconds": None,
+                    },
                     "comparison": {"state": "available"},
                     "activities": [],
                     "activity_pagination": {
@@ -308,6 +350,7 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         "journeys": list(smoke_production.PHASE8_JOURNEYS),
         "probe_count": 28,
         "athlete_state_contract": "pass",
+        "whole_training_contract": "pass",
     }
     assert any(url.endswith("/api/onboarding/status") for url, _ in seen)
     assert any(url.endswith("/api/athlete-home") for url, _ in seen)
