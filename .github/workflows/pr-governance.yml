@@ -26,51 +26,6 @@ jobs:
           echo "Create a PAT with repo + project access and save it as the PR_GOVERNANCE_TOKEN Actions secret." >&2
           exit 1
 
-      - name: Add Athlete Orbit Phase 5 issue to the existing product Project
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.PR_GOVERNANCE_TOKEN }}
-          script: |
-            const targetIssueNumber = 265;
-            const referenceIssueNumber = 262;
-            const query = `
-              query($owner: String!, $repo: String!, $target: Int!, $reference: Int!) {
-                repository(owner: $owner, name: $repo) {
-                  target: issue(number: $target) { id projectItems(first: 1) { totalCount } }
-                  reference: issue(number: $reference) {
-                    projectItems(first: 1) { nodes { project { id title } } }
-                  }
-                }
-              }
-            `;
-            const data = await github.graphql(query, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              target: targetIssueNumber,
-              reference: referenceIssueNumber
-            });
-            if (data.repository.target.projectItems.totalCount > 0) {
-              core.notice(`Issue #${targetIssueNumber} is already in a Project.`);
-            } else {
-              const project = data.repository.reference.projectItems.nodes[0]?.project;
-              if (!project?.id) {
-                core.setFailed(`Reference issue #${referenceIssueNumber} is not in a Project.`);
-                return;
-              }
-              const mutation = `
-                mutation($projectId: ID!, $contentId: ID!) {
-                  addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
-                    item { id }
-                  }
-                }
-              `;
-              await github.graphql(mutation, {
-                projectId: project.id,
-                contentId: data.repository.target.id
-              });
-              core.notice(`Added issue #${targetIssueNumber} to Project "${project.title}".`);
-            }
-
       - name: Validate PR links an Issue in a Project
         uses: actions/github-script@v8
         env:
