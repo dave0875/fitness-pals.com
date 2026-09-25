@@ -365,6 +365,8 @@ def production_probes(
                 "athlete_state",
                 "training",
                 "future_intent",
+                "goal_graph",
+                "decision",
                 "error",
             ),
         ),
@@ -387,6 +389,8 @@ def production_probes(
                 "briefing",
                 "trajectory",
                 "future_intent",
+                "goal_graph",
+                "decision",
                 "associations",
                 "preferences",
             ),
@@ -397,7 +401,14 @@ def production_probes(
             expected_statuses=(200,),
             headers={"Authorization": f"Bearer {auth_token}"},
             require_json_object=True,
-            required_json_keys=("week", "trajectory", "future_intent", "match"),
+            required_json_keys=(
+                "week",
+                "trajectory",
+                "future_intent",
+                "goal_graph",
+                "decision",
+                "match",
+            ),
             journeys=("training_decision",),
         ),
         Probe(
@@ -421,6 +432,8 @@ def production_probes(
                 "totals",
                 "whole_training",
                 "future_intent",
+                "goal_graph",
+                "decision",
                 "intent_relationship",
                 "comparison",
                 "activities",
@@ -678,6 +691,84 @@ def _validate_future_intent_acceptance(
         raise ValueError("Progress must keep intent relationships descriptive")
 
 
+def _validate_decision_acceptance(
+    payloads: dict[str, object | None],
+) -> None:
+    """Cross-check one deterministic athlete decision across product consumers."""
+    surfaces = {
+        "Athlete State": _require_dict(
+            payloads.get("authenticated Athlete State"), "Athlete State"
+        ).get("decision"),
+        "athlete-home": _require_dict(
+            payloads.get("authenticated athlete trust state"), "athlete-home"
+        ).get("decision"),
+        "canonical metrics": _require_dict(
+            payloads.get("authenticated canonical metrics"), "canonical metrics"
+        ).get("decision"),
+        "athlete intelligence": _require_dict(
+            payloads.get("authenticated athlete intelligence"), "athlete intelligence"
+        ).get("decision"),
+        "Today context": _require_dict(
+            payloads.get("authenticated Today decision context"), "Today context"
+        ).get("decision"),
+        "Progress": _require_dict(
+            payloads.get("authenticated bounded Progress evidence"), "Progress"
+        ).get("decision"),
+    }
+    decisions = {
+        name: _require_dict(value, f"{name} unified decision")
+        for name, value in surfaces.items()
+    }
+    canonical = decisions["Athlete State"]
+    if canonical.get("source") != "canonical_postgres":
+        raise ValueError("unified decision must come from canonical_postgres")
+    if canonical.get("version") != "athlete_orbit_v1":
+        raise ValueError("unified decision version is missing or unexpected")
+    if canonical.get("state") not in {"actionable", "caution", "blocked"}:
+        raise ValueError("unified decision state is invalid")
+    if canonical.get("error") is not None:
+        raise ValueError("unified decision returned an error")
+
+    action = _require_dict(canonical.get("action"), "unified decision action")
+    for key in ("code", "label", "href", "priority"):
+        if not action.get(key):
+            raise ValueError(f"unified decision action {key!r} is missing")
+
+    provenance = _require_dict(
+        canonical.get("provenance"), "unified decision provenance"
+    )
+    if provenance.get("kind") != "derived":
+        raise ValueError("unified decision must be explicitly derived")
+    caveat = str(provenance.get("caveat") or "").lower()
+    if "medical readiness" not in caveat or "predict" not in caveat:
+        raise ValueError(
+            "unified decision must reject medical-readiness and outcome claims"
+        )
+
+    def stable(value: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: value.get(key)
+            for key in (
+                "source",
+                "version",
+                "state",
+                "action",
+                "freshness",
+                "rationale",
+                "uncertainty",
+                "conflicts",
+                "evidence",
+                "provenance",
+                "error",
+            )
+        }
+
+    identity = stable(canonical)
+    for name, decision in decisions.items():
+        if stable(decision) != identity:
+            raise ValueError(f"{name} unified decision contradicts Athlete State")
+
+
 def _validate_goal_graph_acceptance(
     payloads: dict[str, object | None],
 ) -> None:
@@ -804,6 +895,11 @@ def verify_production(
     except ValueError as exc:
         raise SystemExit(f"Goal Graph production acceptance failed: {exc}") from exc
     print("PASS Goal Graph production acceptance: athlete-owned surfaces agree")
+    try:
+        _validate_decision_acceptance(payloads)
+    except ValueError as exc:
+        raise SystemExit(f"Unified decision production acceptance failed: {exc}") from exc
+    print("PASS unified decision production acceptance: product surfaces agree")
 
     missing = [journey for journey in PHASE8_JOURNEYS if journey not in passed_journeys]
     if missing:
@@ -820,6 +916,7 @@ def verify_production(
         "whole_training_contract": "pass",
         "future_intent_contract": "pass",
         "goal_graph_contract": "pass",
+        "decision_contract": "pass",
     }
     print("Production acceptance report: " + json.dumps(report, sort_keys=True))
     return report

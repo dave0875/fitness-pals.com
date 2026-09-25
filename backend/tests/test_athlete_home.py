@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 import uuid
 
-from app.models import Activity, DossierArtifact, DossierJob, SleepSession, SyncCheckpoint
+from app.models import Activity, AthleteGoal, DossierArtifact, DossierJob, SleepSession, SyncCheckpoint
 from app.services.athlete_home import build_athlete_home
 
 
@@ -14,6 +14,9 @@ class FakeQuery:
 
     def __init__(self, items):
         self.items = list(items)
+
+    def filter(self, *_criteria):
+        return self
 
     def all(self):
         return list(self.items)
@@ -166,24 +169,36 @@ def test_athlete_home_stale_and_empty_states_are_actionable():
     assert empty["dossier"]["state"] == "not_generated"
 
 
-def test_generic_coaching_cta_navigates_to_todays_run_decision():
-    """A recommendation CTA must open the plan instead of an empty chat box."""
+def test_generic_coaching_cta_projects_canonical_todays_run_decision():
+    """Home coaching must project the canonical decision rather than a legacy goal string."""
     now = datetime(2026, 9, 18, 12, tzinfo=timezone.utc)
     athlete_id = uuid.uuid4()
     activities = [
         make_activity(athlete_id, now, days_ago, 5000)
         for days_ago in (1, 2, 3, 4)
     ]
-
-    result = build_athlete_home(
-        FakeSession(activities), athlete_id, goal="consistency", now=now
+    canonical_goal = AthleteGoal(
+        id=uuid.uuid4(),
+        user_id=athlete_id,
+        goal_type="consistency",
+        phase="build",
+        intent_json={},
     )
 
+    result = build_athlete_home(
+        FakeSession([*activities, canonical_goal]),
+        athlete_id,
+        goal="consistency",
+        now=now,
+    )
+
+    assert result["decision"]["action"]["code"] == "conservative_goal_session"
+    assert result["decision"]["action"]["href"] == "/today#todays-run"
     assert result["coaching"]["next_action"] == {
-        "label": "Open today's run",
-        "href": "/today#todays-run",
+        "label": result["decision"]["action"]["label"],
+        "href": result["decision"]["action"]["href"],
     }
-    assert result["coaching"]["insight"] == "Make the next session serve your goal."
+    assert result["coaching"]["insight"] == result["decision"]["action"]["label"]
     assert "last seven days" not in result["coaching"]["explanation"]
 
 

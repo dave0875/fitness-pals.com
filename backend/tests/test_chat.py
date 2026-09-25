@@ -117,12 +117,15 @@ def test_chat_assembles_context_from_canonical_read_model():
     assert captured["metrics"]["mileage"]["30d"] == 18000.0
     assert captured["metrics"]["long_run_max"] == 12000.0
     assert captured["metrics"]["training_load"] is None
+    assert captured["metrics"]["decision"]["source"] == "canonical_postgres"
+    assert captured["metrics"]["decision"]["action"]["code"] == "set_goal"
     stored_conversation = next(
         item for item in db.added if isinstance(item, Conversation)
     )
     assert stored_conversation.metadata_json["metrics"]["mileage"]["30d"] == 18000.0
     assert stored_conversation.metadata_json["metrics"]["state"] == "fresh"
     assert stored_conversation.metadata_json["metrics"]["data_through"]
+    assert stored_conversation.metadata_json["metrics"]["decision"] == captured["metrics"]["decision"]
 
 
 def test_chat_receives_persisted_goal_phase_and_current_plan_context():

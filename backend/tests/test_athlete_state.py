@@ -159,6 +159,9 @@ def test_history_is_bounded_dated_and_athlete_isolated():
     assert [item["date"] for item in state["history"]] == ["2026-09-24", "2026-09-23"]
     assert [item["signals"]["overnight_hrv"]["value"] for item in state["history"]] == [40, 42]
     assert state["derived"]["hrv_7d_average"]["value"] == 41
+    assert state["decision"]["evidence"]["recovery"]["known_signals"] == [
+        "overnight_hrv"
+    ]
 
 
 def test_metrics_summary_derives_legacy_hrv_average_from_athlete_state():
@@ -178,6 +181,8 @@ def test_metrics_summary_derives_legacy_hrv_average_from_athlete_state():
     assert summary["metric_states"]["hrv_avg"] == "fresh"
     assert isinstance(summary["goal_graph"], dict)
     assert summary["goal_graph"] == summary["athlete_state"]["goal_graph"]
+    assert summary["decision"] == summary["athlete_state"]["decision"]
+    assert summary["decision"]["action"]["code"] == "set_goal"
     assert summary["athlete_state"]["latest"]["signals"]["overnight_hrv"]["value"] == 40
 
 
@@ -213,6 +218,7 @@ def test_dashboard_and_canonical_summary_agree_on_recovery_availability():
     assert metrics["athlete_state"]["latest"]["signals"]["overnight_hrv"]["value"] == 41
     assert metrics["metric_states"]["hrv_avg"] == "fresh"
     assert state["latest"]["signals"]["overnight_hrv"]["status"] == "known"
+    assert home["decision"] == metrics["decision"] == state["decision"]
 
 
 def test_dashboard_and_canonical_summary_agree_when_recovery_is_missing():

@@ -282,6 +282,23 @@ def _evidence(
             }
         )
 
+    decision = metrics.get("decision")
+    decision_payload = decision if isinstance(decision, dict) else {}
+    action = decision_payload.get("action")
+    if isinstance(action, dict):
+        evidence.append(
+            {
+                "kind": "derived",
+                "label": "Unified athlete decision",
+                "title": action.get("label") or "Current athlete decision",
+                "summary": (
+                    "Deterministic decision support from the canonical Goal Graph, "
+                    "whole-training history, recovery freshness, and explicit uncertainty."
+                ),
+                "href": action.get("href") or "/today#todays-run",
+            }
+        )
+
     mileage = metrics.get("mileage")
     distance_30d = mileage.get("30d") if isinstance(mileage, dict) else None
     if isinstance(distance_30d, (int, float)):

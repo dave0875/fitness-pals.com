@@ -155,30 +155,27 @@ def _training_consistency(activities: list[Activity], now: datetime) -> dict[str
     }
 
 
-def _coaching(
-    activities: list[Activity],
-    freshness_state: str,
-) -> dict[str, Any]:
-    """Route the athlete to one goal-aware next-session decision."""
-    if freshness_state == "stale":
-        return {
-            "insight": "Your training picture is out of date.",
-            "explanation": "Refresh the connection before using older signals to change training.",
-            "next_action": {"label": "Review fitness connection", "href": "/settings"},
-        }
-    if activities:
-        return {
-            "insight": "Make the next session serve your goal.",
-            "explanation": (
-                "Open one editable recommendation tied to your saved goal, phase, and recent "
-                "valid runs. Missing or stale recovery and intensity signals stay visible as uncertainty."
-            ),
-            "next_action": {"label": "Open today's run", "href": "/today#todays-run"},
-        }
+def _coaching_from_decision(decision: dict[str, Any]) -> dict[str, Any]:
+    """Project the canonical decision into the existing athlete-home coaching card."""
+    action = decision.get("action") if isinstance(decision, dict) else {}
+    action = action if isinstance(action, dict) else {}
+    rationale = decision.get("rationale") if isinstance(decision, dict) else []
+    rationale = rationale if isinstance(rationale, list) else []
+    explanation = next(
+        (
+            item.get("summary")
+            for item in rationale
+            if isinstance(item, dict) and isinstance(item.get("summary"), str)
+        ),
+        "Open the unified athlete decision for its evidence and uncertainty.",
+    )
     return {
-        "insight": "Add a valid run before planning the next one.",
-        "explanation": "A known run duration or distance is needed to suggest a grounded range.",
-        "next_action": {"label": "Open today's run", "href": "/today#todays-run"},
+        "insight": action.get("label") or "Review the next athlete decision",
+        "explanation": explanation,
+        "next_action": {
+            "label": action.get("label") or "Open Today",
+            "href": action.get("href") or "/today#todays-run",
+        },
     }
 
 
@@ -381,10 +378,9 @@ def build_athlete_home(
         "state": "unknown", "score": None, "label": "Readiness unavailable",
         "explanation": "Training consistency alone cannot establish readiness; current recovery and intensity signals are needed.",
     }
-    coaching = _coaching(
-        activities,
-        "stale" if signals["activities"]["state"] == "stale" else freshness_state,
-    )
+    decision = athlete_state.get("decision")
+    decision = decision if isinstance(decision, dict) else {}
+    coaching = _coaching_from_decision(decision)
 
     return {
         "state": "ready" if activities else "empty",
@@ -400,6 +396,7 @@ def build_athlete_home(
         "readiness": readiness,
         "training_consistency": training_consistency,
         "recovery": recovery,
+        "decision": decision,
         "trend": _trend(activities, current_time),
         "recent_activities": [_activity_payload(activity) for activity in activities[:5]],
         "coaching": coaching,
