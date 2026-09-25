@@ -291,7 +291,7 @@ def process_archive_import_job(db: Session, job: ArchiveImportJob) -> dict[str, 
     db.commit()
 
     downloads: Any
-    summary = {
+    summary: dict[str, Any] = {
         "stage": "discovering" if job.source_type == "google_drive" else "processing",
         "folders_scanned": 0,
         "folders_pending": 0,
