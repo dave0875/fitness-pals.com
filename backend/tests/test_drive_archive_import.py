@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
@@ -404,6 +404,10 @@ def test_archive_job_persists_live_progress_after_each_checkpoint(monkeypatch):
     result = archive_import_jobs.process_archive_import_job(db, job)
 
     assert observed[0][1] == {
+        "stage": "processing",
+        "folders_scanned": 0,
+        "folders_pending": 0,
+        "objects_discovered": 2,
         "objects_total": 2,
         "objects_processed": 0,
         "objects_imported": 0,
@@ -420,6 +424,101 @@ def test_archive_job_persists_live_progress_after_each_checkpoint(monkeypatch):
     assert result["activities"] == 2
     assert job.result_json == result
     assert job.status == "completed"
+    assert result["stage"] == "completed"
+
+
+def test_drive_inventory_emits_discovery_heartbeats():
+    client = object.__new__(GoogleDriveArchiveClient)
+    client.settings = SimpleNamespace(google_drive_archive_max_objects=10)
+    updates = []
+    client.progress_callback = updates.append
+    children = {
+        "folder-root": [
+            {
+                "id": "activity-folder",
+                "name": "Activity",
+                "mimeType": "application/vnd.google-apps.folder",
+            },
+            {
+                "id": "fit-one",
+                "name": "one.fit",
+                "mimeType": "application/fits",
+                "modifiedTime": "2026-09-24T10:00:00Z",
+                "md5Checksum": "one",
+                "size": "10",
+            },
+        ],
+        "activity-folder": [
+            {
+                "id": "fit-two",
+                "name": "two.fit",
+                "mimeType": "application/fits",
+                "modifiedTime": "2026-09-24T11:00:00Z",
+                "md5Checksum": "two",
+                "size": "20",
+            }
+        ],
+    }
+    client._children = lambda folder_id: children[folder_id]
+
+    objects = client.list_supported_objects("folder-root")
+
+    assert [item.object_id for item in objects] == ["fit-one", "fit-two"]
+    assert updates == [
+        {
+            "folders_scanned": 1,
+            "folders_pending": 1,
+            "objects_discovered": 1,
+        },
+        {
+            "folders_scanned": 2,
+            "folders_pending": 0,
+            "objects_discovered": 2,
+        },
+    ]
+
+
+def test_stale_processing_archive_job_is_requeued_for_idempotent_resume():
+    athlete_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+    stale = ArchiveImportJob(
+        user_id=athlete_id,
+        provider="garmin_archive",
+        source_type="google_drive",
+        source_locator="folder-one",
+        status="processing",
+        filename="Google Drive Garmin archive",
+        content_type="application/vnd.google-apps.folder",
+        size_bytes=0,
+        storage_backend="google_drive",
+        storage_key="google-drive/stale",
+        created_at=now - timedelta(minutes=20),
+        updated_at=now - timedelta(minutes=20),
+    )
+    fresh = ArchiveImportJob(
+        user_id=athlete_id,
+        provider="garmin_archive",
+        source_type="google_drive",
+        source_locator="folder-two",
+        status="processing",
+        filename="Google Drive Garmin archive",
+        content_type="application/vnd.google-apps.folder",
+        size_bytes=0,
+        storage_backend="google_drive",
+        storage_key="google-drive/fresh",
+        created_at=now,
+        updated_at=now,
+    )
+    db = FakeSession([stale, fresh])
+
+    recovered = archive_import_jobs.requeue_stale_archive_import_jobs(
+        db, stale_seconds=300
+    )
+
+    assert recovered == 1
+    assert stale.status == "queued"
+    assert stale.error_json["type"] == "WorkerRecovery"
+    assert fresh.status == "processing"
 
 
 def test_user_authorized_drive_job_uses_athletes_encrypted_grant(monkeypatch):
