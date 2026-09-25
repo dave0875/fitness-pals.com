@@ -11,10 +11,13 @@ test("athlete home reads the canonical home contract", () => {
   assert.ok(!dashboardSource.includes("JSON.stringify"));
 });
 
-test("athlete home answers happened, current state, and next action", () => {
-  for (const label of ["What happened", "Where you are now", "What to do next", "Latest activities", "Coaching dossier"]) {
+test("athlete home tells one canonical athlete story beside supporting evidence", () => {
+  for (const label of ["What happened", "Recovery evidence", "Latest activities", "Coaching dossier"]) {
     assert.ok(dashboardSource.includes(label), `expected athlete home to include ${label}`);
   }
+  assert.ok(dashboardSource.includes("AthleteOrbitStory"));
+  assert.ok(dashboardSource.includes("todayContext?.decision || home?.decision"));
+  assert.ok(!dashboardSource.includes("readiness.score"));
 });
 
 test("athlete home presents trustworthy data states", () => {
@@ -36,8 +39,9 @@ test("athlete home preserves the V2 Today route for sign in", () => {
   assert.ok(dashboardSource.includes("/auth/login?next=%2Ftoday"));
 });
 
-test("athlete home follows the backend recovery or coaching destination", () => {
-  assert.ok(dashboardSource.includes("href={home.coaching.next_action.href}"));
+test("athlete home does not expose a parallel legacy coaching destination", () => {
+  assert.ok(!dashboardSource.includes("home.coaching.next_action"));
+  assert.ok(!dashboardSource.includes("home?.readiness"));
 });
 
 test("athlete home renders owner-scoped dossier lifecycle state", () => {

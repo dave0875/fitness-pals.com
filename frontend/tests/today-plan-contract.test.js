@@ -5,9 +5,11 @@ const test = require("node:test");
 
 const dashboardSource = fs.readFileSync(path.join(__dirname, "..", "pages", "dashboard.js"), "utf8");
 
-test("Today CTA opens the concrete Today's run plan", () => {
+test("Today pairs the persisted run plan with the canonical Athlete Orbit decision", () => {
   assert.ok(dashboardSource.includes('id="todays-run"'));
-  assert.ok(dashboardSource.includes("href={home.coaching.next_action.href}"));
+  assert.ok(dashboardSource.includes("AthleteOrbitStory"));
+  assert.ok(dashboardSource.includes("todayContext?.decision || home?.decision"));
+  assert.ok(!dashboardSource.includes("home.coaching.next_action"));
   assert.ok(!dashboardSource.includes('href="/dashboard#coach"'));
 });
 

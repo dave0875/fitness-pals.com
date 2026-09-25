@@ -441,7 +441,10 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
                 "/import/garmin-archive",
             )
         ):
-            return FakeResponse(200, "<html>Fitness Pals</html>")
+            return FakeResponse(
+                200,
+                '<html>Fitness Pals <section data-contract="athlete-orbit-story-v1"></section></html>',
+            )
         if url.endswith("/api/auth/session"):
             raise http_error(url, 401, {"detail": "Credentials missing"})
         if url.endswith("/api/athlete-state?days=14"):
@@ -596,6 +599,7 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         "future_intent_contract": "pass",
         "goal_graph_contract": "pass",
         "decision_contract": "pass",
+        "experience_contract": "pass",
     }
     assert any(url.endswith("/api/onboarding/status") for url, _ in seen)
     assert any(url.endswith("/api/athlete-home") for url, _ in seen)
@@ -761,3 +765,37 @@ def test_production_smoke_rejects_stale_release() -> None:
             retry_interval_seconds=0,
             opener=opener,
         )
+
+
+
+def test_phase6_experience_acceptance_rejects_untraceable_surface() -> None:
+    decision = decision_payload()
+    provenance = decision["provenance"]
+    assert isinstance(provenance, dict)
+    provenance["basis"] = ["athlete_goal_graph"]
+
+    payloads = {
+        "authenticated athlete trust state": {"decision": decision},
+        "authenticated athlete intelligence": {"decision": decision_payload()},
+        "authenticated Today decision context": {"decision": decision_payload()},
+        "authenticated bounded Progress evidence": {"decision": decision_payload()},
+    }
+
+    with pytest.raises(ValueError, match="provenance is not traceable"):
+        smoke_production._validate_experience_acceptance(payloads)
+
+
+def test_phase6_core_routes_require_visible_orbit_contract_marker() -> None:
+    probes = smoke_production.production_probes(
+        expected_release="abc123",
+        auth_token="token",
+    )
+    required = {
+        "Today page route",
+        "Coach page route",
+        "Progress page route",
+    }
+    selected = {probe.name: probe for probe in probes if probe.name in required}
+    assert set(selected) == required
+    for probe in selected.values():
+        assert probe.expected_text == 'data-contract="athlete-orbit-story-v1"'

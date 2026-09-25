@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 
 import AuthenticatedShell, { StatusNotice } from "../components/AuthenticatedShell";
+import AthleteOrbitStory from "../components/AthleteOrbitStory";
 import { authenticatedJson } from "../lib/authFetch.mjs";
 import styles from "../styles/Journey.module.css";
 
@@ -185,6 +186,10 @@ export default function Journey() {
           <span className={styles.goalPill}>Current focus: {journey.goal.label}</span>
         )}
       </header>
+
+      {viewState !== "unauthenticated" && viewState !== "error" && (
+        <AthleteOrbitStory decision={journey?.decision} surface="Progress" />
+      )}
 
       <form className={styles.filters} onSubmit={applyFilters} aria-label="Progress filters">
         <label>
