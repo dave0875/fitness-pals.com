@@ -138,22 +138,7 @@ def compose_athlete_decision(
     uncertainty: list[dict[str, str]] = []
     conflicts: list[dict[str, str]] = []
 
-    if goal.get("state") != "known" or not goal.get("goal_type"):
-        state = "blocked"
-        action = {
-            "code": "set_goal",
-            "label": "Define your current goal",
-            "href": "/settings#goals",
-            "priority": "goal",
-            "training_bias": None,
-        }
-        rationale.append(
-            {
-                "code": "goal_missing",
-                "summary": "No current athlete-owned goal is available to anchor the next decision.",
-            }
-        )
-    elif training_state == "error":
+    if training_state == "error":
         state = "blocked"
         action = {
             "code": "review_training_data",
@@ -166,6 +151,36 @@ def compose_athlete_decision(
             {
                 "code": "training_read_error",
                 "summary": "Canonical training evidence could not be read, so the engine will not manufacture a session decision.",
+            }
+        )
+    elif training_state == "stale":
+        state = "caution"
+        action = {
+            "code": "refresh_training",
+            "label": "Refresh training history before a material plan change",
+            "href": "/settings",
+            "priority": "data",
+            "training_bias": "hold",
+        }
+        rationale.append(
+            {
+                "code": "training_stale",
+                "summary": "Recent training evidence is stale, so old load cannot justify increasing or materially changing the next session.",
+            }
+        )
+    elif goal.get("state") != "known" or not goal.get("goal_type"):
+        state = "blocked"
+        action = {
+            "code": "set_goal",
+            "label": "Define your current goal",
+            "href": "/settings#goals",
+            "priority": "goal",
+            "training_bias": None,
+        }
+        rationale.append(
+            {
+                "code": "goal_missing",
+                "summary": "No current athlete-owned goal is available to anchor the next decision.",
             }
         )
     elif activity_count == 0 or training_state == "unknown":
@@ -196,21 +211,6 @@ def compose_athlete_decision(
             {
                 "code": "past_primary_event",
                 "resolution": "The Goal Graph stays authoritative, but a planned primary event in the past must be corrected before it drives new training.",
-            }
-        )
-    elif training_state == "stale":
-        state = "caution"
-        action = {
-            "code": "refresh_training",
-            "label": "Refresh training history before a material plan change",
-            "href": "/settings",
-            "priority": "data",
-            "training_bias": "hold",
-        }
-        rationale.append(
-            {
-                "code": "training_stale",
-                "summary": "Recent training evidence is stale, so old load cannot justify increasing or materially changing the next session.",
             }
         )
     elif phase == "recovery":

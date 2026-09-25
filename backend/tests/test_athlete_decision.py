@@ -113,6 +113,16 @@ def test_stale_training_requires_refresh_before_material_change():
     assert result["action"]["training_bias"] == "hold"
 
 
+def test_stale_training_precedes_goal_setup_until_data_is_current():
+    result = decide(
+        graph={"state": "unknown", "goal": None},
+        train=training("stale"),
+    )
+    assert result["state"] == "caution"
+    assert result["action"]["code"] == "refresh_training"
+    assert result["action"]["href"] == "/settings"
+
+
 def test_stale_recovery_makes_goal_session_conservative_and_explicitly_uncertain():
     result = decide(recover=recovery("stale"))
     assert result["state"] == "caution"
