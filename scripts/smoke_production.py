@@ -254,6 +254,7 @@ def production_probes(
             name="Today page route",
             url=f"{web}/today",
             expected_statuses=(200,),
+            expected_text='data-contract="athlete-orbit-story-v1"',
             route_contract=True,
             journeys=("returning_athlete", "training_decision"),
         ),
@@ -269,6 +270,7 @@ def production_probes(
             name="Coach page route",
             url=f"{web}/coach",
             expected_statuses=(200,),
+            expected_text='data-contract="athlete-orbit-story-v1"',
             route_contract=True,
             journeys=("returning_athlete", "training_decision"),
         ),
@@ -276,6 +278,7 @@ def production_probes(
             name="Progress page route",
             url=f"{web}/progress",
             expected_statuses=(200,),
+            expected_text='data-contract="athlete-orbit-story-v1"',
             route_contract=True,
             journeys=("workout_analysis",),
         ),
@@ -769,6 +772,63 @@ def _validate_decision_acceptance(
             raise ValueError(f"{name} unified decision contradicts Athlete State")
 
 
+def _validate_experience_acceptance(
+    payloads: dict[str, object | None],
+) -> None:
+    """Require one visible athlete story to remain explainable across core surfaces."""
+    surfaces = {
+        "athlete-home": _require_dict(
+            payloads.get("authenticated athlete trust state"), "athlete-home"
+        ).get("decision"),
+        "Coach": _require_dict(
+            payloads.get("authenticated athlete intelligence"), "athlete intelligence"
+        ).get("decision"),
+        "Today": _require_dict(
+            payloads.get("authenticated Today decision context"), "Today context"
+        ).get("decision"),
+        "Progress": _require_dict(
+            payloads.get("authenticated bounded Progress evidence"), "Progress"
+        ).get("decision"),
+    }
+    required_basis = {
+        "athlete_goal_graph",
+        "athlete_state_recovery",
+        "whole_training_summary",
+    }
+    for name, raw in surfaces.items():
+        decision = _require_dict(raw, f"{name} Athlete Orbit decision")
+        if decision.get("version") != "athlete_orbit_v1":
+            raise ValueError(f"{name} does not expose athlete_orbit_v1")
+        action = _require_dict(decision.get("action"), f"{name} next action")
+        if not action.get("label") or not action.get("href"):
+            raise ValueError(f"{name} next action is not visibly actionable")
+        freshness = _require_dict(decision.get("freshness"), f"{name} freshness")
+        training_state = freshness.get("training")
+        recovery_state = freshness.get("recovery")
+        valid_states = {"fresh", "stale", "unknown", "error"}
+        if training_state not in valid_states:
+            raise ValueError(f"{name} training freshness is not explicit")
+        if recovery_state not in valid_states:
+            raise ValueError(f"{name} recovery freshness is not explicit")
+        evidence = _require_dict(decision.get("evidence"), f"{name} evidence")
+        for key in ("goal", "recovery", "training"):
+            _require_dict(evidence.get(key), f"{name} {key} evidence")
+        for key in ("rationale", "uncertainty", "conflicts"):
+            if not isinstance(decision.get(key), list):
+                raise ValueError(f"{name} {key} must remain explicit")
+        provenance = _require_dict(decision.get("provenance"), f"{name} provenance")
+        basis = provenance.get("basis")
+        if not isinstance(basis, list) or not required_basis.issubset(
+            set(basis)
+        ):
+            raise ValueError(
+                f"{name} provenance is not traceable to canonical evidence"
+            )
+        caveat = str(provenance.get("caveat") or "").lower()
+        if "medical readiness" not in caveat or "predict" not in caveat:
+            raise ValueError(f"{name} does not preserve decision limits")
+
+
 def _validate_goal_graph_acceptance(
     payloads: dict[str, object | None],
 ) -> None:
@@ -900,6 +960,16 @@ def verify_production(
     except ValueError as exc:
         raise SystemExit(f"Unified decision production acceptance failed: {exc}") from exc
     print("PASS unified decision production acceptance: product surfaces agree")
+    try:
+        _validate_experience_acceptance(payloads)
+    except ValueError as exc:
+        raise SystemExit(
+            f"Athlete Orbit experience production acceptance failed: {exc}"
+        ) from exc
+    print(
+        "PASS Athlete Orbit experience production acceptance: "
+        "visible story is traceable"
+    )
 
     missing = [journey for journey in PHASE8_JOURNEYS if journey not in passed_journeys]
     if missing:
@@ -917,6 +987,7 @@ def verify_production(
         "future_intent_contract": "pass",
         "goal_graph_contract": "pass",
         "decision_contract": "pass",
+        "experience_contract": "pass",
     }
     print("Production acceptance report: " + json.dumps(report, sort_keys=True))
     return report

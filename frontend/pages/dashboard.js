@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import AuthenticatedShell, { StatusNotice } from "../components/AuthenticatedShell";
+import AthleteOrbitStory from "../components/AthleteOrbitStory";
 import { authenticatedJson } from "../lib/authFetch.mjs";
 import styles from "../styles/AthletePages.module.css";
 
@@ -193,7 +194,7 @@ export default function Dashboard() {
   };
 
   const recovery = home?.recovery;
-  const readiness = home?.readiness;
+  const decision = todayContext?.decision || home?.decision;
   const displayedGoal = todayPlan?.goal || home?.goal;
   const coachHref = todayPlan?.plan
     ? `/coach?from=${encodeURIComponent(
@@ -220,6 +221,10 @@ export default function Dashboard() {
           </p>
         )}
       </header>
+
+      {viewState !== "unauthenticated" && viewState !== "error" && (
+        <AthleteOrbitStory decision={decision} surface="Today" />
+      )}
 
       {viewState === "loading" && (
         <div className={styles.statePanel} role="status">
@@ -522,14 +527,14 @@ export default function Dashboard() {
             </section>
 
             <section className={styles.card}>
-              <p className={styles.questionLabel}>Where you are now</p>
-              <h2>{readiness.label}</h2>
-              <p className={styles.featureValue}>
-                {readiness.score === null ? "Unknown" : `${readiness.score}/100`}
+              <p className={styles.questionLabel}>Recovery evidence</p>
+              <h2>What is measured now</h2>
+              <p>Recovery signals are context for the unified decision, not a separate readiness score.</p>
+              <p>
+                Workout data: {home.freshness.signals.activities.state}. Sleep data:{" "}
+                {home.freshness.signals.sleep.state}. Intensity:{" "}
+                {home.freshness.signals.intensity.state}.
               </p>
-              <p>{readiness.explanation}</p>
-              <p>Training consistency: {home.training_consistency.score === null ? "Unknown" : `${home.training_consistency.score}/100`}. {home.training_consistency.explanation}</p>
-              <p>Workout data: {home.freshness.signals.activities.state}. Sleep data: {home.freshness.signals.sleep.state}. Intensity: {home.freshness.signals.intensity.state}.</p>
               <div className={styles.signalGrid}>
                 <Signal
                   label="Sleep"
@@ -538,15 +543,6 @@ export default function Dashboard() {
                 <Signal label="Sleep score" value={recovery.sleep_score} />
                 <Signal label="Overnight HRV" value={recovery.overnight_hrv} />
               </div>
-            </section>
-
-            <section className={styles.card}>
-              <p className={styles.questionLabel}>What to do next</p>
-              <h2>{home.coaching.insight}</h2>
-              <p>{home.coaching.explanation}</p>
-              <a className={styles.primaryButton} href={home.coaching.next_action.href}>
-                {home.coaching.next_action.label}
-              </a>
             </section>
 
             <section className={styles.wideCard} id="activities">

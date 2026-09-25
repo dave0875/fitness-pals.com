@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 
 import AuthenticatedShell, { StatusNotice } from "../components/AuthenticatedShell";
+import AthleteOrbitStory from "../components/AthleteOrbitStory";
 import { authenticatedJson } from "../lib/authFetch.mjs";
 import styles from "../styles/AthletePages.module.css";
 
@@ -346,6 +347,11 @@ export default function Coach() {
           leave to inspect the underlying data and come back.
         </p>
       </header>
+
+      <AthleteOrbitStory
+        decision={intelligence?.decision || home?.decision}
+        surface="Coach"
+      />
 
       {intelligence && (
         <section className={styles.card} aria-label="Athlete intelligence">

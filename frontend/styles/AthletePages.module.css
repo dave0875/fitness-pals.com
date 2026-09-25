@@ -838,3 +838,79 @@
     min-height: auto;
   }
 }
+
+
+.orbitStory {
+  display: grid;
+  gap: 1rem;
+  margin: 1rem 0 1.25rem;
+  padding: clamp(1rem, 3vw, 1.5rem);
+  background: linear-gradient(135deg, #f5faf6, #ffffff);
+  border: 1px solid #c9dfcf;
+  border-radius: 1rem;
+  box-shadow: 0 10px 34px rgba(28, 51, 37, 0.06);
+}
+
+.orbitStoryHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.orbitStoryHeader h2 {
+  margin: 0.2rem 0 0;
+}
+
+.orbitStoryGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.orbitStoryGrid article {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.9rem;
+  background: #ffffff;
+  border: 1px solid #dce5dd;
+  border-radius: 0.8rem;
+}
+
+.orbitStoryGrid span,
+.orbitStoryGrid small {
+  color: #5a685f;
+}
+
+.orbitStoryGrid span {
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.orbitStoryGrid strong {
+  line-height: 1.35;
+}
+
+.orbitStoryEvidence {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.orbitStoryEvidence p,
+.orbitStoryLoading {
+  margin: 0;
+  color: #4f5f55;
+  line-height: 1.55;
+}
+
+@media (max-width: 720px) {
+  .orbitStoryGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .orbitStoryHeader {
+    align-items: flex-start;
+  }
+}
