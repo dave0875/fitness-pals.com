@@ -6,13 +6,14 @@ import hashlib
 import os
 import re
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models import ArchiveImportJob, ArchiveImportObject, User
 from app.services.archive_storage import get_archive_storage_client
 from app.services.garmin_archive_import import NoSupportedGarminActivities, ingest_archive_object
@@ -59,6 +60,10 @@ def _job_payload(job: ArchiveImportJob) -> dict[str, Any]:
         "source_type": job.source_type,
         "filename": job.filename,
         "status_url": f"/api/archive-imports/{job.id}",
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
     }
     if job.result_json:
         payload.update(job.result_json)
@@ -286,7 +291,22 @@ def process_archive_import_job(db: Session, job: ArchiveImportJob) -> dict[str, 
     db.commit()
 
     downloads: Any
-    objects_total = 0
+    summary = {
+        "stage": "discovering" if job.source_type == "google_drive" else "processing",
+        "folders_scanned": 0,
+        "folders_pending": 0,
+        "objects_discovered": 0,
+        "objects_total": 0,
+        "objects_processed": 0,
+        "objects_imported": 0,
+        "objects_skipped": 0,
+        "objects_failed": 0,
+        "activities": 0,
+    }
+    job.result_json = dict(summary)
+    job.updated_at = _now()
+    db.commit()
+
     if job.source_type == "google_drive":
         authorization = (job.source_metadata_json or {}).get("authorization")
         drive = (
@@ -294,8 +314,22 @@ def process_archive_import_job(db: Session, job: ArchiveImportJob) -> dict[str, 
             if authorization == "user_oauth"
             else _drive_client()
         )
+
+        def report_discovery(progress: dict[str, int]) -> None:
+            summary.update(progress)
+            summary["stage"] = "discovering"
+            job.result_json = dict(summary)
+            job.updated_at = _now()
+            db.commit()
+
+        setattr(drive, "progress_callback", report_discovery)
         objects = list(drive.list_supported_objects(job.source_locator or ""))
-        objects_total = len(objects)
+        summary["stage"] = "processing"
+        summary["objects_total"] = len(objects)
+        summary["objects_discovered"] = len(objects)
+        job.result_json = dict(summary)
+        job.updated_at = _now()
+        db.commit()
         downloads = ((item, lambda item=item: drive.download(item)) for item in objects)
     elif job.source_type == "upload":
         content = _storage_client().read_bytes(job)
@@ -308,22 +342,14 @@ def process_archive_import_job(db: Session, job: ArchiveImportJob) -> dict[str, 
             modified_time=None,
             size_bytes=job.size_bytes,
         )
-        objects_total = 1
+        summary["objects_total"] = 1
+        summary["objects_discovered"] = 1
+        job.result_json = dict(summary)
+        job.updated_at = _now()
+        db.commit()
         downloads = ((item, lambda: content),)
     else:
         raise ValueError(f"Unsupported archive source: {job.source_type}")
-
-    summary = {
-        "objects_total": objects_total,
-        "objects_processed": 0,
-        "objects_imported": 0,
-        "objects_skipped": 0,
-        "objects_failed": 0,
-        "activities": 0,
-    }
-    job.result_json = dict(summary)
-    job.updated_at = _now()
-    db.commit()
 
     for source, content_loader in downloads:
         outcome, activity_count = _process_object(db, job, source, content_loader)
@@ -334,22 +360,55 @@ def process_archive_import_job(db: Session, job: ArchiveImportJob) -> dict[str, 
         job.updated_at = _now()
         db.commit()
 
-    job.result_json = dict(summary)
     job.finished_at = _now()
     job.updated_at = _now()
     if summary["objects_failed"]:
         job.status = "failed"
+        summary["stage"] = "failed"
         job.error_json = {
             "type": "ArchiveObjectError",
             "message": f"{summary['objects_failed']} archive object(s) failed",
         }
     else:
         job.status = "completed"
+        summary["stage"] = "completed"
+    job.result_json = dict(summary)
     db.commit()
     return summary
 
 
+def requeue_stale_archive_import_jobs(
+    db: Session, *, stale_seconds: int | None = None
+) -> int:
+    """Requeue orphaned processing jobs so idempotent checkpoints can resume."""
+    configured_seconds = (
+        int(stale_seconds)
+        if stale_seconds is not None
+        else int(get_settings().archive_import_stale_seconds)
+    )
+    cutoff = _now() - timedelta(seconds=max(60, configured_seconds))
+    stale_jobs = (
+        db.query(ArchiveImportJob)
+        .filter(
+            ArchiveImportJob.status == "processing",
+            ArchiveImportJob.updated_at < cutoff,
+        )
+        .all()
+    )
+    for job in stale_jobs:
+        job.status = "queued"
+        job.error_json = {
+            "type": "WorkerRecovery",
+            "message": "Archive import resumed after an interrupted worker.",
+        }
+        job.updated_at = _now()
+    if stale_jobs:
+        db.commit()
+    return len(stale_jobs)
+
+
 def process_pending_archive_import_jobs(db: Session, limit: int | None = None) -> dict[str, int]:
+    recovered = requeue_stale_archive_import_jobs(db)
     processed = 0
     failed = 0
     while limit is None or processed < limit:
@@ -367,4 +426,4 @@ def process_pending_archive_import_jobs(db: Session, limit: int | None = None) -
             db.commit()
             failed += 1
         processed += 1
-    return {"processed": processed, "failed": failed}
+    return {"processed": processed, "failed": failed, "recovered": recovered}
