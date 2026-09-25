@@ -410,6 +410,7 @@ class GoogleDriveArchiveClient:
         visited: set[str] = set()
         objects: list[DriveArchiveObject] = []
         maximum = int(self.settings.google_drive_archive_max_objects)
+        progress_callback = getattr(self, "progress_callback", None)
         while pending:
             current, path = pending.pop(0)
             if current in visited:
@@ -436,6 +437,14 @@ class GoogleDriveArchiveClient:
                 )
                 if len(objects) > maximum:
                     raise RuntimeError("Google Drive archive exceeds configured object limit")
+            if callable(progress_callback):
+                progress_callback(
+                    {
+                        "folders_scanned": len(visited),
+                        "folders_pending": len(pending),
+                        "objects_discovered": len(objects),
+                    }
+                )
         return sorted(objects, key=lambda item: (item.modified_time or "", item.name, item.object_id))
 
     def download(self, item: DriveArchiveObject) -> bytes:
