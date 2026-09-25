@@ -72,6 +72,26 @@ export function archiveProgress(job) {
     };
   }
 
+  const discovered = Math.max(0, Number(job?.objects_discovered) || 0);
+  const foldersScanned = Math.max(0, Number(job?.folders_scanned) || 0);
+  const foldersPending = Math.max(0, Number(job?.folders_pending) || 0);
+
+  if (job?.status === "processing" && job?.stage === "discovering") {
+    const folderDetail = foldersScanned
+      ? ` across ${foldersScanned} folder${foldersScanned === 1 ? "" : "s"}${foldersPending ? `; ${foldersPending} still queued to scan` : ""}`
+      : "";
+    return {
+      processed,
+      total,
+      percent,
+      activities,
+      label: "Scanning Google Drive for Garmin activity files",
+      detail: discovered
+        ? `${discovered} candidate activity file${discovered === 1 ? "" : "s"} found so far${folderDetail}.`
+        : `No candidate activity files found yet${folderDetail}.`,
+    };
+  }
+
   if (total > 0) {
     return {
       processed,
