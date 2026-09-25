@@ -774,7 +774,7 @@ def test_phase6_experience_acceptance_rejects_untraceable_surface() -> None:
     assert isinstance(provenance, dict)
     provenance["basis"] = ["athlete_goal_graph"]
 
-    payloads = {
+    payloads: dict[str, object | None] = {
         "authenticated athlete trust state": {"decision": decision},
         "authenticated athlete intelligence": {"decision": decision_payload()},
         "authenticated Today decision context": {"decision": decision_payload()},
