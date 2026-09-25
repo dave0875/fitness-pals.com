@@ -160,7 +160,7 @@ def test_athlete_home_stale_and_empty_states_are_actionable():
     empty = build_athlete_home(FakeSession([]), athlete_id, goal=None, now=now)
 
     assert stale["freshness"]["state"] == "stale"
-    assert stale["coaching"]["next_action"]["href"] == "/settings"
+    assert stale["coaching"]["next_action"]["href"] == "/settings#goals"
     assert empty["state"] == "empty"
     assert empty["readiness"]["state"] == "unknown"
     assert empty["dossier"]["state"] == "not_generated"
