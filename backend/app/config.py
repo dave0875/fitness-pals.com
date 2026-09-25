@@ -109,6 +109,7 @@ class Settings(BaseSettings):
     archive_import_storage_backend: str = "filesystem"
     archive_import_filesystem_root: str = "/tmp/runtrainer-archive-imports"
     archive_import_upload_url_ttl_seconds: int = 3600
+    archive_import_stale_seconds: int = 900
     archive_import_gcs_bucket: Optional[str] = None
     archive_import_gcs_credentials_json: Optional[str] = None
     archive_import_gcs_credentials_file: Optional[str] = None
