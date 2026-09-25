@@ -30,8 +30,21 @@ test("archive progress turns durable checkpoints into visible progress", async (
   assert.equal(queued.percent, null);
   assert.match(queued.label, /queued/i);
 
+  const discovering = archiveProgress({
+    status: "processing",
+    stage: "discovering",
+    folders_scanned: 8,
+    folders_pending: 3,
+    objects_discovered: 41,
+  });
+  assert.equal(discovering.percent, null);
+  assert.match(discovering.label, /scanning google drive/i);
+  assert.match(discovering.detail, /41 candidate activity files/i);
+  assert.match(discovering.detail, /8 folders/i);
+
   const processing = archiveProgress({
     status: "processing",
+    stage: "processing",
     objects_total: 222,
     objects_processed: 57,
     objects_imported: 40,
