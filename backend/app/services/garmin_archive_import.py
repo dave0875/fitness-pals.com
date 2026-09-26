@@ -207,7 +207,13 @@ def _archive_activities(content: bytes, source: DriveArchiveObject) -> list[dict
                     modified_time=source.modified_time,
                     size_bytes=0,
                 )
-                activities.extend(_fit_activities(archive.read(name), nested_source))
+                try:
+                    activities.extend(_fit_activities(archive.read(name), nested_source))
+                except (ValueError, RuntimeError):
+                    # Garmin exports can contain an isolated corrupt FIT member. Treat the
+                    # ZIP as a checkpointable container: preserve valid members instead of
+                    # failing the entire Drive object because one member cannot decode.
+                    continue
     return activities
 
 
