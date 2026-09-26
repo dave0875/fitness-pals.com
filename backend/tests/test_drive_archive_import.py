@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import io
 import json
 import uuid
+import zipfile
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
@@ -826,6 +828,69 @@ def test_root_oauth_drive_scope_only_selects_activity_sources():
         path=("GarminDataExport.zip", "DI_CONNECT", "DI-Connect-Fitness"),
         root_scoped=True,
     )
+
+
+def test_zip_archive_isolates_corrupt_fit_member_and_keeps_valid_activity(monkeypatch):
+    source = DriveArchiveObject(
+        object_id="uploaded-files-zip",
+        name="DI_CONNECT/DI-Connect-Uploaded-Files/UploadedFiles.zip",
+        mime_type="application/zip",
+        version="zip-v1",
+        modified_time=None,
+        size_bytes=100,
+    )
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr("good.fit", b"good-fit")
+        archive.writestr("bad.fit", b"bad-fit")
+
+    def fake_decode(content: bytes):
+        if content == b"bad-fit":
+            raise RuntimeError("FIT Runtime Error at byte: 16 CRC Error")
+        return (
+            {
+                "session_mesgs": [
+                    {
+                        "start_time": datetime(
+                            2026, 9, 20, 11, 52, 49, tzinfo=timezone.utc
+                        ),
+                        "sport": "running",
+                        "total_distance": 10000.0,
+                        "total_timer_time": 2700.0,
+                    }
+                ]
+            },
+            {},
+        )
+
+    monkeypatch.setattr(garmin_archive_import, "decode_fit_bytes", fake_decode)
+
+    activities = garmin_archive_import._archive_activities(payload.getvalue(), source)
+
+    assert len(activities) == 1
+    assert activities[0]["activityType"] == "running"
+    assert activities[0]["activityId"] == "drive:uploaded-files-zip:good.fit:0"
+
+
+def test_standalone_corrupt_fit_remains_a_failed_object(monkeypatch):
+    source = DriveArchiveObject(
+        object_id="corrupt-fit",
+        name="corrupt.fit",
+        mime_type="application/fits",
+        version="fit-v1",
+        modified_time=None,
+        size_bytes=10,
+    )
+    monkeypatch.setattr(
+        garmin_archive_import,
+        "decode_fit_bytes",
+        lambda _content: (_ for _ in ()).throw(
+            RuntimeError("FIT Runtime Error at byte: 16 CRC Error")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="CRC Error"):
+        garmin_archive_import._fit_activities(b"corrupt", source)
 
 
 def test_official_garmin_fit_sdk_session_messages_are_normalized(monkeypatch):
