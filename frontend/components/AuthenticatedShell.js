@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { authenticatedFetch } from "../lib/authFetch.mjs";
 import { currentViewport, trackUxEvent } from "../lib/uxTelemetry.mjs";
+import ElectricFormSoundControl from "./ElectricFormSoundControl";
 import styles from "../styles/AuthenticatedShell.module.css";
 
 const navigation = [
@@ -99,6 +100,7 @@ export default function AuthenticatedShell({ active = "today", children, variant
           >
             Ask Coach
           </a>
+          <ElectricFormSoundControl compact />
           <a href="/settings" className={styles.accountLink} aria-label="Account settings">
             <span className={styles.accountName}>{displayName(profile)}</span>
             <span className={styles.settingsLabel}>Settings</span>
