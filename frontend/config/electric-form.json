@@ -83,5 +83,18 @@
     "maxSupportingImageBytes": 225280,
     "maxSoundCueBytes": 81920,
     "maxElectricFormMediaTotalBytes": 921600
+  },
+  "finalCut": {
+    "authenticatedShellDefault": "electric",
+    "publicLegalVisualFamily": "electric-form",
+    "legacyAuthenticatedFallbackAllowed": false,
+    "preservesPhases": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
   }
 }

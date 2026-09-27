@@ -6,9 +6,9 @@ const EFFECTIVE_DATE = "September 21, 2026";
 
 const shellStyle = {
   minHeight: "100vh",
-  background: "linear-gradient(180deg, #f8fbff 0%, #eef5f9 100%)",
-  color: "#13202c",
-  fontFamily: "system-ui, sans-serif",
+  background: "radial-gradient(circle at 72% -12%, rgba(156, 255, 87, 0.12), transparent 30rem), linear-gradient(155deg, #070b08 0%, #0d130f 54%, #080c09 100%)",
+  color: "#fbfdf9",
+  fontFamily: "var(--ef-font-body)",
 };
 
 const contentStyle = {
@@ -18,23 +18,23 @@ const contentStyle = {
 };
 
 const cardStyle = {
-  background: "#ffffff",
-  border: "1px solid #dbe6ed",
+  background: "rgba(17, 23, 18, 0.96)",
+  border: "1px solid #334238",
   borderRadius: "24px",
   padding: "clamp(1.25rem, 3vw, 2rem)",
-  boxShadow: "0 20px 40px rgba(19, 32, 44, 0.06)",
+  boxShadow: "var(--ef-shadow-cinematic)",
 };
 
 const sectionStyle = {
   marginTop: "2rem",
   lineHeight: 1.75,
-  color: "#334756",
+  color: "#b7c1b9",
 };
 
 function PolicySection({ title, children }) {
   return (
     <section style={sectionStyle}>
-      <h2 style={{ margin: "0 0 0.75rem", color: "#13202c", fontSize: "1.45rem" }}>{title}</h2>
+      <h2 style={{ margin: "0 0 0.75rem", color: "#fbfdf9", fontSize: "1.45rem" }}>{title}</h2>
       {children}
     </section>
   );
@@ -67,7 +67,7 @@ export default function PrivacyPolicy() {
             <a
               href="/"
               style={{
-                color: "#13202c",
+                color: "#fbfdf9",
                 textDecoration: "none",
                 fontWeight: 800,
                 letterSpacing: "0.06em",
@@ -79,7 +79,7 @@ export default function PrivacyPolicy() {
             <a
               href="/"
               style={{
-                color: "#0b5f58",
+                color: "var(--ef-color-electric)",
                 textDecoration: "none",
                 fontWeight: 700,
               }}
@@ -94,8 +94,8 @@ export default function PrivacyPolicy() {
                 display: "inline-block",
                 padding: "0.4rem 0.75rem",
                 borderRadius: "999px",
-                background: "#e5f1f0",
-                color: "#0b5f58",
+                background: "rgba(156, 255, 87, 0.09)",
+                color: "var(--ef-color-electric)",
                 fontWeight: 800,
                 fontSize: "0.85rem",
                 letterSpacing: "0.04em",
@@ -112,12 +112,12 @@ export default function PrivacyPolicy() {
             >
               Your training data should work for you.
             </h1>
-            <p style={{ marginTop: "1rem", color: "#526472", lineHeight: 1.75, maxWidth: "68ch" }}>
+            <p style={{ marginTop: "1rem", color: "#aeb9b0", lineHeight: 1.75, maxWidth: "68ch" }}>
               This Privacy Policy explains how Fitness Pals handles information when you use the
               Fitness Pals website and product, including account, training, recovery, wellness,
               and coaching information.
             </p>
-            <p style={{ marginTop: "0.75rem", color: "#627585", lineHeight: 1.6 }}>
+            <p style={{ marginTop: "0.75rem", color: "#94a096", lineHeight: 1.6 }}>
               <strong>Effective date:</strong> {EFFECTIVE_DATE}
               <br />
               <strong>Last updated:</strong> {EFFECTIVE_DATE}
@@ -127,7 +127,7 @@ export default function PrivacyPolicy() {
               <p>
                 Fitness Pals operates the service available at fitness-pals.com. Questions or
                 privacy requests can be sent to{" "}
-                <a href={`mailto:${CONTACT_EMAIL}`} style={{ color: "#0b5f58", fontWeight: 700 }}>
+                <a href={`mailto:${CONTACT_EMAIL}`} style={{ color: "var(--ef-color-electric)", fontWeight: 700 }}>
                   {CONTACT_EMAIL}
                 </a>
                 .
@@ -255,7 +255,7 @@ export default function PrivacyPolicy() {
                 source, revoke authorization at the provider, update account information, or ask
                 us to access, correct, export, or delete information associated with your account.
                 To make a privacy request, contact{" "}
-                <a href={`mailto:${CONTACT_EMAIL}`} style={{ color: "#0b5f58", fontWeight: 700 }}>
+                <a href={`mailto:${CONTACT_EMAIL}`} style={{ color: "var(--ef-color-electric)", fontWeight: 700 }}>
                   {CONTACT_EMAIL}
                 </a>
                 . We may need to verify your identity before acting on a request.
@@ -308,19 +308,19 @@ export default function PrivacyPolicy() {
             <PolicySection title="14. Contact">
               <p>
                 Privacy questions and requests:{" "}
-                <a href={`mailto:${CONTACT_EMAIL}`} style={{ color: "#0b5f58", fontWeight: 700 }}>
+                <a href={`mailto:${CONTACT_EMAIL}`} style={{ color: "var(--ef-color-electric)", fontWeight: 700 }}>
                   {CONTACT_EMAIL}
                 </a>
               </p>
               <p>
                 Website:{" "}
-                <a href="https://fitness-pals.com" style={{ color: "#0b5f58", fontWeight: 700 }}>
+                <a href="https://fitness-pals.com" style={{ color: "var(--ef-color-electric)", fontWeight: 700 }}>
                   https://fitness-pals.com
                 </a>
               </p>
               <p>
                 Privacy Policy:{" "}
-                <a href={CANONICAL_URL} style={{ color: "#0b5f58", fontWeight: 700 }}>
+                <a href={CANONICAL_URL} style={{ color: "var(--ef-color-electric)", fontWeight: 700 }}>
                   {CANONICAL_URL}
                 </a>
               </p>
