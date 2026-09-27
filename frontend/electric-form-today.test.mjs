@@ -17,10 +17,10 @@ test("Electric Today preserves canonical athlete and plan contracts", () => {
   assert.match(dashboard, /AthleteOrbitStory/);
 });
 
-test("Electric Today is explicitly scoped to the Today authenticated surface", () => {
+test("Electric Today remains explicit while the authenticated product defaults Electric", () => {
   assert.match(dashboard, /variant="electric"/);
   assert.match(dashboard, /contentClassName=\{styles\.electricToday\}/);
-  assert.match(shell, /variant = "standard"/);
+  assert.match(shell, /variant = "electric"/);
   assert.match(shell, /data-shell-variant=\{variant\}/);
   assert.match(shellCss, /\.electricShell/);
 });

@@ -261,8 +261,25 @@
 }
 
 
-/* Electric Form Phase 2: authenticated Today chrome */
+/* Electric Form Phase 6: Final Cut product-wide authenticated chrome */
 .electricShell {
+  color-scheme: dark;
+  --ef-color-ink: #f2f6f0;
+  --ef-color-ink-strong: #fbfdf9;
+  --ef-color-muted: #9eaaa1;
+  --ef-color-surface: #111712;
+  --ef-color-surface-raised: #162019;
+  --ef-color-canvas: #090e0b;
+  --ef-color-line: #334238;
+  --ef-color-line-strong: #4a584d;
+  --ef-color-primary: var(--ef-color-electric);
+  --ef-color-primary-strong: #d5ffb8;
+  --ef-color-primary-soft: rgba(156, 255, 87, 0.09);
+  --ef-color-warning: #ffc75a;
+  --ef-color-danger: #ff8a78;
+  --ef-shadow-card: 0 12px 36px rgba(0, 0, 0, 0.22);
+  --ef-shadow-raised: 0 18px 48px rgba(0, 0, 0, 0.26);
+  --ef-shadow-cinematic: 0 28px 78px rgba(0, 0, 0, 0.34);
   min-height: 100vh;
   color: #f2f6f0;
   background:
@@ -314,6 +331,31 @@
   border-color: #445047;
 }
 
+.electricShell .content {
+  min-width: 0;
+}
+
+.electricShell .content :where(input, select, textarea) {
+  color: var(--ef-color-ink);
+  background: var(--ef-color-surface);
+  border-color: var(--ef-color-line-strong);
+}
+
+.electricShell .content :where(input, select, textarea)::placeholder {
+  color: var(--ef-color-muted);
+  opacity: 1;
+}
+
+.electricShell .content :where(a, button, input, select, textarea, summary):focus-visible {
+  outline: var(--ef-focus-ring);
+  outline-offset: var(--ef-focus-offset);
+}
+
+.electricShell .content progress {
+  width: min(100%, 32rem);
+  accent-color: var(--ef-color-electric);
+}
+
 .electricShell .coachLink:focus-visible,
 .electricShell .accountLink:focus-visible,
 .electricShell .logout:focus-visible,
@@ -321,6 +363,18 @@
 .electricShell .activeLink:focus-visible {
   outline: var(--ef-focus-ring);
   outline-offset: var(--ef-focus-offset);
+}
+
+@media (max-width: 520px) {
+  .electricShell .header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .electricShell .account {
+    width: 100%;
+    justify-content: space-between;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
