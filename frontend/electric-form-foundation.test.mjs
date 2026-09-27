@@ -113,3 +113,39 @@ test("Electric Form contract protects Amanda, media, and accessibility boundarie
   assert.ok(contract.budgets.maxHeroImageBytes > 0);
   assert.ok(contract.budgets.maxSoundCueBytes > 0);
 });
+
+
+test("Electric Form media directory stays inside contract budgets", () => {
+  const assetRoot = path.join(root, "public", "electric-form");
+  if (!fs.existsSync(assetRoot)) return;
+
+  const files = [];
+  const visit = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const filePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(filePath);
+      else files.push(filePath);
+    }
+  };
+  visit(assetRoot);
+
+  let totalBytes = 0;
+  for (const file of files) {
+    const bytes = fs.statSync(file).size;
+    totalBytes += bytes;
+    if (/\.(mp3|wav|ogg|m4a|aac)$/i.test(file)) {
+      assert.ok(bytes <= contract.budgets.maxSoundCueBytes, `${file} exceeds sound budget`);
+    }
+    if (/\.(avif|webp|png|jpe?g)$/i.test(file)) {
+      const limit = /hero/i.test(path.basename(file))
+        ? contract.budgets.maxHeroImageBytes
+        : contract.budgets.maxSupportingImageBytes;
+      assert.ok(bytes <= limit, `${file} exceeds image budget`);
+    }
+  }
+
+  assert.ok(
+    totalBytes <= contract.budgets.maxElectricFormMediaTotalBytes,
+    "Electric Form media exceeds total budget"
+  );
+});
