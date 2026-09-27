@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { authenticatedFetch } from "../lib/authFetch.mjs";
+import HumanHeatMedia from "../components/HumanHeatMedia";
 import styles from "../styles/ElectricEntry.module.css";
 
 const HERO_DOSSIER_URL =
@@ -94,13 +95,7 @@ export default function Home() {
             <p className={styles.microcopy}>Secure app sign-in · Garmin-backed training history · You stay in control</p>
           </div>
 
-          <div className={styles.athleteStage} aria-label="Two adult runners in motion, representing strength, speed and focused training">
-            <img src="/electric-form/electric-entry-athletes.svg" alt="Stylized adult woman and man running under sculptural stadium light" />
-            <div className={styles.signalCard}>
-              <span>READINESS</span><strong>74</strong><small>Load is building. Recovery still has room.</small>
-            </div>
-            <div className={styles.motionLabel}>FORM / LOAD / RECOVERY</div>
-          </div>
+          <HumanHeatMedia />
         </div>
 
         <a className={styles.scrollCue} href="#how-it-works">See the system <span aria-hidden="true">↓</span></a>

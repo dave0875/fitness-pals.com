@@ -215,6 +215,7 @@ def production_probes(
             name="public front door",
             url=f"{web}/",
             expected_statuses=(200,),
+            expected_text='data-contract="human-heat-v1"',
             route_contract=True,
             journeys=("new_athlete",),
         ),
