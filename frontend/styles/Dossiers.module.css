@@ -221,3 +221,116 @@
     width: 100%;
   }
 }
+
+
+/* Electric Form Phase 4: Kinetic Athlete editorial dossiers */
+.electricDossier {
+  color: #f1f5ef;
+}
+
+.electricDossier .pageHeader,
+.electricDossier .card,
+.electricDossier .sample,
+.electricDossier .statePanel {
+  color: #f1f5ef;
+  background: linear-gradient(145deg, rgba(17, 24, 19, 0.98), rgba(8, 13, 10, 0.99));
+  border-color: #334238;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.2);
+}
+
+.dossierHero {
+  position: relative;
+  min-height: 250px;
+  overflow: hidden;
+  align-items: end;
+  padding: clamp(1.25rem, 4vw, 2.5rem);
+  background:
+    radial-gradient(circle at 82% 22%, rgba(156, 255, 87, 0.16), transparent 28%),
+    linear-gradient(145deg, #111913, #080d0a 72%) !important;
+  border: 1px solid #3c4a40;
+  border-radius: var(--ef-radius-xl);
+  box-shadow: var(--ef-shadow-cinematic);
+}
+
+.dossierHero::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--ef-color-electric), transparent 82%);
+}
+
+.dossierHero h1 {
+  max-width: 15ch;
+  color: #fbfdf9;
+  font-family: var(--ef-font-display);
+  font-size: clamp(2.7rem, 6vw, 5.4rem);
+  line-height: 0.92;
+  letter-spacing: -0.05em;
+  text-transform: uppercase;
+}
+
+.electricDossier .eyebrow {
+  color: var(--ef-color-electric);
+}
+
+.electricDossier .pageHeader p,
+.electricDossier .jobList span,
+.electricDossier .jobList small,
+.electricDossier .artifactList span,
+.electricDossier .artifactList small,
+.electricDossier .evidenceList span,
+.electricDossier .boundaries span {
+  color: #9eaaa1;
+}
+
+.electricDossier .selection,
+.electricDossier .privacy,
+.electricDossier .artifactList a,
+.electricDossier .evidenceList a,
+.electricDossier .jobList button,
+.electricDossier .journeyLink,
+.electricDossier .backLink {
+  color: #e5ece3;
+  background: #0c120e;
+  border-color: #334238;
+}
+
+.electricDossier .boundaries div {
+  color: #e8eee7;
+  background: rgba(156, 255, 87, 0.07);
+  border-color: #4a5e4d;
+}
+
+.electricDossier .pageHeader button,
+.electricDossier .exportButton,
+.electricDossier .sample a {
+  color: #071006;
+  background: var(--ef-color-electric);
+}
+
+.electricDossier .card,
+.electricDossier .sample,
+.electricDossier .boundaries div {
+  animation: dossierRise 420ms var(--ef-ease-out) both;
+}
+
+@keyframes dossierRise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 720px) {
+  .dossierHero {
+    min-height: auto;
+    align-items: stretch;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .electricDossier .card,
+  .electricDossier .sample,
+  .electricDossier .boundaries div {
+    animation: none;
+  }
+}

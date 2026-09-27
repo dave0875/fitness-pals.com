@@ -139,7 +139,8 @@ export default function DossierLibrary() {
         <title>Saved analyses | Fitness Pals</title>
       </Head>
 
-      <header className={styles.pageHeader}>
+      <div className={styles.electricDossier}>
+      <header className={`${styles.pageHeader} ${styles.dossierHero}`}>
         <div>
           <p className={styles.eyebrow}>Private coaching history</p>
           <h1>Saved analyses</h1>
@@ -278,6 +279,7 @@ export default function DossierLibrary() {
           </section>
         </>
       )}
+      </div>
     </AuthenticatedShell>
   );
 }
