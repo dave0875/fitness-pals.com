@@ -112,66 +112,24 @@ jobs:
             }
 
             const query = `
-              query($owner: String!, $repo: String!, $number: Int!, $reference: Int!) {
+              query($owner: String!, $repo: String!, $number: Int!) {
                 repository(owner: $owner, name: $repo) {
-                  target: issue(number: $number) {
-                    id
+                  issue(number: $number) {
                     projectItems(first: 1) {
                       totalCount
-                    }
-                  }
-                  reference: issue(number: $reference) {
-                    projectItems(first: 1) {
-                      nodes {
-                        project {
-                          id
-                        }
-                      }
                     }
                   }
                 }
               }
             `;
 
-            let result = await github.graphql(query, {
+            const result = await github.graphql(query, {
               owner: context.repo.owner,
               repo: context.repo.repo,
-              number: issueNumber,
-              reference: 235
+              number: issueNumber
             });
 
-            let totalCount = result?.repository?.target?.projectItems?.totalCount ?? 0;
-            if (totalCount < 1) {
-              const contentId = result?.repository?.target?.id;
-              const projectId =
-                result?.repository?.reference?.projectItems?.nodes?.[0]?.project?.id;
-
-              if (!contentId || !projectId) {
-                core.setFailed(
-                  `Unable to auto-enroll Issue #${issueNumber} in the canonical GitHub Project.`
-                );
-                return;
-              }
-
-              await github.graphql(`
-                mutation($projectId: ID!, $contentId: ID!) {
-                  addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
-                    item {
-                      id
-                    }
-                  }
-                }
-              `, { projectId, contentId });
-
-              result = await github.graphql(query, {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                number: issueNumber,
-                reference: 235
-              });
-              totalCount = result?.repository?.target?.projectItems?.totalCount ?? 0;
-            }
-
+            const totalCount = result?.repository?.issue?.projectItems?.totalCount ?? 0;
             if (totalCount < 1) {
               core.setFailed(
                 `Issue: #${issueNumber} must belong to at least one GitHub Project (Project items: ${totalCount}).`
