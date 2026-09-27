@@ -206,13 +206,20 @@ export default function Dashboard() {
       )}`
     : "/coach?from=%2Ftoday";
   return (
-    <AuthenticatedShell active="today">
+    <AuthenticatedShell active="today" variant="electric" contentClassName={styles.electricToday}>
       <header className={styles.pageHeader}>
         <p className={styles.eyebrow}>Today</p>
         <h1>One decision, grounded in your training</h1>
         <p className={styles.lede}>
           Understand the next session, shape it to fit the day, then carry the result forward.
         </p>
+        <a className={styles.amandaPresence} href={coachHref} aria-label="Open Coach with Amanda">
+          <span className={styles.amandaPulse} aria-hidden="true" />
+          <span>
+            <strong>Amanda</strong>
+            <small>Coach nearby · voice never autoplays</small>
+          </span>
+        </a>
         {displayedGoal && (
           <p className={styles.goalPill}>
             Current focus: {displayedGoal.label}
