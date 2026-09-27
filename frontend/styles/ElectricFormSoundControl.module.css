@@ -1,0 +1,144 @@
+.control {
+  color: #edf4eb;
+  font-family: var(--ef-font-body);
+}
+
+.compact {
+  position: relative;
+}
+
+.compact > summary {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0 0.75rem;
+  color: #dbe5dc;
+  background: #111712;
+  border: 1px solid #445047;
+  border-radius: var(--ef-radius-pill);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 800;
+  list-style: none;
+}
+
+.compact > summary::-webkit-details-marker {
+  display: none;
+}
+
+.compact > summary:focus-visible {
+  outline: var(--ef-focus-ring);
+  outline-offset: var(--ef-focus-offset);
+}
+
+.compact > summary span {
+  color: var(--ef-color-electric);
+  font-size: 0.72rem;
+}
+
+.panel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.55rem);
+  right: 0;
+  width: min(340px, calc(100vw - 1.5rem));
+  padding: 0.9rem;
+  background: rgba(8, 13, 9, 0.98);
+  border: 1px solid #3b493e;
+  border-radius: var(--ef-radius-lg);
+  box-shadow: var(--ef-shadow-cinematic);
+}
+
+.fieldset {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.fieldset legend {
+  padding: 0;
+  color: #f5f8f3;
+  font-weight: 900;
+}
+
+.description,
+.status {
+  margin: 0;
+  color: #aeb9b0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.option {
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 0.65rem;
+  align-items: start;
+  padding: 0.55rem;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid #2e3930;
+  border-radius: var(--ef-radius-md);
+  cursor: pointer;
+}
+
+.option input {
+  width: 20px;
+  height: 20px;
+  margin: 0.1rem 0 0;
+  accent-color: var(--ef-color-electric);
+}
+
+.option span {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.option strong {
+  color: #eef5ec;
+  font-size: 0.82rem;
+}
+
+.option small {
+  color: #9eaaa0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.option:focus-within {
+  outline: var(--ef-focus-ring);
+  outline-offset: 2px;
+}
+
+.status strong {
+  color: var(--ef-color-electric);
+}
+
+@media (max-width: 720px) {
+  .compact > summary {
+    padding-inline: 0.65rem;
+  }
+
+  .compact > summary span {
+    display: none;
+  }
+
+  .panel {
+    position: fixed;
+    top: 4.4rem;
+    right: 0.75rem;
+    left: 0.75rem;
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compact > summary,
+  .panel {
+    transition: none;
+  }
+}

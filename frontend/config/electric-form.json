@@ -19,7 +19,26 @@
       "confirm",
       "progress",
       "celebrate"
-    ]
+    ],
+    "defaultMuted": false,
+    "defaultReducedSensory": false,
+    "persistedPreferences": [
+      "enabled",
+      "muted",
+      "reducedSensory"
+    ],
+    "reducedSensorySuppressesCues": true,
+    "semanticCues": {
+      "control-enabled": "confirm",
+      "control-unmuted": "focus",
+      "navigation": "focus",
+      "action-confirmed": "confirm",
+      "progress-advanced": "progress",
+      "milestone-earned": "celebrate",
+      "amanda-listen": "focus",
+      "amanda-speak": "progress",
+      "amanda-stop": "confirm"
+    }
   },
   "imagery": {
     "artDirection": "elite-athlete editorial energy with sculptural light, motion, sweat, texture, and real effort",
