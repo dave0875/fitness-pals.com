@@ -598,7 +598,7 @@
 }
 
 .failedMessage {
-  background: var(--ef-color-surface)6df;
+  background: #fff6df;
   border: 1px solid #ecd398;
 }
 
