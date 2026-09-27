@@ -285,7 +285,7 @@ export default function Welcome() {
 
   if (viewState === "unauthenticated") {
     return (
-      <main style={{ maxWidth: 900, margin: "0 auto", padding: "3rem 1.25rem" }}>
+      <main className={styles.electricEntry}>
         <header className={styles.pageHeader}>
           <p className={styles.eyebrow}>Fitness Pals</p>
           <h1>Start with your training, not setup.</h1>
@@ -300,7 +300,7 @@ export default function Welcome() {
 
   if (viewState === "loading") {
     return (
-      <main style={{ maxWidth: 900, margin: "0 auto", padding: "3rem 1.25rem" }}>
+      <main className={styles.electricEntry}>
         <div className={styles.statePanel} role="status" aria-live="polite">
           <strong>Finding the useful starting point…</strong>
           <p>Checking the training and intent already saved to your account.</p>
@@ -311,7 +311,7 @@ export default function Welcome() {
 
   if (viewState === "error") {
     return (
-      <main style={{ maxWidth: 900, margin: "0 auto", padding: "3rem 1.25rem" }}>
+      <main className={styles.electricEntry}>
         <div className={styles.statePanel} role="alert">
           <strong>Fitness Pals could not load your activation state.</strong>
           <p>Your saved data has not been changed.</p>
@@ -322,9 +322,9 @@ export default function Welcome() {
   }
 
   return (
-    <main style={{ maxWidth: 960, margin: "0 auto", padding: "3rem 1.25rem 4rem" }}>
+    <main className={styles.electricEntry}>
       <header className={styles.pageHeader}>
-        <p className={styles.eyebrow}>{editingIntent ? "Training intent" : "Activation"}</p>
+        <p className={styles.eyebrow}>{editingIntent ? "Training intent" : "Amanda · activation"}</p>
         <h1>{editingIntent ? "Refine what you are training for." : "Get to useful coaching quickly."}</h1>
         <p className={styles.lede}>
           {activation?.message ||
