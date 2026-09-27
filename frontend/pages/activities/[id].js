@@ -108,6 +108,7 @@ export default function ActivityDetailPage() {
         <title>Activity details | Fitness Pals</title>
       </Head>
 
+      <div className={styles.electricKinetic}>
       <main>
         <Link className={styles.backLink} href={backHref}>
           ← Back to Training
@@ -120,7 +121,7 @@ export default function ActivityDetailPage() {
           </section>
         ) : (
           <>
-            <header className={styles.pageHeader}>
+            <header className={`${styles.pageHeader} ${styles.activityHero}`}>
               <div>
                 <p className={styles.eyebrow}>Personal activity</p>
                 <h1>{activity.title || activity.sport || "Activity details"}</h1>
@@ -248,6 +249,7 @@ export default function ActivityDetailPage() {
           </>
         )}
       </main>
+      </div>
     </AuthenticatedShell>
   );
 }

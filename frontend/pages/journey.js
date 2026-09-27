@@ -170,10 +170,16 @@ export default function Journey() {
     ([value]) => value === journey?.filters?.sport
   )?.[1] || journey?.filters?.sport;
   const pagination = journey?.activity_pagination;
+  const trajectoryWeeks = (journey?.weekly_summaries || []).slice(-8);
+  const trajectoryMaxDistance = trajectoryWeeks.reduce(
+    (maximum, week) => Math.max(maximum, Number(week.distance_m) || 0),
+    0
+  );
 
   return (
     <AuthenticatedShell active="progress">
-      <header className={styles.pageHeader}>
+      <div className={styles.electricKinetic}>
+      <header className={`${styles.pageHeader} ${styles.kineticHero}`}>
         <div>
           <p className={styles.eyebrow}>Your progress</p>
           <h1>Progress through your own history</h1>
@@ -284,6 +290,43 @@ export default function Journey() {
             <article><span>Distance</span><strong>{formatDistance(journey.totals.distance_m)}</strong></article>
             <article><span>Training time</span><strong>{formatDuration(journey.totals.duration_seconds)}</strong></article>
             <article><span>Active days</span><strong>{journey.totals.active_days}</strong></article>
+          </section>
+
+          <section className={styles.kineticTrajectory} aria-label="Recent weekly training trajectory">
+            <div className={styles.sectionHeading}>
+              <div>
+                <p className={styles.eyebrow}>Training pulse</p>
+                <h2>Recent weekly distance, in motion</h2>
+              </div>
+              <span>{trajectoryWeeks.length} visible weeks</span>
+            </div>
+            {trajectoryWeeks.length === 0 ? (
+              <p>No weekly distance is available in this selection.</p>
+            ) : (
+              <ol className={styles.trajectoryBars}>
+                {trajectoryWeeks.map((week) => {
+                  const distance = Number(week.distance_m) || 0;
+                  const fill = distance > 0 && trajectoryMaxDistance > 0
+                    ? Math.max(4, Math.round((distance / trajectoryMaxDistance) * 100))
+                    : 0;
+                  return (
+                    <li key={`trajectory-${week.period_start}`}>
+                      <span className={styles.trajectoryLabel}>
+                        Week of {formatDate(week.period_start)}
+                      </span>
+                      <span className={styles.trajectoryTrack} aria-hidden="true">
+                        <span className={styles.trajectoryFill} style={{ width: `${fill}%` }} />
+                      </span>
+                      <strong>{formatDistance(week.distance_m)}</strong>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+            <p className={styles.boundary}>
+              The bars scale only to canonical weekly distance already shown in this
+              Progress window. They are not a readiness score or forecast.
+            </p>
           </section>
 
           <section className={styles.card} aria-label="Athlete-to-self comparison">
@@ -465,6 +508,7 @@ export default function Journey() {
           </p>
         </>
       )}
+      </div>
     </AuthenticatedShell>
   );
 }

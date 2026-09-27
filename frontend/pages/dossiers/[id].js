@@ -66,6 +66,7 @@ export default function DossierDetail() {
         <title>Private coaching dossier | Fitness Pals</title>
       </Head>
 
+      <div className={styles.electricDossier}>
       {viewState !== "ready" ? (
         <section className={styles.statePanel} role="status">
           {viewState === "loading"
@@ -77,7 +78,7 @@ export default function DossierDetail() {
           <Link className={styles.backLink} href="/dossiers">
             ← Back to dossier library
           </Link>
-          <header className={styles.pageHeader}>
+          <header className={`${styles.pageHeader} ${styles.dossierHero}`}>
             <div>
               <p className={styles.eyebrow}>Private dossier · Version {dossier.version}</p>
               <h1>{content.title}</h1>
@@ -153,6 +154,7 @@ export default function DossierDetail() {
           </p>
         </>
       )}
+      </div>
     </AuthenticatedShell>
   );
 }

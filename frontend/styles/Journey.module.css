@@ -318,3 +318,179 @@
     font-size: 1.2rem;
   }
 }
+
+
+/* Electric Form Phase 4: Kinetic Athlete */
+.electricKinetic {
+  --kinetic-line: #334238;
+  --kinetic-muted: #9eaaa1;
+  color: #f2f6f0;
+}
+
+.electricKinetic .pageHeader,
+.electricKinetic .statePanel,
+.electricKinetic .card,
+.electricKinetic .metric,
+.electricKinetic .summaryGrid article,
+.kineticTrajectory {
+  color: #f2f6f0;
+  background: linear-gradient(145deg, rgba(18, 25, 20, 0.97), rgba(8, 13, 10, 0.98));
+  border-color: var(--kinetic-line);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.2);
+}
+
+.electricKinetic .pageHeader p,
+.electricKinetic .metric span,
+.electricKinetic .summaryGrid article span,
+.electricKinetic .activities span,
+.electricKinetic .activities small,
+.electricKinetic .provenance small,
+.electricKinetic .appliedFilters {
+  color: var(--kinetic-muted);
+}
+
+.electricKinetic .eyebrow {
+  color: var(--ef-color-electric);
+}
+
+.kineticHero,
+.activityHero {
+  position: relative;
+  min-height: 280px;
+  overflow: hidden;
+  align-items: end;
+  padding: clamp(1.25rem, 4vw, 2.5rem);
+  background:
+    linear-gradient(90deg, rgba(7, 11, 8, 0.96) 0%, rgba(7, 11, 8, 0.78) 52%, rgba(7, 11, 8, 0.25) 100%),
+    url("/electric-form/electric-entry-athletes.svg") right center / auto 112% no-repeat,
+    #0a100c !important;
+  border: 1px solid #3d4a40;
+  border-radius: var(--ef-radius-xl);
+  box-shadow: var(--ef-shadow-cinematic);
+}
+
+.kineticHero h1,
+.activityHero h1 {
+  max-width: 12ch;
+  color: #fbfdf9;
+  font-family: var(--ef-font-display);
+  font-size: clamp(2.8rem, 6vw, 5.5rem);
+  line-height: 0.92;
+  letter-spacing: -0.05em;
+  text-transform: uppercase;
+}
+
+.kineticTrajectory {
+  margin: 1.25rem 0;
+  padding: clamp(1rem, 3vw, 1.35rem);
+  border: 1px solid var(--kinetic-line);
+  border-radius: var(--ef-radius-lg);
+}
+
+.trajectoryBars {
+  display: grid;
+  gap: 0.7rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trajectoryBars li {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(120px, 2fr) minmax(76px, auto);
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.trajectoryLabel {
+  color: #d9e1db;
+  font-size: 0.84rem;
+  font-weight: 750;
+}
+
+.trajectoryTrack {
+  height: 0.58rem;
+  overflow: hidden;
+  background: #1d2720;
+  border: 1px solid #36433a;
+  border-radius: var(--ef-radius-pill);
+}
+
+.trajectoryFill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--ef-color-electric), #d5ffb8);
+  border-radius: inherit;
+  transform-origin: left center;
+  animation: kineticFill 640ms var(--ef-ease-out) both;
+}
+
+.trajectoryBars strong {
+  color: #f7faf5;
+  text-align: right;
+}
+
+.electricKinetic .filters,
+.electricKinetic .activities a,
+.electricKinetic .intensityGrid div,
+.electricKinetic .boundary {
+  color: #e8eee8;
+  background: #0c120e;
+  border-color: var(--kinetic-line);
+}
+
+.electricKinetic .filters select {
+  color: #f3f6f2;
+  background: #0a100c;
+  border-color: #4a584d;
+}
+
+.electricKinetic .goalPill,
+.electricKinetic .freshness,
+.electricKinetic .handoff {
+  color: #dfffd0;
+  background: rgba(156, 255, 87, 0.08);
+  border-color: #4d624f;
+}
+
+.electricKinetic .handoff a {
+  color: #071006;
+  background: var(--ef-color-electric);
+}
+
+.electricKinetic .activities a,
+.electricKinetic .backLink {
+  color: #d8ffc0;
+}
+
+@keyframes kineticFill {
+  from { transform: scaleX(0); opacity: 0.5; }
+  to { transform: scaleX(1); opacity: 1; }
+}
+
+@media (max-width: 720px) {
+  .kineticHero,
+  .activityHero {
+    min-height: 360px;
+    align-content: end;
+    background:
+      linear-gradient(180deg, rgba(7, 11, 8, 0.12) 0%, rgba(7, 11, 8, 0.9) 58%, #070b08 100%),
+      url("/electric-form/electric-entry-athletes.svg") center top / auto 58% no-repeat,
+      #0a100c !important;
+  }
+
+  .trajectoryBars li {
+    grid-template-columns: 1fr auto;
+  }
+
+  .trajectoryTrack {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trajectoryFill {
+    animation: none;
+  }
+}
