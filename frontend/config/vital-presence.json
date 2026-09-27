@@ -1,0 +1,159 @@
+{
+  "version": "vital-presence-v1",
+  "initiative": "Vital Presence",
+  "mission": "Make Fitness Pals feel physically alive, human, cinematic, and coach-present without weakening athlete truth, privacy, accessibility, or performance.",
+  "inherits": {
+    "electricForm": true,
+    "electricFormCloseoutSha": "c45fc753c11b4538457255ad17e4eb2daee18326",
+    "athleteOrbitTruthModel": true
+  },
+  "phases": [
+    { "number": 0, "name": "Vital Blueprint", "purpose": "Define the measurable production blueprint and integration boundaries." },
+    { "number": 1, "name": "Human Heat", "purpose": "Replace abstract athlete illustration with genuine cinematic adult-athlete imagery." },
+    { "number": 2, "name": "Amanda Alive", "purpose": "Reuse the separately deployed myChat Amanda capability through a narrow, resilient service boundary." },
+    { "number": 3, "name": "Sonic Impact", "purpose": "Replace thin oscillator chirps with a restrained physical sonic language." },
+    { "number": 4, "name": "Kinetic Cinema", "purpose": "Choreograph motion, depth, and transitions around athlete intent and evidence." },
+    { "number": 5, "name": "Embodied Athlete", "purpose": "Carry human imagery and physical storytelling through authenticated athlete surfaces." },
+    { "number": 6, "name": "Living World", "purpose": "Converge media, Amanda, motion, sound, responsive behavior, resilience, and production proof." }
+  ],
+  "baselineGaps": {
+    "humanHeat": {
+      "current": "Stylized athlete SVG reused across key surfaces.",
+      "evidence": ["frontend/public/electric-form/electric-entry-athletes.svg", "frontend/pages/index.js", "frontend/styles/Journey.module.css"],
+      "target": "Cinematic adult women and men in believable athletic motion, with responsive art direction and readable negative space."
+    },
+    "amandaAlive": {
+      "current": "Fitness-Pals-local visual presence plus browser SpeechRecognition and speechSynthesis progressive enhancement.",
+      "evidence": ["frontend/components/AmandaPresence.js"],
+      "target": "Separately deployed myChat Amanda reused through an explicit Fitness-Pals integration adapter while the existing text Coach remains a non-blocking fallback."
+    },
+    "sonicImpact": {
+      "current": "Short synthesized oscillator cues.",
+      "evidence": ["frontend/lib/electricFormAudio.mjs"],
+      "target": "Designed, restrained physical cues that reinforce visible user-initiated state changes."
+    },
+    "kineticCinema": {
+      "current": "Mostly opacity/transform UI motion and static hero composition.",
+      "target": "Purposeful choreography for entry, continuity, progress, and earned moments, with reduced-motion equivalence."
+    },
+    "composition": {
+      "current": "Repeated cards and similar surface treatments flatten emotional hierarchy.",
+      "target": "Editorial composition that alternates human imagery, athlete evidence, whitespace, scale, and focused calls to action."
+    }
+  },
+  "mediaDirection": {
+    "subjects": ["adult women athletes", "adult men athletes", "mixed adult athlete scenes"],
+    "qualities": ["strength", "speed", "effort", "sweat", "breath", "texture", "sculptural light", "confidence"],
+    "requirements": [
+      "athletic action must feel credible",
+      "copy-safe negative space must be planned per breakpoint",
+      "mobile crops must be art-directed rather than accidental",
+      "alt text must describe meaningful content without body judgment",
+      "athlete data and product purpose remain primary"
+    ],
+    "avoid": [
+      "minors",
+      "body-shaming",
+      "before-after manipulation",
+      "medical or performance guarantees",
+      "pin-up framing",
+      "gratuitous nudity",
+      "sexualized camera framing disconnected from sport"
+    ],
+    "preferredFormats": ["avif", "webp"]
+  },
+  "amandaArchitecture": {
+    "sourceRepository": "dave0875/myChat",
+    "integrationMode": "reuse-separate-deployment-through-adapter",
+    "copySourceIntoFitnessPals": false,
+    "replicateMyChatDatabase": false,
+    "replicateVoiceCredentials": false,
+    "replicateBiometricMaterial": false,
+    "replicatePrivateMemories": false,
+    "browserDirectPrivateServiceAccess": false,
+    "targetPath": [
+      "Fitness-Pals authenticated UI",
+      "Fitness-Pals same-origin Amanda adapter",
+      "separately deployed myChat service"
+    ],
+    "identityBoundary": "A Fitness-Pals login is not silently treated as a myChat biometric/profile credential. Any profile association must be explicit, server-mediated, least-privilege, revocable, and auditable.",
+    "fallback": "If myChat, voice authentication, speech transport, or private profile access is unavailable, existing Fitness-Pals text Coach remains usable and Amanda must visibly degrade instead of blocking coaching.",
+    "voiceRules": {
+      "microphoneAlwaysUserInitiated": true,
+      "autoplayVoice": false,
+      "visibleTranscriptOrEquivalent": true,
+      "bargeInStopRequired": true,
+      "privateProfileFailureMustNotBreakTextCoach": true
+    }
+  },
+  "sound": {
+    "defaultEnabled": false,
+    "autoplay": false,
+    "userInitiatedPlaybackRequired": true,
+    "visualEquivalentRequired": true,
+    "muteRequired": true,
+    "reducedSensoryRequired": true,
+    "backgroundDataArrivalSound": false,
+    "coachResponseArrivalSound": false
+  },
+  "motion": {
+    "meaningfulPurposes": ["hierarchy", "continuity", "progress", "earned celebration"],
+    "preferredProperties": ["transform", "opacity"],
+    "decorativeMotionMustNotCarryMeaning": true,
+    "reducedMotionEquivalentRequired": true,
+    "autoplayBackgroundVideoRequired": false
+  },
+  "budgets": {
+    "maxRouteJsBytes": 921600,
+    "maxCriticalJsBytes": 2560000,
+    "maxHeroImageBytes": 358400,
+    "maxSupportingImageBytes": 225280,
+    "maxSoundCueBytes": 81920,
+    "maxVitalPresenceMediaTotalBytes": 1572864,
+    "productionTargets": {
+      "lcpP75Ms": 2500,
+      "inpP75Ms": 200,
+      "clsP75": 0.1
+    }
+  },
+  "accessibility": {
+    "wcagTarget": "2.2 AA",
+    "bodyTextContrastRatio": 4.5,
+    "largeTextContrastRatio": 3,
+    "minimumInteractiveTargetPx": 44,
+    "keyboardComplete": true,
+    "focusVisibleRequired": true,
+    "soundRequiresNonAudioEquivalent": true,
+    "motionRequiresReducedMotionEquivalent": true
+  },
+  "truthAndSafety": {
+    "preserveAthleteEvidenceProvenance": true,
+    "preserveUncertainty": true,
+    "noFabricatedMetrics": true,
+    "noMedicalReadinessClaims": true,
+    "noRecommendationSemanticsChangeInPhase0": true
+  },
+  "phase1Acceptance": {
+    "name": "Human Heat",
+    "must": [
+      "replace the abstract landing-page athlete SVG as the primary hero with genuine cinematic adult-athlete imagery",
+      "represent at least one adult woman athlete and one adult man athlete across the primary Human Heat composition",
+      "provide breakpoint-aware desktop and mobile art direction",
+      "preserve readable copy, primary authentication path, Amanda cue, and athlete-proof hierarchy",
+      "remain within media/performance budgets",
+      "pass reduced-motion, keyboard, contrast, alt-text, and no-fabricated-metric checks"
+    ],
+    "mustNot": [
+      "implement myChat integration",
+      "change athlete data or coaching recommendation semantics",
+      "change authentication or Garmin/import contracts",
+      "introduce autoplay audio or autoplay background video"
+    ]
+  },
+  "release": {
+    "sequence": ["issue", "fresh-branch", "implementation", "validation", "pull-request", "terminal-green-pr-ci", "merge", "terminal-green-dev-prod-acceptance", "PASS"],
+    "onlyTerminalSuccessCounts": true,
+    "boundedAsyncChecks": true,
+    "generateNextPhasePromptOnlyAfterPass": true
+  }
+}
