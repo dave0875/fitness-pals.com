@@ -1203,3 +1203,354 @@
     backdrop-filter: none;
   }
 }
+
+
+/* Electric Form Phase 3: Amanda Presence */
+.electricCoach {
+  --ef-color-ink: #f2f6f0;
+  --ef-color-ink-strong: #ffffff;
+  --ef-color-muted: #aeb9b0;
+  --ef-color-surface: rgba(17, 24, 19, 0.95);
+  --ef-color-surface-raised: #182119;
+  --ef-color-canvas: #0a100c;
+  --ef-color-line: #303b32;
+  --ef-color-line-strong: #4a584d;
+  --ef-color-primary: var(--ef-color-electric);
+  --ef-color-primary-strong: #c7ffa2;
+  --ef-color-primary-soft: rgba(156, 255, 87, 0.12);
+  color: var(--ef-color-ink);
+}
+
+.electricCoachHero {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(320px, 1.1fr);
+  gap: clamp(1rem, 3vw, 1.5rem);
+  align-items: stretch;
+  margin-bottom: 1.25rem;
+}
+
+.electricCoachHero .pageHeader {
+  min-height: 100%;
+  margin: 0;
+  padding: clamp(1.4rem, 4vw, 2.5rem);
+  align-content: end;
+  color: #f4f8f2;
+  background:
+    radial-gradient(circle at 84% 16%, rgba(156, 255, 87, 0.12), transparent 30%),
+    linear-gradient(145deg, #0a100c, #151d17 66%, #0a0f0b);
+  border: 1px solid #344137;
+  border-radius: var(--ef-radius-xl);
+  box-shadow: var(--ef-shadow-cinematic);
+}
+
+.electricCoachHero .pageHeader h1 {
+  max-width: 9ch;
+  margin-bottom: 0.8rem;
+  color: #f8fbf6;
+  font-family: var(--ef-font-display);
+  font-size: clamp(3rem, 6vw, 5.5rem);
+  line-height: 0.9;
+  letter-spacing: -0.05em;
+  text-transform: uppercase;
+}
+
+.electricCoachHero .lede {
+  color: #b5c0b7;
+}
+
+.amandaStage {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(120px, 0.36fr) minmax(0, 1fr);
+  gap: clamp(1rem, 3vw, 1.5rem);
+  overflow: hidden;
+  padding: clamp(1rem, 3vw, 1.5rem);
+  color: #f4f8f2;
+  background:
+    radial-gradient(circle at 16% 22%, rgba(156, 255, 87, 0.18), transparent 24%),
+    linear-gradient(155deg, #111913, #090e0b 72%);
+  border: 1px solid #425046;
+  border-radius: var(--ef-radius-xl);
+  box-shadow: var(--ef-shadow-cinematic);
+  isolation: isolate;
+}
+
+.amandaStage::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--ef-color-electric), transparent 80%);
+  opacity: 0.92;
+}
+
+.amandaPortrait {
+  position: relative;
+  min-height: 250px;
+  overflow: hidden;
+  border: 1px solid #3e4b41;
+  border-radius: calc(var(--ef-radius-xl) - 0.3rem);
+  background:
+    radial-gradient(circle at 50% 28%, rgba(244, 248, 242, 0.2) 0 8%, transparent 9%),
+    radial-gradient(ellipse at 50% 45%, rgba(244, 248, 242, 0.12) 0 17%, transparent 18%),
+    linear-gradient(155deg, rgba(156, 255, 87, 0.2), transparent 44%),
+    #0b110d;
+}
+
+.amandaPortraitGlow {
+  position: absolute;
+  inset: 12% -20% auto;
+  height: 58%;
+  background: radial-gradient(circle, rgba(156, 255, 87, 0.24), transparent 64%);
+  transform: translateZ(0);
+  animation: amandaStageBreath 3.2s var(--ef-ease-in-out) infinite;
+}
+
+.amandaPortraitMark {
+  position: absolute;
+  inset: auto 0 8%;
+  color: rgba(244, 248, 242, 0.72);
+  font-family: var(--ef-font-display);
+  font-size: clamp(4rem, 10vw, 7.5rem);
+  line-height: 1;
+  text-align: center;
+}
+
+.amandaStageCopy {
+  min-width: 0;
+  display: grid;
+  gap: 0.9rem;
+  align-content: center;
+}
+
+.amandaStageHeading {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.amandaStageHeading h2 {
+  max-width: 14ch;
+  margin: 0.2rem 0 0;
+  font-size: clamp(1.65rem, 3vw, 2.35rem);
+  line-height: 1.05;
+}
+
+.amandaStage .eyebrow {
+  color: var(--ef-color-electric);
+  letter-spacing: 0.12em;
+}
+
+.amandaState {
+  min-height: 44px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  color: #dfffd0;
+  background: rgba(156, 255, 87, 0.09);
+  border: 1px solid #4d624f;
+  border-radius: var(--ef-radius-pill);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.amandaState i {
+  width: 0.62rem;
+  height: 0.62rem;
+  background: var(--ef-color-electric);
+  border-radius: 50%;
+  box-shadow: 0 0 0 0 rgba(156, 255, 87, 0.38);
+}
+
+.amandaStage[data-amanda-state="listening"] .amandaState i,
+.amandaStage[data-amanda-state="speaking"] .amandaState i {
+  animation: amandaVoicePulse 1.1s var(--ef-ease-out) infinite;
+}
+
+.amandaStage[data-amanda-state="thinking"] .amandaState i {
+  animation: amandaThinking 0.9s linear infinite;
+}
+
+.amandaStage[data-amanda-state="unavailable"] .amandaState {
+  color: #c8d0ca;
+  background: rgba(255, 255, 255, 0.04);
+  border-color: #465048;
+}
+
+.amandaStage[data-amanda-state="unavailable"] .amandaState i {
+  background: #7f8b82;
+  box-shadow: none;
+}
+
+.amandaVoiceNote {
+  margin: 0;
+  color: #aeb9b0;
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.amandaVoiceControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.amandaVoiceControls button {
+  min-height: 44px;
+}
+
+.amandaTranscript {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  background: rgba(5, 9, 6, 0.62);
+  border: 1px solid #344037;
+  border-radius: var(--ef-radius-md);
+}
+
+.amandaTranscript span {
+  color: var(--ef-color-electric);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.amandaTranscript p {
+  margin: 0;
+  color: #d9e1db;
+  line-height: 1.45;
+}
+
+.electricCoach .orbitStory,
+.electricCoach .card,
+.electricCoach .threadSidebar,
+.electricCoach .coachSnapshot,
+.electricCoach .messagePanel,
+.electricCoach .coachActions,
+.electricCoach .composerCard,
+.electricCoach .coachMessage {
+  color: #eff5ed;
+  background: var(--ef-color-surface);
+  border-color: var(--ef-color-line);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.18);
+}
+
+.electricCoach .coachSnapshot article,
+.electricCoach .coachSnapshot div,
+.electricCoach .coachEvidenceCard,
+.electricCoach .threadList a,
+.electricCoach .suggestionRow button,
+.electricCoach .athleteMessage {
+  color: #e9f0e7;
+  background: #0b110d;
+  border-color: #334036;
+}
+
+.electricCoach .muted,
+.electricCoach .coachEvidenceCard p,
+.electricCoach .orbitStoryEvidence p,
+.electricCoach .orbitStoryLoading,
+.electricCoach .coachSnapshot span,
+.electricCoach .coachSnapshot small {
+  color: #9eaaa0;
+}
+
+.electricCoach .primaryButton {
+  color: #071006;
+  background: var(--ef-color-electric);
+  border-color: var(--ef-color-electric);
+}
+
+.electricCoach .secondaryButton,
+.electricCoach .textLink,
+.electricCoach .compactButton {
+  color: #eef4ed;
+  background: #111712;
+  border-color: #4a584d;
+}
+
+.electricCoach .chatForm label,
+.electricCoach .details summary {
+  color: #d9e3db;
+}
+
+.electricCoach .chatForm textarea {
+  color: #f4f7f2;
+  background: #0a100c;
+  border-color: #455148;
+}
+
+.amandaVoiceControls button:focus-visible,
+.electricCoach .primaryButton:focus-visible,
+.electricCoach .secondaryButton:focus-visible {
+  outline: var(--ef-focus-ring);
+  outline-offset: var(--ef-focus-offset);
+}
+
+@keyframes amandaStageBreath {
+  0%, 100% { opacity: 0.72; transform: scale(0.98); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+
+@keyframes amandaVoicePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(156, 255, 87, 0.4); }
+  55% { box-shadow: 0 0 0 8px rgba(156, 255, 87, 0); }
+}
+
+@keyframes amandaThinking {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 900px) {
+  .electricCoachHero {
+    grid-template-columns: 1fr;
+  }
+
+  .amandaStage {
+    grid-template-columns: minmax(110px, 0.28fr) minmax(0, 1fr);
+  }
+
+  .amandaPortrait {
+    min-height: 210px;
+  }
+}
+
+@media (max-width: 620px) {
+  .amandaStage {
+    grid-template-columns: 1fr;
+  }
+
+  .amandaPortrait {
+    min-height: 150px;
+  }
+
+  .amandaStageHeading {
+    display: grid;
+  }
+
+  .amandaState {
+    width: fit-content;
+  }
+
+  .amandaVoiceControls {
+    display: grid;
+  }
+
+  .amandaVoiceControls button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .amandaPortraitGlow,
+  .amandaStage .amandaState i {
+    animation: none !important;
+  }
+}
