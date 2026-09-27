@@ -306,7 +306,7 @@ export default function Journey() {
               <ol className={styles.trajectoryBars}>
                 {trajectoryWeeks.map((week) => {
                   const distance = Number(week.distance_m) || 0;
-                  const fill = trajectoryMaxDistance > 0
+                  const fill = distance > 0 && trajectoryMaxDistance > 0
                     ? Math.max(4, Math.round((distance / trajectoryMaxDistance) * 100))
                     : 0;
                   return (
