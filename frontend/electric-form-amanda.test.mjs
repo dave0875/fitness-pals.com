@@ -25,6 +25,8 @@ test("Amanda voice is progressive enhancement and never autoplays", () => {
   assert.match(amanda, /onClick=\{startListening\}/);
   assert.match(amanda, /onClick=\{speakLatest\}/);
   assert.match(amanda, /recognition\.start\(\)/);
+  assert.match(amanda, /result\\?\\.isFinal/);
+  assert.match(amanda, /finalizedTranscript/);
   assert.match(amanda, /speechSynthesis\.speak\(utterance\)/);
   assert.match(amanda, /Voice never autoplays/);
   assert.doesNotMatch(amanda, /getUserMedia/);
