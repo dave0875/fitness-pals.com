@@ -19,7 +19,7 @@ test("Kinetic Athlete preserves canonical Progress and activity contracts", () =
   assert.match(activity, /\/api\/journey\/activities\//);
   assert.match(activity, /activity\.provenance/);
   assert.match(activity, /comparison\.distance_percent_vs_median/);
-  assert.doesNotMatch(journey, /readiness score or forecast/);
+  assert.match(journey, /not a readiness score or forecast/);
 });
 
 test("Kinetic Athlete visualizes only already-present canonical weekly distance", () => {
