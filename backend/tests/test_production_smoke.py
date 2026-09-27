@@ -799,3 +799,12 @@ def test_phase6_core_routes_require_visible_orbit_contract_marker() -> None:
     assert set(selected) == required
     for probe in selected.values():
         assert probe.expected_text == 'data-contract="athlete-orbit-story-v1"'
+
+
+def test_human_heat_public_front_door_requires_release_marker() -> None:
+    probes = smoke_production.production_probes(
+        expected_release="abc123",
+        auth_token="token",
+    )
+    front_door = next(probe for probe in probes if probe.name == "public front door")
+    assert front_door.expected_text == 'data-contract="human-heat-v1"'
