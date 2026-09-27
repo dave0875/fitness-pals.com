@@ -1,0 +1,68 @@
+{
+  "version": "electric-form-v1",
+  "intent": "Magnetic athletic confidence: editorial, kinetic, premium, and human.",
+  "motion": {
+    "reducedMotion": "required",
+    "compositorProperties": [
+      "transform",
+      "opacity"
+    ],
+    "decorativeMotionMustNotCarryMeaning": true
+  },
+  "sound": {
+    "defaultEnabled": false,
+    "autoplay": false,
+    "userInitiatedPlaybackRequired": true,
+    "visualEquivalentRequired": true,
+    "cues": [
+      "focus",
+      "confirm",
+      "progress",
+      "celebrate"
+    ]
+  },
+  "imagery": {
+    "artDirection": "elite-athlete editorial energy with sculptural light, motion, sweat, texture, and real effort",
+    "representation": [
+      "women",
+      "men",
+      "mixed-athlete scenes"
+    ],
+    "avoid": [
+      "body-shaming",
+      "before-after manipulation",
+      "medical or performance guarantees",
+      "pin-up framing",
+      "gratuitous nudity"
+    ],
+    "preferredFormats": [
+      "avif",
+      "webp"
+    ]
+  },
+  "amanda": {
+    "role": "coach-presence",
+    "states": [
+      "ambient",
+      "coach",
+      "celebration"
+    ],
+    "neverBlocking": true,
+    "autoplayVoice": false,
+    "visualDirection": "warm, assured, athletic, editorial, clearly coach-first rather than decorative"
+  },
+  "accessibility": {
+    "bodyTextContrastRatio": 4.5,
+    "largeTextContrastRatio": 3,
+    "minimumInteractiveTargetPx": 44,
+    "soundRequiresNonAudioEquivalent": true
+  },
+  "budgets": {
+    "maxRouteJsBytes": 921600,
+    "maxCriticalJsBytes": 2560000,
+    "maxHeroImageBytes": 358400,
+    "maxSupportingImageBytes": 225280,
+    "maxSoundCueBytes": 81920,
+    "maxElectricFormMediaTotalBytes": 921600
+  }
+}
