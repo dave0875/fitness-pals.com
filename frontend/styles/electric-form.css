@@ -1,0 +1,52 @@
+:root {
+  color-scheme: light;
+
+  --ef-color-ink: #17211b;
+  --ef-color-ink-strong: #0b120e;
+  --ef-color-muted: #5a685f;
+  --ef-color-surface: #ffffff;
+  --ef-color-surface-raised: #fbfdfb;
+  --ef-color-canvas: #f4f7f3;
+  --ef-color-line: #dce5dd;
+  --ef-color-line-strong: #bdcbbf;
+  --ef-color-primary: #176b47;
+  --ef-color-primary-strong: #135a3c;
+  --ef-color-primary-soft: #e6f4eb;
+  --ef-color-electric: #9cff57;
+  --ef-color-heat: #ff6b3d;
+  --ef-color-focus: #f2b84b;
+  --ef-color-warning: #f5b942;
+  --ef-color-danger: #9f2d2d;
+
+  --ef-font-body: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ef-font-display: "Arial Narrow", "Roboto Condensed", Inter, ui-sans-serif, system-ui, sans-serif;
+
+  --ef-radius-sm: 0.65rem;
+  --ef-radius-md: 0.8rem;
+  --ef-radius-lg: 1rem;
+  --ef-radius-xl: 1.25rem;
+  --ef-radius-pill: 999px;
+
+  --ef-shadow-card: 0 8px 30px rgba(28, 51, 37, 0.05);
+  --ef-shadow-raised: 0 14px 40px rgba(28, 51, 37, 0.08);
+  --ef-shadow-cinematic: 0 24px 70px rgba(8, 18, 12, 0.16);
+
+  --ef-motion-fast: 120ms;
+  --ef-motion-base: 220ms;
+  --ef-motion-slow: 420ms;
+  --ef-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ef-ease-spring: cubic-bezier(0.2, 0.9, 0.3, 1.15);
+
+  --ef-focus-ring: 3px solid var(--ef-color-focus);
+  --ef-focus-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ef-motion-fast: 1ms;
+    --ef-motion-base: 1ms;
+    --ef-motion-slow: 1ms;
+    --ef-ease-out: linear;
+    --ef-ease-spring: linear;
+  }
+}
