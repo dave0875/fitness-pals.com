@@ -34,7 +34,7 @@ function HeroCtas({ state, authHref }) {
   if (state === "activationNeeded") return <><a className={styles.primary} href="/welcome?first=1">Start with my goal</a><a className={styles.secondary} href="#trust">How your data is used</a></>;
   if (state === "importing") return <><a className={styles.primary} href="/welcome?first=1">See activation progress</a><a className={styles.secondary} href="#how-it-works">What happens next</a></>;
   if (state === "synced") return <><a className={styles.primary} href="/today">Open Today</a><a className={styles.secondary} href="#trust">How your data is used</a></>;
-  return <><a className={styles.primary} href={authHref}>Continue with Gmail</a><a className={styles.secondary} href={HERO_DOSSIER_URL}>View sample dossier</a></>;
+  return <><a className={styles.primary} href={authHref}>Continue with Gmail</a><a className={styles.secondary} href={HERO_DOSSIER_URL}>View sample coach dossier</a></>;
 }
 
 function NavCtas({ state, authHref }) {
@@ -127,16 +127,32 @@ export default function Home() {
         <blockquote>“You bring the ambition. I’ll keep the evidence in the room.”<footer>Visual guidance first. Voice never autoplays.</footer></blockquote>
       </section>
 
-      <section className={styles.trust} id="trust">
-        <div><p className={styles.kicker}>CONTROL WITHOUT FRICTION</p><h2>Your data should work as hard as you do.</h2></div>
-        <div className={styles.trustGrid}>
-          <article><strong>Revocable</strong><p>Disconnect training sources when you choose.</p></article>
-          <article><strong>Explainable</strong><p>Coaching shows the evidence behind a changed recommendation.</p></article>
-          <article><strong>Session-safe</strong><p>Provider credentials stay separate from the product session.</p></article>
+      <section className={styles.explainability} id="explainability-preview">
+        <p className={styles.kicker}>EXPLAINABILITY PREVIEW</p>
+        <div className={styles.explainGrid}>
+          <h2>Why this plan would change</h2>
+          <p>Sleep dropped, long-run load spiked, and recovery compressed. The smarter move is to reduce intensity before momentum turns into fatigue.</p>
         </div>
       </section>
 
-      <footer className={styles.footer}><span>FITNESS PALS · ELECTRIC FORM</span><a href="/privacy">Privacy</a></footer>
+      <section className={styles.proof} id="proof">
+        <p className={styles.kicker}>PUBLIC PROOF · NOT VAGUE CLAIMS</p>
+        <div className={styles.proofGrid}>
+          <article><strong>Sample readiness summary</strong><span>See how current load becomes a readable readiness signal.</span></article>
+          <article><strong>Sample training pattern insight</strong><span>See how recent training translates into one next decision.</span></article>
+        </div>
+      </section>
+
+      <section className={styles.trust} id="trust">
+        <div><p className={styles.kicker}>CONTROL WITHOUT FRICTION</p><h2>Your data should work as hard as you do.</h2></div>
+        <div className={styles.trustGrid}>
+          <article><strong>Revocable</strong><p>Disconnect Garmin or revoke access anytime.</p></article>
+          <article><strong>Explainable</strong><p>Coaching shows the evidence behind a changed recommendation.</p></article>
+          <article><strong>Session-safe</strong><p>Your product session uses app cookies, not provider tokens.</p></article>
+        </div>
+      </section>
+
+      <footer className={styles.footer}><span>FITNESS PALS · ELECTRIC FORM</span><a href="/privacy">Privacy Policy</a></footer>
     </main>
   );
 }
