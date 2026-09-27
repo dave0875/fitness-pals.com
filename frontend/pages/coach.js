@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 
 import AuthenticatedShell, { StatusNotice } from "../components/AuthenticatedShell";
 import AthleteOrbitStory from "../components/AthleteOrbitStory";
+import AmandaPresence from "../components/AmandaPresence";
 import { authenticatedJson } from "../lib/authFetch.mjs";
 import styles from "../styles/AthletePages.module.css";
 
@@ -336,17 +337,31 @@ export default function Coach() {
     "What evidence matters most for my current goal?",
     "What if I changed this week's mileage? Treat it as a hypothetical.",
   ];
+  const latestAnswer = [...(thread?.turns || [])]
+    .reverse()
+    .find((turn) => turn.status !== "failed" && turn.answer)?.answer || "";
 
   return (
-    <AuthenticatedShell active="coach">
-      <header className={styles.pageHeader}>
-        <p className={styles.eyebrow}>Your coach</p>
-        <h1>Ask about your training</h1>
-        <p className={styles.lede}>
-          Keep follow-ups, evidence, and saved training actions together, even when you
-          leave to inspect the underlying data and come back.
-        </p>
-      </header>
+    <AuthenticatedShell active="coach" variant="electric" contentClassName={styles.electricCoach}>
+      <section className={styles.electricCoachHero} aria-labelledby="coach-title">
+        <header className={styles.pageHeader}>
+          <p className={styles.eyebrow}>Amanda · your coach</p>
+          <h1 id="coach-title">Ask about your training</h1>
+          <p className={styles.lede}>
+            Keep follow-ups, evidence, and saved training actions together, even when you
+            leave to inspect the underlying data and come back.
+          </p>
+        </header>
+        <AmandaPresence
+          busy={sending}
+          latestAnswer={latestAnswer}
+          onTranscript={(transcript) =>
+            setMessage((current) =>
+              current.trim() ? current.trim() + " " + transcript : transcript
+            )
+          }
+        />
+      </section>
 
       <AthleteOrbitStory
         decision={intelligence?.decision || home?.decision}
@@ -610,7 +625,7 @@ export default function Coach() {
                     ) : (
                       <article className={styles.coachMessage}>
                         <span className={styles.interpretationBadge}>
-                          Coaching interpretation
+                          Amanda · Coaching interpretation
                         </span>
                         <p>{turn.answer}</p>
                         {turn.evidence?.length ? (

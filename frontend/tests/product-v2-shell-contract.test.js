@@ -39,7 +39,7 @@ test("Today and Progress keep legacy implementations available while V2 routes s
 
 test("Coach is a dedicated contextual authenticated workspace", () => {
   const coach = read("pages/coach.js");
-  assert.ok(coach.includes('<AuthenticatedShell active="coach">'));
+  assert.ok(coach.includes('<AuthenticatedShell active="coach"'));
   assert.ok(coach.includes('authenticatedJson("/api/chat"'));
   assert.ok(coach.includes("router.query.from"));
   assert.ok(coach.includes("safeSourcePath"));
