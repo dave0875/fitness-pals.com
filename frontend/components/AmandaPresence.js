@@ -75,13 +75,20 @@ export default function AmandaPresence({ busy = false, latestAnswer = "", onTran
 
     recognition.onstart = () => setVoiceState("listening");
     recognition.onresult = (event) => {
-      const transcript = Array.from(event.results || [])
+      const results = Array.from(event.results || []);
+      const transcript = results
         .map((result) => result?.[0]?.transcript || "")
         .join(" ")
         .trim();
-      if (!transcript) return;
-      setLastTranscript(transcript);
-      onTranscript?.(transcript);
+      if (transcript) setLastTranscript(transcript);
+
+      const finalizedTranscript = results
+        .slice(event.resultIndex || 0)
+        .filter((result) => result?.isFinal)
+        .map((result) => result?.[0]?.transcript || "")
+        .join(" ")
+        .trim();
+      if (finalizedTranscript) onTranscript?.(finalizedTranscript);
     };
     recognition.onerror = () => setVoiceState("unavailable");
     recognition.onend = () => {
