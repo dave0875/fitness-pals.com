@@ -918,3 +918,288 @@
 
 /* Electric Form Phase 1: activation entry */
 .electricEntry{max-width:1040px;min-height:100vh;margin:0 auto;padding:clamp(3rem,7vw,6rem) 1.25rem 5rem;position:relative}.electricEntry:before{content:"";position:fixed;inset:0;z-index:-1;background:radial-gradient(circle at 82% 8%,rgba(156,255,87,.12),transparent 26%),linear-gradient(145deg,#090d0a,#151b16 62%,#090d0a)}.electricEntry .pageHeader h1{font-family:var(--ef-font-display);font-size:clamp(3.4rem,8vw,6.6rem);line-height:.86;text-transform:uppercase;color:#f3f7f1;max-width:12ch}.electricEntry .lede{color:#aeb9b0}.electricEntry .eyebrow{color:var(--ef-color-electric);letter-spacing:.16em}.electricEntry .card,.electricEntry .wideCard,.electricEntry .statePanel{background:rgba(19,26,20,.92);border-color:#354038;color:#f1f5ef;box-shadow:var(--ef-shadow-cinematic)}.electricEntry .card p,.electricEntry .wideCard p,.electricEntry .statePanel p,.electricEntry .evidenceList{color:#aeb9b0}.electricEntry .primaryButton{background:var(--ef-color-electric);border-color:var(--ef-color-electric);color:#071006}.electricEntry .secondaryButton,.electricEntry .textLink{background:#111712;border-color:#4a564d;color:#eef4ed}.electricEntry .details summary{color:var(--ef-color-electric)}.electricEntry .form label{color:#c5cec7}.electricEntry .form input,.electricEntry .form select,.electricEntry .form textarea{background:#0c110d;color:#f4f7f2;border-color:#455148}.electricEntry .featureValue{color:var(--ef-color-electric)!important}@media(prefers-reduced-motion:reduce){.electricEntry:before{background:linear-gradient(145deg,#090d0a,#151b16 62%,#090d0a)}}
+
+/* Electric Form Phase 2: Today performance cockpit */
+.electricToday {
+  --ef-color-ink: #f2f6f0;
+  --ef-color-ink-strong: #ffffff;
+  --ef-color-muted: #aeb9b0;
+  --ef-color-surface: rgba(18, 25, 20, 0.94);
+  --ef-color-surface-raised: #182119;
+  --ef-color-canvas: #0b110d;
+  --ef-color-line: #303b32;
+  --ef-color-line-strong: #4a584d;
+  --ef-color-primary: var(--ef-color-electric);
+  --ef-color-primary-strong: #c7ffa2;
+  --ef-color-primary-soft: rgba(156, 255, 87, 0.12);
+  position: relative;
+  color: var(--ef-color-ink);
+}
+
+.electricToday .pageHeader {
+  position: relative;
+  min-height: clamp(300px, 40vw, 430px);
+  align-content: end;
+  overflow: hidden;
+  margin-bottom: 1.25rem;
+  padding: clamp(1.4rem, 4vw, 2.5rem);
+  background:
+    linear-gradient(90deg, rgba(7, 11, 8, 0.98) 0%, rgba(7, 11, 8, 0.88) 46%, rgba(7, 11, 8, 0.24) 76%, rgba(7, 11, 8, 0.58) 100%),
+    url("/electric-form/electric-entry-athletes.svg") right 20% center / min(58%, 650px) auto no-repeat,
+    #0b100c;
+  border: 1px solid #2f3a31;
+  border-radius: var(--ef-radius-xl);
+  box-shadow: var(--ef-shadow-cinematic);
+  isolation: isolate;
+  animation: electricTodayRise var(--ef-motion-slow) var(--ef-ease-out) both;
+}
+
+.electricToday .pageHeader::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--ef-color-electric), transparent 72%);
+  opacity: 0.92;
+}
+
+.electricToday .pageHeader > * {
+  position: relative;
+  z-index: 1;
+  max-width: 680px;
+}
+
+.electricToday .pageHeader h1 {
+  max-width: 11ch;
+  color: #f7faf5;
+  font-family: var(--ef-font-display);
+  font-size: clamp(3rem, 7vw, 5.9rem);
+  line-height: 0.88;
+  letter-spacing: -0.055em;
+  text-transform: uppercase;
+}
+
+.electricToday .eyebrow,
+.electricToday .questionLabel {
+  color: var(--ef-color-electric) !important;
+  letter-spacing: 0.14em;
+}
+
+.electricToday .lede {
+  max-width: 560px;
+  color: #c0cac2;
+}
+
+.amandaPresence {
+  min-height: 44px;
+  display: inline-flex;
+  width: fit-content;
+  gap: 0.65rem;
+  align-items: center;
+  margin-top: 0.8rem;
+  padding: 0.5rem 0.8rem;
+  color: #eef6eb;
+  background: rgba(11, 16, 12, 0.74);
+  border: 1px solid #425044;
+  border-radius: var(--ef-radius-pill);
+  text-decoration: none;
+  backdrop-filter: blur(12px);
+}
+
+.amandaPresence > span:last-child {
+  display: grid;
+  gap: 0.05rem;
+}
+
+.amandaPresence strong {
+  font-size: 0.82rem;
+}
+
+.amandaPresence small {
+  color: #9eaaa0;
+  font-size: 0.7rem;
+}
+
+.amandaPulse {
+  width: 0.72rem;
+  height: 0.72rem;
+  flex: 0 0 auto;
+  background: var(--ef-color-electric);
+  border-radius: 50%;
+  box-shadow: 0 0 0 0 rgba(156, 255, 87, 0.45);
+  animation: amandaAmbient 2.8s var(--ef-ease-out) infinite;
+}
+
+.electricToday .goalPill,
+.electricToday .statusBadge {
+  color: #d6ffba;
+  background: rgba(156, 255, 87, 0.12);
+}
+
+.electricToday .orbitStory,
+.electricToday .decisionHero,
+.electricToday .card,
+.electricToday .wideCard,
+.electricToday .statePanel,
+.electricToday .threadSidebar,
+.electricToday .coachSnapshot,
+.electricToday .messagePanel,
+.electricToday .coachActions,
+.electricToday .composerCard {
+  border-color: var(--ef-color-line);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.2);
+}
+
+.electricToday .orbitStory {
+  background:
+    linear-gradient(135deg, rgba(156, 255, 87, 0.06), transparent 42%),
+    var(--ef-color-surface);
+}
+
+.electricToday .decisionHero {
+  background:
+    linear-gradient(145deg, rgba(156, 255, 87, 0.055), transparent 48%),
+    var(--ef-color-surface);
+  border-color: #3c4a3f;
+  animation: electricTodayRise var(--ef-motion-slow) var(--ef-ease-out) 60ms both;
+}
+
+.electricToday .primaryButton {
+  color: #071006;
+  background: var(--ef-color-electric);
+  border-color: var(--ef-color-electric);
+}
+
+.electricToday .secondaryButton,
+.electricToday .textLink,
+.electricToday .compactButton {
+  color: #eef4ed;
+  background: #111712;
+  border-color: #4a584d;
+}
+
+.electricToday .form label {
+  color: #c6d0c8;
+}
+
+.electricToday .form input,
+.electricToday .form select,
+.electricToday .form textarea,
+.electricToday .chatForm textarea {
+  color: #f4f7f2;
+  background: #0b100c;
+  border-color: #455148;
+}
+
+.electricToday .planSummary,
+.electricToday .signalCard,
+.electricToday .weekDay,
+.electricToday .orbitStoryGrid article,
+.electricToday .coachSnapshot div,
+.electricToday .coachEvidenceCard,
+.electricToday .threadList a,
+.electricToday .suggestionRow button {
+  background: #0b110d;
+  border-color: #334036;
+}
+
+.electricToday .weekDay[data-state="planned"] {
+  background: rgba(156, 255, 87, 0.08);
+  border-color: #58704f;
+}
+
+.electricToday .weekDay[data-state="completed"] {
+  background: rgba(109, 170, 255, 0.08);
+}
+
+.electricToday .activityList li,
+.electricToday .todayContextBlock {
+  border-color: #2c372e;
+}
+
+.electricToday .featureValue {
+  color: #f8fbf6 !important;
+}
+
+.electricToday .dataThrough,
+.electricToday .muted,
+.electricToday .orbitStoryEvidence p,
+.electricToday .orbitStoryLoading {
+  color: #9eaaa0;
+}
+
+.electricToday .primaryButton,
+.electricToday .secondaryButton,
+.electricToday .textLink,
+.amandaPresence {
+  transition:
+    transform var(--ef-motion-fast) var(--ef-ease-out),
+    border-color var(--ef-motion-fast) linear,
+    background-color var(--ef-motion-fast) linear;
+}
+
+.electricToday .primaryButton:hover,
+.electricToday .secondaryButton:hover,
+.electricToday .textLink:hover,
+.amandaPresence:hover {
+  transform: translateY(-1px);
+}
+
+.amandaPresence:focus-visible {
+  outline: var(--ef-focus-ring);
+  outline-offset: var(--ef-focus-offset);
+}
+
+@keyframes electricTodayRise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes amandaAmbient {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(156, 255, 87, 0.38);
+  }
+  48% {
+    box-shadow: 0 0 0 8px rgba(156, 255, 87, 0);
+  }
+}
+
+@media (max-width: 720px) {
+  .electricToday .pageHeader {
+    min-height: 390px;
+    align-content: end;
+    background:
+      linear-gradient(180deg, rgba(7, 11, 8, 0.12) 0%, rgba(7, 11, 8, 0.9) 58%, #070b08 100%),
+      url("/electric-form/electric-entry-athletes.svg") center top / auto 58% no-repeat,
+      #0b100c;
+  }
+
+  .electricToday .pageHeader h1 {
+    font-size: clamp(2.8rem, 15vw, 4.6rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .electricToday .pageHeader,
+  .electricToday .decisionHero,
+  .amandaPulse {
+    animation: none;
+  }
+
+  .electricToday .primaryButton:hover,
+  .electricToday .secondaryButton:hover,
+  .electricToday .textLink:hover,
+  .amandaPresence:hover {
+    transform: none;
+  }
+
+  .amandaPresence {
+    backdrop-filter: none;
+  }
+}

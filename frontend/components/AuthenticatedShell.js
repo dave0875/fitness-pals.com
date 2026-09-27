@@ -33,7 +33,7 @@ function safeReturnPath(asPath) {
     : "/today";
 }
 
-export default function AuthenticatedShell({ active = "today", children }) {
+export default function AuthenticatedShell({ active = "today", children, variant = "standard", contentClassName = "" }) {
   const router = useRouter();
   const [profile, setProfile] = useState(null);
 
@@ -72,7 +72,7 @@ export default function AuthenticatedShell({ active = "today", children }) {
   const coachHref = `/coach?from=${encodeURIComponent(safeReturnPath(router.asPath))}`;
 
   return (
-    <div className={styles.shell}>
+    <div className={`${styles.shell} ${variant === "electric" ? styles.electricShell : ""}`.trim()} data-shell-variant={variant}>
       <a className={styles.skipLink} href="#main-content">
         Skip to content
       </a>
@@ -120,7 +120,7 @@ export default function AuthenticatedShell({ active = "today", children }) {
         ))}
       </nav>
 
-      <main className={styles.content} id="main-content">
+      <main className={`${styles.content} ${contentClassName}`.trim()} id="main-content">
         {children}
       </main>
     </div>

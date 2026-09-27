@@ -259,3 +259,73 @@
     padding-top: 1.25rem;
   }
 }
+
+
+/* Electric Form Phase 2: authenticated Today chrome */
+.electricShell {
+  min-height: 100vh;
+  color: #f2f6f0;
+  background:
+    radial-gradient(circle at 72% -12%, rgba(156, 255, 87, 0.12), transparent 32rem),
+    linear-gradient(155deg, #070b08 0%, #0d130f 54%, #080c09 100%);
+}
+
+.electricShell .header {
+  color: #f2f6f0;
+  background: rgba(8, 12, 9, 0.92);
+  border-bottom-color: #283229;
+  backdrop-filter: blur(18px);
+}
+
+.electricShell .brand,
+.electricShell .accountLink {
+  color: #f2f6f0;
+}
+
+.electricShell .brand small {
+  color: #8f9c92;
+}
+
+.electricShell .brandMark,
+.electricShell .coachLink,
+.electricShell .activeLink {
+  color: #071006;
+  background: var(--ef-color-electric);
+}
+
+.electricShell .navigation {
+  background: rgba(10, 15, 11, 0.94);
+  border-bottom-color: #283229;
+  backdrop-filter: blur(18px);
+}
+
+.electricShell .navLink {
+  color: #aeb9b0;
+}
+
+.electricShell .navLink:hover,
+.electricShell .navLink:focus-visible {
+  color: var(--ef-color-electric);
+  background: rgba(156, 255, 87, 0.08);
+}
+
+.electricShell .logout {
+  color: #dbe5dc;
+  border-color: #445047;
+}
+
+.electricShell .coachLink:focus-visible,
+.electricShell .accountLink:focus-visible,
+.electricShell .logout:focus-visible,
+.electricShell .navLink:focus-visible,
+.electricShell .activeLink:focus-visible {
+  outline: var(--ef-focus-ring);
+  outline-offset: var(--ef-focus-offset);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .electricShell .header,
+  .electricShell .navigation {
+    backdrop-filter: none;
+  }
+}
