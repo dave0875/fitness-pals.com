@@ -6,7 +6,7 @@
 
 .eyebrow {
   margin: 0;
-  color: #176b47;
+  color: var(--ef-color-primary);
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -23,7 +23,7 @@
 .lede {
   max-width: 680px;
   margin: 0.35rem 0 0;
-  color: #5a685f;
+  color: var(--ef-color-muted);
   font-size: 1.05rem;
   line-height: 1.6;
 }
@@ -38,10 +38,10 @@
 .card,
 .wideCard {
   padding: clamp(1rem, 3vw, 1.5rem);
-  background: #ffffff;
-  border: 1px solid #dce5dd;
-  border-radius: 1rem;
-  box-shadow: 0 8px 30px rgba(28, 51, 37, 0.05);
+  background: var(--ef-color-surface);
+  border: 1px solid var(--ef-color-line);
+  border-radius: var(--ef-radius-lg);
+  box-shadow: var(--ef-shadow-card);
 }
 
 .wideCard {
@@ -56,7 +56,7 @@
 
 .card p,
 .wideCard p {
-  color: #5a685f;
+  color: var(--ef-color-muted);
   line-height: 1.55;
 }
 
@@ -70,7 +70,7 @@
 .metric {
   min-height: 92px;
   padding: 0.85rem;
-  background: #f4f7f3;
+  background: var(--ef-color-canvas);
   border-radius: 0.75rem;
 }
 
@@ -81,7 +81,7 @@
 
 .metric span {
   margin-bottom: 0.35rem;
-  color: #5a685f;
+  color: var(--ef-color-muted);
   font-size: 0.76rem;
   text-transform: capitalize;
 }
@@ -103,9 +103,9 @@
   width: 100%;
   min-height: 48px;
   padding: 0.8rem;
-  color: #17211b;
+  color: var(--ef-color-ink);
   background: white;
-  border: 1px solid #bdcbbf;
+  border: 1px solid var(--ef-color-line-strong);
   border-radius: 0.65rem;
   font: inherit;
 }
@@ -129,7 +129,7 @@
   align-items: center;
   justify-content: center;
   padding: 0 1rem;
-  border-radius: 999px;
+  border-radius: var(--ef-radius-pill);
   font: inherit;
   font-weight: 800;
   cursor: pointer;
@@ -137,20 +137,20 @@
 
 .primaryButton {
   color: white;
-  background: #176b47;
-  border: 1px solid #176b47;
+  background: var(--ef-color-primary);
+  border: 1px solid var(--ef-color-primary);
 }
 
 .secondaryButton {
-  color: #176b47;
+  color: var(--ef-color-primary);
   background: white;
-  border: 1px solid #bdcbbf;
+  border: 1px solid var(--ef-color-line-strong);
 }
 
 .textLink {
-  color: #176b47;
+  color: var(--ef-color-primary);
   text-decoration: none;
-  border: 1px solid #dce5dd;
+  border: 1px solid var(--ef-color-line);
 }
 
 .form {
@@ -181,7 +181,7 @@
 
 .planSummary {
   padding: 1rem;
-  background: #f4f7f3;
+  background: var(--ef-color-canvas);
   border-radius: 0.85rem;
 }
 
@@ -192,9 +192,9 @@
 .statusBadge {
   display: inline-flex;
   padding: 0.25rem 0.55rem;
-  color: #135a3c;
-  background: #d9ede0;
-  border-radius: 999px;
+  color: var(--ef-color-primary-strong);
+  background: var(--ef-color-primary-soft);
+  border-radius: var(--ef-radius-pill);
   font-size: 0.75rem;
   font-weight: 900;
   text-transform: capitalize;
@@ -212,7 +212,7 @@
 }
 
 .planFacts dt {
-  color: #5a685f;
+  color: var(--ef-color-muted);
   font-size: 0.75rem;
   font-weight: 800;
   text-transform: uppercase;
@@ -220,7 +220,7 @@
 
 .planFacts dd {
   margin: 0.2rem 0 0;
-  color: #17211b;
+  color: var(--ef-color-ink);
   font-weight: 800;
 }
 
@@ -229,7 +229,7 @@
   gap: 0.45rem;
   margin: 0.5rem 0 1rem;
   padding-left: 1.25rem;
-  color: #5a685f;
+  color: var(--ef-color-muted);
   line-height: 1.5;
 }
 
@@ -251,7 +251,7 @@
   min-height: 44px;
   display: flex;
   align-items: center;
-  color: #176b47;
+  color: var(--ef-color-primary);
   cursor: pointer;
   font-weight: 800;
 }
@@ -276,9 +276,9 @@
   width: fit-content;
   margin: 0.5rem 0 0;
   padding: 0.45rem 0.75rem;
-  color: #135a3c;
-  background: #e6f4eb;
-  border-radius: 999px;
+  color: var(--ef-color-primary-strong);
+  background: var(--ef-color-primary-soft);
+  border-radius: var(--ef-radius-pill);
   font-size: 0.85rem;
   font-weight: 800;
 }
@@ -287,9 +287,9 @@
   display: grid;
   gap: 0.5rem;
   padding: clamp(1rem, 3vw, 1.5rem);
-  background: #ffffff;
-  border: 1px solid #dce5dd;
-  border-radius: 1rem;
+  background: var(--ef-color-surface);
+  border: 1px solid var(--ef-color-line);
+  border-radius: var(--ef-radius-lg);
 }
 
 .statePanel strong {
@@ -299,7 +299,7 @@
 .statePanel p,
 .dataThrough {
   margin: 0;
-  color: #5a685f;
+  color: var(--ef-color-muted);
 }
 
 .freshnessRow {
@@ -317,7 +317,7 @@
 
 .questionLabel {
   margin: 0 0 0.35rem !important;
-  color: #176b47 !important;
+  color: var(--ef-color-primary) !important;
   font-size: 0.75rem;
   font-weight: 900;
   letter-spacing: 0.08em;
@@ -326,7 +326,7 @@
 
 .featureValue {
   margin: 0.75rem 0 0.25rem !important;
-  color: #17211b !important;
+  color: var(--ef-color-ink) !important;
   font-size: clamp(1.55rem, 4vw, 2.4rem);
   font-weight: 900;
   letter-spacing: -0.035em;
@@ -342,7 +342,7 @@
 .signalCard {
   min-width: 0;
   padding: 0.8rem;
-  background: #f4f7f3;
+  background: var(--ef-color-canvas);
   border-radius: 0.75rem;
 }
 
@@ -352,7 +352,7 @@
 }
 
 .signalCard span {
-  color: #5a685f;
+  color: var(--ef-color-muted);
   font-size: 0.75rem;
 }
 
@@ -397,7 +397,7 @@
 }
 
 .activityList li span {
-  color: #5a685f;
+  color: var(--ef-color-muted);
   font-size: 0.85rem;
 }
 
@@ -405,7 +405,7 @@
 .secondaryButton:focus-visible,
 .textLink:focus-visible,
 .chatForm textarea:focus-visible {
-  outline: 3px solid #f2b84b;
+  outline: 3px solid var(--ef-color-focus);
   outline-offset: 3px;
 }
 
@@ -442,10 +442,10 @@
 .messagePanel,
 .coachActions,
 .composerCard {
-  background: #fff;
-  border: 1px solid #dce5dd;
-  border-radius: 1rem;
-  box-shadow: 0 8px 30px rgba(28, 51, 37, 0.05);
+  background: var(--ef-color-surface);
+  border: 1px solid var(--ef-color-line);
+  border-radius: var(--ef-radius-lg);
+  box-shadow: var(--ef-shadow-card);
 }
 
 .threadSidebar {
@@ -466,10 +466,10 @@
 .compactButton {
   min-height: 40px;
   padding: 0 0.8rem;
-  color: #176b47;
-  background: #fff;
-  border: 1px solid #bdcbbf;
-  border-radius: 999px;
+  color: var(--ef-color-primary);
+  background: var(--ef-color-surface);
+  border: 1px solid var(--ef-color-line-strong);
+  border-radius: var(--ef-radius-pill);
   font: inherit;
   font-weight: 800;
   cursor: pointer;
@@ -486,19 +486,19 @@
   gap: 0.2rem;
   min-height: 52px;
   padding: 0.65rem;
-  color: #17211b;
-  background: #f4f7f3;
+  color: var(--ef-color-ink);
+  background: var(--ef-color-canvas);
   border-radius: 0.7rem;
   text-decoration: none;
 }
 
 .threadList a[aria-current="page"] {
-  outline: 2px solid #176b47;
+  outline: 2px solid var(--ef-color-primary);
 }
 
 .threadList span,
 .muted {
-  color: #5a685f;
+  color: var(--ef-color-muted);
   font-size: 0.8rem;
 }
 
@@ -520,13 +520,13 @@
   gap: 0.2rem;
   min-width: 0;
   padding: 0.75rem;
-  background: #f4f7f3;
+  background: var(--ef-color-canvas);
   border-radius: 0.75rem;
 }
 
 .coachSnapshot span,
 .coachSnapshot small {
-  color: #5a685f;
+  color: var(--ef-color-muted);
 }
 
 .coachSnapshot span {
@@ -541,14 +541,14 @@
   gap: 0.65rem;
   align-items: center;
   padding: 0.75rem 1rem;
-  background: #e6f4eb;
+  background: var(--ef-color-primary-soft);
   border: 1px solid #bdddc9;
   border-radius: 0.85rem;
 }
 
 .contextChip a,
 .contextChip button {
-  color: #176b47;
+  color: var(--ef-color-primary);
   font: inherit;
   font-weight: 800;
 }
@@ -593,12 +593,12 @@
 }
 
 .coachMessage {
-  background: #fff;
-  border: 1px solid #dce5dd;
+  background: var(--ef-color-surface);
+  border: 1px solid var(--ef-color-line);
 }
 
 .failedMessage {
-  background: #fff6df;
+  background: var(--ef-color-surface)6df;
   border: 1px solid #ecd398;
 }
 
@@ -606,7 +606,7 @@
 .interpretationBadge {
   display: inline-flex;
   margin-bottom: 0.35rem;
-  color: #176b47;
+  color: var(--ef-color-primary);
   font-size: 0.75rem;
   font-weight: 900;
   text-transform: uppercase;
@@ -630,19 +630,19 @@
   display: grid;
   gap: 0.3rem;
   padding: 0.75rem;
-  background: #f4f7f3;
+  background: var(--ef-color-canvas);
   border-radius: 0.7rem;
 }
 
 .coachEvidenceCard span {
-  color: #176b47;
+  color: var(--ef-color-primary);
   font-size: 0.72rem;
   font-weight: 900;
   text-transform: uppercase;
 }
 
 .coachEvidenceCard p {
-  color: #5a685f;
+  color: var(--ef-color-muted);
   font-size: 0.85rem;
 }
 
@@ -650,7 +650,7 @@
   min-height: 40px;
   display: inline-flex;
   align-items: center;
-  color: #176b47;
+  color: var(--ef-color-primary);
   font-weight: 800;
 }
 
@@ -668,10 +668,10 @@
 .suggestionRow button {
   min-height: 40px;
   padding: 0.55rem 0.75rem;
-  color: #176b47;
-  background: #f4f7f3;
-  border: 1px solid #dce5dd;
-  border-radius: 999px;
+  color: var(--ef-color-primary);
+  background: var(--ef-color-canvas);
+  border: 1px solid var(--ef-color-line);
+  border-radius: var(--ef-radius-pill);
   font: inherit;
   cursor: pointer;
 }
@@ -688,7 +688,7 @@
 .contextChip button:focus-visible,
 .coachEvidenceCard a:focus-visible,
 .suggestionRow button:focus-visible {
-  outline: 3px solid #f2b84b;
+  outline: 3px solid var(--ef-color-focus);
   outline-offset: 3px;
 }
 
@@ -731,10 +731,10 @@
   display: grid;
   gap: 1rem;
   padding: clamp(1.1rem, 4vw, 2rem);
-  background: #ffffff;
+  background: var(--ef-color-surface);
   border: 1px solid #cdddcf;
   border-radius: 1.2rem;
-  box-shadow: 0 14px 40px rgba(28, 51, 37, 0.08);
+  box-shadow: var(--ef-shadow-raised);
 }
 
 .decisionHero > h2 {
@@ -747,7 +747,7 @@
 .decisionHero > p {
   max-width: 760px;
   margin: 0;
-  color: #5a685f;
+  color: var(--ef-color-muted);
   line-height: 1.55;
 }
 
@@ -796,13 +796,13 @@
 .weekDay > span,
 .weekDay > a {
   overflow-wrap: anywhere;
-  color: #5a685f;
+  color: var(--ef-color-muted);
   font-size: 0.78rem;
   line-height: 1.35;
 }
 
 .weekDay > a {
-  color: #176b47;
+  color: var(--ef-color-primary);
   font-weight: 800;
   text-decoration: none;
 }
@@ -814,7 +814,7 @@
 }
 
 .weekDay a:focus-visible {
-  outline: 3px solid #f2b84b;
+  outline: 3px solid var(--ef-color-focus);
   outline-offset: 2px;
 }
 
@@ -845,9 +845,9 @@
   gap: 1rem;
   margin: 1rem 0 1.25rem;
   padding: clamp(1rem, 3vw, 1.5rem);
-  background: linear-gradient(135deg, #f5faf6, #ffffff);
+  background: linear-gradient(135deg, #f5faf6, var(--ef-color-surface));
   border: 1px solid #c9dfcf;
-  border-radius: 1rem;
+  border-radius: var(--ef-radius-lg);
   box-shadow: 0 10px 34px rgba(28, 51, 37, 0.06);
 }
 
@@ -872,14 +872,14 @@
   display: grid;
   gap: 0.35rem;
   padding: 0.9rem;
-  background: #ffffff;
-  border: 1px solid #dce5dd;
+  background: var(--ef-color-surface);
+  border: 1px solid var(--ef-color-line);
   border-radius: 0.8rem;
 }
 
 .orbitStoryGrid span,
 .orbitStoryGrid small {
-  color: #5a685f;
+  color: var(--ef-color-muted);
 }
 
 .orbitStoryGrid span {
