@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -36,6 +37,9 @@ DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
 DRIVE_OAUTH_SCOPES = ("openid", "email", DRIVE_READONLY_SCOPE)
 GOOGLE_DRIVE_PROVIDER = "google_drive"
 FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
+TRANSIENT_DRIVE_STATUS_CODES = {429, 500, 502, 503, 504}
+DRIVE_REQUEST_MAX_ATTEMPTS = 4
+DRIVE_REQUEST_BASE_BACKOFF_SECONDS = 0.5
 
 
 @dataclass(frozen=True)
@@ -339,6 +343,50 @@ class GoogleDriveArchiveClient:
                 self.refresh_callback()
         return {"Authorization": f"Bearer {self.credentials.token}"}
 
+    @staticmethod
+    def _retry_delay_seconds(response: httpx.Response | None, attempt: int) -> float:
+        if response is not None:
+            retry_after = response.headers.get("Retry-After")
+            if retry_after:
+                try:
+                    return max(0.0, min(float(retry_after), 8.0))
+                except ValueError:
+                    pass
+        return min(
+            DRIVE_REQUEST_BASE_BACKOFF_SECONDS * (2**attempt),
+            8.0,
+        )
+
+    def _get_with_retry(
+        self,
+        url: str,
+        *,
+        params: dict[str, str | int],
+    ) -> httpx.Response:
+        """GET from Drive with bounded retries for transient upstream failures."""
+        for attempt in range(DRIVE_REQUEST_MAX_ATTEMPTS):
+            response: httpx.Response | None = None
+            try:
+                response = self.http.get(
+                    url,
+                    params=params,
+                    headers=self._headers(),
+                )
+                response.raise_for_status()
+                return response
+            except httpx.HTTPStatusError as exc:
+                if (
+                    exc.response.status_code not in TRANSIENT_DRIVE_STATUS_CODES
+                    or attempt == DRIVE_REQUEST_MAX_ATTEMPTS - 1
+                ):
+                    raise
+                response = exc.response
+            except httpx.TransportError:
+                if attempt == DRIVE_REQUEST_MAX_ATTEMPTS - 1:
+                    raise
+            time.sleep(self._retry_delay_seconds(response, attempt))
+        raise RuntimeError("Google Drive request retry loop exhausted unexpectedly")
+
     def _children(self, folder_id: str) -> list[dict[str, Any]]:
         page_token = None
         children: list[dict[str, Any]] = []
@@ -354,10 +402,10 @@ class GoogleDriveArchiveClient:
             }
             if page_token:
                 params["pageToken"] = page_token
-            response = self.http.get(
-                f"{DRIVE_API}/files", params=params, headers=self._headers()
+            response = self._get_with_retry(
+                f"{DRIVE_API}/files",
+                params=params,
             )
-            response.raise_for_status()
             payload = response.json()
             children.extend(payload.get("files") or [])
             page_token = payload.get("nextPageToken")
@@ -448,10 +496,8 @@ class GoogleDriveArchiveClient:
         return sorted(objects, key=lambda item: (item.modified_time or "", item.name, item.object_id))
 
     def download(self, item: DriveArchiveObject) -> bytes:
-        response = self.http.get(
+        response = self._get_with_retry(
             f"{DRIVE_API}/files/{item.object_id}",
             params={"alt": "media", "supportsAllDrives": "true"},
-            headers=self._headers(),
         )
-        response.raise_for_status()
         return response.content

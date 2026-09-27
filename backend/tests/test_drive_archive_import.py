@@ -6,6 +6,8 @@ import io
 import json
 import uuid
 import zipfile
+
+import httpx
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
@@ -31,7 +33,7 @@ from app.models import (
     User,
     UserProviderToken,
 )
-from app.services import archive_import_jobs, garmin_archive_import
+from app.services import archive_import_jobs, garmin_archive_import, google_drive_archive
 from app.routes import archive_imports as archive_routes
 from app.services.garmin.activity import persist_activity_summaries
 from app.services.garmin_archive_import import NoSupportedGarminActivities, ingest_archive_object
@@ -427,6 +429,109 @@ def test_archive_job_persists_live_progress_after_each_checkpoint(monkeypatch):
     assert job.result_json == result
     assert job.status == "completed"
     assert result["stage"] == "completed"
+
+
+def test_drive_listing_retries_transient_500_then_recovers(monkeypatch):
+    request = httpx.Request("GET", "https://www.googleapis.com/drive/v3/files")
+    responses = [
+        httpx.Response(500, request=request),
+        httpx.Response(
+            200,
+            request=request,
+            json={"files": [{"id": "fit-one", "name": "one.fit", "mimeType": "application/fits"}]},
+        ),
+    ]
+
+    class SequencedHttp:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, *_args, **_kwargs):
+            response = responses[self.calls]
+            self.calls += 1
+            return response
+
+    http = SequencedHttp()
+    sleeps = []
+    monkeypatch.setattr(google_drive_archive.time, "sleep", sleeps.append)
+    client = GoogleDriveArchiveClient(
+        settings=SimpleNamespace(google_drive_archive_max_objects=10),
+        http_client=http,
+        credentials=SimpleNamespace(valid=True, token="token"),
+    )
+
+    children = client._children("folder-one")
+
+    assert len(children) == 1
+    assert children[0]["id"] == "fit-one"
+    assert http.calls == 2
+    assert sleeps == [0.5]
+
+
+def test_drive_download_retries_transport_timeout_then_recovers(monkeypatch):
+    request = httpx.Request(
+        "GET", "https://www.googleapis.com/drive/v3/files/fit-one"
+    )
+
+    class FlakyHttp:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, *_args, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise httpx.ReadTimeout("temporary timeout", request=request)
+            return httpx.Response(200, request=request, content=b"fit-bytes")
+
+    http = FlakyHttp()
+    sleeps = []
+    monkeypatch.setattr(google_drive_archive.time, "sleep", sleeps.append)
+    client = GoogleDriveArchiveClient(
+        settings=SimpleNamespace(google_drive_archive_max_objects=10),
+        http_client=http,
+        credentials=SimpleNamespace(valid=True, token="token"),
+    )
+    source = DriveArchiveObject(
+        object_id="fit-one",
+        name="one.fit",
+        mime_type="application/fits",
+        version="v1",
+        modified_time=None,
+        size_bytes=10,
+    )
+
+    content = client.download(source)
+
+    assert content == b"fit-bytes"
+    assert http.calls == 2
+    assert sleeps == [0.5]
+
+
+def test_drive_permission_failure_is_not_retried(monkeypatch):
+    request = httpx.Request("GET", "https://www.googleapis.com/drive/v3/files")
+
+    class ForbiddenHttp:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, *_args, **_kwargs):
+            self.calls += 1
+            return httpx.Response(403, request=request)
+
+    http = ForbiddenHttp()
+    sleeps = []
+    monkeypatch.setattr(google_drive_archive.time, "sleep", sleeps.append)
+    client = GoogleDriveArchiveClient(
+        settings=SimpleNamespace(google_drive_archive_max_objects=10),
+        http_client=http,
+        credentials=SimpleNamespace(valid=True, token="token"),
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        client._children("folder-one")
+
+    assert http.calls == 1
+    assert sleeps == []
 
 
 def test_drive_inventory_emits_discovery_heartbeats():
