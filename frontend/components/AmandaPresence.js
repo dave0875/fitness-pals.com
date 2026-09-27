@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { electricFormSoundController } from "../lib/electricFormAudio.mjs";
 import styles from "../styles/AthletePages.module.css";
 
 const STATE_LABELS = {
@@ -48,6 +49,7 @@ export default function AmandaPresence({ busy = false, latestAnswer = "", onTran
         : voiceState;
 
   function stopVoice() {
+    electricFormSoundController.play("amanda-stop", { userInitiated: true });
     try {
       recognitionRef.current?.abort?.();
     } catch (_error) {
@@ -65,6 +67,7 @@ export default function AmandaPresence({ busy = false, latestAnswer = "", onTran
     }
 
     // Listening is always a user gesture. Starting it also barges into local speech.
+    electricFormSoundController.play("amanda-listen", { userInitiated: true });
     window.speechSynthesis?.cancel?.();
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     const recognition = new Recognition();
@@ -111,6 +114,7 @@ export default function AmandaPresence({ busy = false, latestAnswer = "", onTran
     }
 
     // Speech is never automatic. This path is reachable only from the athlete's button.
+    electricFormSoundController.play("amanda-speak", { userInitiated: true });
     window.speechSynthesis.cancel();
     const utterance = new window.SpeechSynthesisUtterance(latestAnswer);
     utterance.lang = "en-US";
