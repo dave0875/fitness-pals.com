@@ -33,7 +33,7 @@ test("Today and Progress keep legacy implementations available while V2 routes s
 
   assert.ok(today.includes('from "./dashboard"'));
   assert.ok(progress.includes('from "./journey"'));
-  assert.ok(dashboard.includes('<AuthenticatedShell active="today">'));
+  assert.ok(dashboard.includes('<AuthenticatedShell active="today"'));
   assert.ok(journey.includes('<AuthenticatedShell active="progress">'));
 });
 
