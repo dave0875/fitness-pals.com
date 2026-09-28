@@ -443,7 +443,7 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         ):
             return FakeResponse(
                 200,
-                '<html>Fitness Pals <section data-contract="human-heat-v1"></section><section data-contract="athlete-orbit-story-v1"></section></html>',
+                '<html>Fitness Pals <section data-contract="human-heat-v1" data-art-direction="magnetic-service-v2"></section><section data-contract="athlete-orbit-story-v1"></section></html>',
             )
         if url.endswith("/api/auth/session"):
             raise http_error(url, 401, {"detail": "Credentials missing"})
@@ -807,4 +807,4 @@ def test_human_heat_public_front_door_requires_release_marker() -> None:
         auth_token="token",
     )
     front_door = next(probe for probe in probes if probe.name == "public front door")
-    assert front_door.expected_text == 'data-contract="human-heat-v1"'
+    assert front_door.expected_text == 'data-art-direction="magnetic-service-v2"'

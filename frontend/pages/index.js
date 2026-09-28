@@ -88,11 +88,11 @@ export default function Home() {
 
         <div className={styles.heroGrid}>
           <div className={styles.heroCopy}>
-            <p className={styles.kicker}>TRAINING INTELLIGENCE · BUILT AROUND YOU</p>
-            <h1>Build the body.<br/><em>Read the signal.</em></h1>
-            <p className={styles.lede}>Your workouts are only half the story. Fitness Pals connects load, recovery, sleep and ambition, then turns the full picture into the next move.</p>
+            <p className={styles.kicker}>PRIVATE PERFORMANCE · BUILT AROUND YOU</p>
+            <h1>Your ambition.<br/><em>Our full attention.</em></h1>
+            <p className={styles.lede}>You bring the hunger. Fitness Pals brings an attentive coach, the evidence, and the next move, shaped around the life you actually live.</p>
             <div className={styles.ctas}><HeroCtas state={sessionState} authHref={authWelcomeHref} /></div>
-            <p className={styles.microcopy}>Secure app sign-in · Garmin-backed training history · You stay in control</p>
+            <p className={styles.microcopy}>Private by design · Garmin-backed evidence · Guidance that stays centered on you</p>
           </div>
 
           <HumanHeatMedia />
@@ -116,10 +116,10 @@ export default function Home() {
 
       <section className={styles.coachSection}>
         <div>
-          <p className={styles.kicker}>AMANDA · COACH PRESENCE</p>
-          <h2>Calm voice.<br/>Sharp signal.</h2>
+          <p className={styles.kicker}>AMANDA · ATTENTIVE COACH PRESENCE</p>
+          <h2>Seen clearly.<br/>Guided closely.</h2>
         </div>
-        <blockquote>“You bring the ambition. I’ll keep the evidence in the room.”<footer>Visual guidance first. Voice never autoplays.</footer></blockquote>
+        <blockquote>“Your ambition deserves more than a dashboard. I’ll notice what changes, stay close to the evidence, and help you choose what comes next.”<footer>Visual guidance first. Voice never autoplays.</footer></blockquote>
       </section>
 
       <section className={styles.explainability} id="explainability-preview">
@@ -147,7 +147,7 @@ export default function Home() {
         </div>
       </section>
 
-      <footer className={styles.footer}><span>FITNESS PALS · ELECTRIC FORM</span><a href="/privacy">Privacy Policy</a></footer>
+      <footer className={styles.footer}><span>FITNESS PALS · VITAL PRESENCE</span><a href="/privacy">Privacy Policy</a></footer>
     </main>
   );
 }

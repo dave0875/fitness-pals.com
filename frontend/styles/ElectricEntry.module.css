@@ -19,3 +19,107 @@
 @media(max-width:900px){.womanPortrait{inset:0 0 13% 14%}.manPortrait{width:46%;height:42%}.mediaCredit{right:1%;bottom:.5%}}
 @media(max-width:560px){.athleteStage{min-height:430px}.womanPortrait{inset:0 0 18% 4%;border-radius:34% 8px 8px 8px}.womanPortrait img{object-position:50% 34%}.manPortrait{left:0;bottom:0;width:52%;height:40%;border-radius:8px 26% 8px 8px}.manPortrait img{object-position:50% 32%}.signalCard{right:0;bottom:3%;width:160px}.mediaCredit{max-width:44%;font-size:.5rem}}
 
+
+/* Human Heat manual repair: Magnetic Service */
+.hero{background:
+  radial-gradient(circle at 78% 22%,rgba(222,188,116,.18),transparent 24%),
+  radial-gradient(circle at 64% 46%,rgba(156,255,87,.11),transparent 31%),
+  linear-gradient(132deg,#060806 0%,#12140f 55%,#080a08 100%)}
+.heroGrid{grid-template-columns:minmax(0,.82fr) minmax(480px,1.18fr);gap:clamp(2rem,4.5vw,5rem)}
+.hero h1{max-width:10ch}
+.hero h1 em{color:#e7dcc2;-webkit-text-stroke:0;text-shadow:0 0 42px rgba(222,188,116,.11)}
+.lede{max-width:620px;color:#c6cec6}
+.athleteStage{
+  min-height:690px;
+  overflow:hidden;
+  border-radius:30px;
+  border:1px solid rgba(222,188,116,.24);
+  background:
+    radial-gradient(circle at 28% 28%,rgba(222,188,116,.14),transparent 30%),
+    radial-gradient(circle at 76% 40%,rgba(156,255,87,.1),transparent 34%),
+    linear-gradient(150deg,#171813 0%,#090b09 70%);
+  box-shadow:0 38px 100px rgba(0,0,0,.55),inset 0 0 70px rgba(255,255,255,.025)
+}
+.athleteStage:before{
+  inset:4%;
+  border:1px solid rgba(222,188,116,.2);
+  border-radius:24px;
+  transform:none;
+  box-shadow:inset 0 0 80px rgba(222,188,116,.025)
+}
+.athleteStage:after{
+  z-index:3;
+  background:
+    linear-gradient(90deg,rgba(5,7,5,.14) 0%,transparent 32%,transparent 68%,rgba(4,6,4,.24) 100%),
+    linear-gradient(180deg,transparent 52%,rgba(5,7,5,.38) 100%)
+}
+.athletePortrait{border:1px solid rgba(240,224,188,.2);box-shadow:0 30px 80px rgba(0,0,0,.6)}
+.athletePortrait img{filter:saturate(.94) contrast(1.08) brightness(.84) sepia(.035)}
+.womanPortrait{
+  inset:-2% 28% 5% -3%;
+  z-index:2;
+  border-radius:26px 48% 18px 18px;
+  transform:rotate(-1.3deg)
+}
+.womanPortrait img{object-position:50% 26%}
+.manPortrait{
+  left:auto;
+  right:-2%;
+  top:7%;
+  bottom:auto;
+  width:44%;
+  height:78%;
+  z-index:1;
+  border-radius:42% 20px 20px 20px;
+  transform:rotate(1.5deg)
+}
+.manPortrait img{object-position:50% 30%}
+.presenceCard{
+  position:absolute;
+  z-index:5;
+  left:5%;
+  bottom:5%;
+  width:min(390px,58%);
+  padding:1.1rem 1.2rem 1.15rem;
+  background:linear-gradient(120deg,rgba(10,12,9,.92),rgba(21,20,15,.78));
+  border:1px solid rgba(222,188,116,.36);
+  border-left:3px solid #debc74;
+  backdrop-filter:blur(18px);
+  box-shadow:0 24px 54px rgba(0,0,0,.42)
+}
+.presenceCard span{display:block;color:#debc74;font-size:.62rem;font-weight:900;letter-spacing:.16em}
+.presenceCard strong{display:block;margin:.45rem 0;color:#fff6e5;font-family:var(--ef-font-display);font-size:clamp(1.35rem,2vw,2rem);line-height:.95;text-transform:uppercase}
+.presenceCard small{display:block;color:#bfc7bf;line-height:1.45;font-size:.72rem}
+.signalCard{
+  z-index:5;
+  right:4%;
+  top:5%;
+  bottom:auto;
+  width:184px;
+  background:linear-gradient(145deg,rgba(12,16,12,.9),rgba(25,22,15,.82));
+  border:1px solid rgba(222,188,116,.38)
+}
+.signalCard strong{color:#debc74}
+.motionLabel{z-index:5;left:auto;right:1.6%;bottom:3%;color:#97866b}
+.mediaCredit{z-index:5;right:4%;bottom:1.4%;color:#817b70}
+@media(max-width:900px){
+  .heroGrid{grid-template-columns:1fr}
+  .athleteStage{min-height:620px}
+  .womanPortrait{inset:-1% 27% 8% -4%}
+  .manPortrait{right:-1%;top:8%;width:43%;height:71%}
+  .presenceCard{left:3%;bottom:4%;width:min(420px,62%)}
+}
+@media(max-width:560px){
+  .athleteStage{min-height:520px;border-radius:22px}
+  .womanPortrait{inset:0 19% 25% -10%;border-radius:22px 40% 14px 14px}
+  .womanPortrait img{object-position:50% 24%}
+  .manPortrait{right:-9%;top:9%;width:53%;height:56%;border-radius:38% 14px 14px 14px}
+  .manPortrait img{object-position:50% 24%}
+  .presenceCard{left:2%;bottom:2%;width:64%;padding:.85rem .9rem}
+  .presenceCard strong{font-size:1.25rem}
+  .presenceCard small{font-size:.66rem}
+  .signalCard{right:2%;top:2%;width:146px;padding:.75rem}
+  .signalCard strong{font-size:2.55rem}
+  .motionLabel{display:none}
+  .mediaCredit{right:2%;bottom:.5%;max-width:31%;font-size:.46rem}
+}
