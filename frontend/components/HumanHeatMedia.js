@@ -34,9 +34,19 @@ export default function HumanHeatMedia() {
   const man = media.assets.find((asset) => asset.role === "adult man athlete");
 
   return (
-    <div className={styles.athleteStage} data-contract={media.contractMarker}>
+    <div
+      className={styles.athleteStage}
+      data-contract={media.contractMarker}
+      data-art-direction={media.artDirection.marker}
+    >
       <AthletePortrait asset={woman} className={styles.womanPortrait} eager />
       <AthletePortrait asset={man} className={styles.manPortrait} />
+
+      <div className={styles.presenceCard}>
+        <span>YOU HAVE OUR ATTENTION</span>
+        <strong>Built to notice. Ready to guide.</strong>
+        <small>Performance intelligence shaped around your life, your ambition, and your next move.</small>
+      </div>
 
       <div
         className={styles.signalCard}
@@ -47,9 +57,9 @@ export default function HumanHeatMedia() {
         <small>Demo only · not your athlete data.</small>
       </div>
 
-      <div className={styles.motionLabel}>FORM / LOAD / RECOVERY</div>
+      <div className={styles.motionLabel}>FORM / AMBITION / ATTENTION</div>
       <p className={styles.mediaCredit}>
-        Performance photography · Peter Zhan + Jakub Klucký / Unsplash
+        Performance photography · Rodrigo Rodrigues + Praise Judah / Unsplash
       </p>
     </div>
   );

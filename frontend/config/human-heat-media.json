@@ -1,9 +1,20 @@
 {
-  "version": "human-heat-v1",
+  "version": "human-heat-v1.1",
   "contractMarker": "human-heat-v1",
-  "purpose": "Cinematic adult-athlete performance media for the public Fitness Pals entry experience.",
+  "purpose": "Luxury-performance adult-athlete media for a magnetic, customer-centered public Fitness Pals entry experience.",
   "remoteOrigin": "https://images.unsplash.com",
   "license": "Unsplash License",
+  "artDirection": {
+    "marker": "magnetic-service-v2",
+    "intent": "Aspirational athletic beauty, premium status, warmth, and direct attentive service to the customer.",
+    "relationshipCues": [
+      "direct viewer engagement",
+      "warmth",
+      "attentive service",
+      "premium confidence",
+      "invitation into the customer's performance journey"
+    ]
+  },
   "representation": {
     "required": [
       "adult woman athlete",
@@ -11,7 +22,10 @@
     ],
     "athleticPerformanceFirst": true,
     "minorsAllowed": false,
-    "sexualizedFramingAllowed": false
+    "sensualEditorialFramingAllowed": true,
+    "explicitSexualFramingAllowed": false,
+    "objectifyingFramingAllowed": false,
+    "serviceOrientationRequired": true
   },
   "playback": {
     "autoplayAudio": false,
@@ -19,24 +33,24 @@
   },
   "assets": [
     {
-      "id": "track-woman",
+      "id": "editorial-woman",
       "role": "adult woman athlete",
-      "creator": "Peter Zhan",
-      "sourcePage": "https://unsplash.com/photos/a-female-runner-competes-in-a-track-and-field-race-dxRgfZAAGfg",
+      "creator": "Rodrigo Rodrigues | WOLF Λ R T",
+      "sourcePage": "https://unsplash.com/photos/a-woman-in-athletic-wear-smiles-in-a-gym-7ZWLbfdXP4o",
       "license": "Unsplash License",
-      "alt": "Adult woman sprinter driving through a track race under stadium light",
+      "alt": "Adult woman athlete smiling directly toward the viewer in a polished performance gym",
       "budgetClass": "hero",
       "maxBytes": 340000,
       "maxQuality": 62,
       "variants": {
         "desktop": {
-          "src": "https://images.unsplash.com/photo-1776705865329-1d6c826a0c64?auto=format&fit=crop&fm=webp&q=62&w=900&h=1200",
+          "src": "https://images.unsplash.com/photo-1770026136368-0873a0833a20?auto=format&fit=crop&fm=webp&q=62&w=900&h=1200",
           "format": "webp",
           "width": 900,
           "height": 1200
         },
         "mobile": {
-          "src": "https://images.unsplash.com/photo-1776705865329-1d6c826a0c64?auto=format&fit=crop&fm=webp&q=60&w=640&h=820",
+          "src": "https://images.unsplash.com/photo-1770026136368-0873a0833a20?auto=format&fit=crop&fm=webp&q=60&w=640&h=820",
           "format": "webp",
           "width": 640,
           "height": 820
@@ -44,24 +58,24 @@
       }
     },
     {
-      "id": "track-man",
+      "id": "editorial-man",
       "role": "adult man athlete",
-      "creator": "Jakub Klucký",
-      "sourcePage": "https://unsplash.com/photos/a-male-runner-starting-a-race-on-a-track-LUTud0h2-S0",
+      "creator": "Praise Judah",
+      "sourcePage": "https://unsplash.com/photos/man-in-gym-wearing-athletic-jacket-g_WYheSv1vw",
       "license": "Unsplash License",
-      "alt": "Adult man sprinter launching from a starting block on a track",
+      "alt": "Adult man athlete in a dark training jacket standing confidently in a polished gym",
       "budgetClass": "supporting",
       "maxBytes": 220000,
       "maxQuality": 60,
       "variants": {
         "desktop": {
-          "src": "https://images.unsplash.com/photo-1763639700615-225fe7fdffff?auto=format&fit=crop&fm=webp&q=60&w=700&h=900",
+          "src": "https://images.unsplash.com/photo-1762744827101-404f5cc7d8ab?auto=format&fit=crop&fm=webp&q=60&w=700&h=900",
           "format": "webp",
           "width": 700,
           "height": 900
         },
         "mobile": {
-          "src": "https://images.unsplash.com/photo-1763639700615-225fe7fdffff?auto=format&fit=crop&fm=webp&q=58&w=520&h=680",
+          "src": "https://images.unsplash.com/photo-1762744827101-404f5cc7d8ab?auto=format&fit=crop&fm=webp&q=58&w=520&h=680",
           "format": "webp",
           "width": 520,
           "height": 680
