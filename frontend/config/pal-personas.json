@@ -1,0 +1,148 @@
+{
+  "version": "pal-identity-contract-v1",
+  "initiative": "Vital Presence",
+  "phase": "2A",
+  "name": "Pal Identity Contract",
+  "mission": "Make each approved Fitness Pal a durable, independently voiced and remembered identity while preserving myChat and Fitness-Pals security boundaries.",
+  "approvedFinalistCount": 5,
+  "knownFinalists": [
+    {
+      "candidateId": "W16",
+      "displayName": null,
+      "sourceStatus": "approved-visual-candidate",
+      "activationStatus": "awaiting-canonical-persona-package"
+    },
+    {
+      "candidateId": "W21",
+      "displayName": null,
+      "sourceStatus": "approved-visual-candidate",
+      "activationStatus": "awaiting-canonical-persona-package"
+    },
+    {
+      "candidateId": "W51",
+      "displayName": "Tokyo Strength",
+      "sourceStatus": "approved-visual-candidate",
+      "activationStatus": "awaiting-canonical-persona-package"
+    }
+  ],
+  "unresolvedFinalistSlots": 2,
+  "unresolvedIdentityRule": "Do not invent candidate ids, names, biographies, voices, or personalities for finalists that are not yet represented in source control. They remain non-activatable slots until their canonical identities are supplied.",
+  "personaIdentity": {
+    "canonicalKey": "persona_id",
+    "format": "stable-lowercase-slug",
+    "immutableAfterActivation": true,
+    "onePersonaIdBinds": [
+      "visual-avatar",
+      "model-definition",
+      "system-personality-contract",
+      "voice-profile",
+      "memory-namespace",
+      "capability-manifest"
+    ],
+    "modelDefinitionRequirement": "Every activated pal has its own generated model definition equivalent in role to myChat/Amanda.Modelfile; shared base weights are allowed but the persona system contract is not.",
+    "personalityRequirement": [
+      "voice",
+      "attitude",
+      "disposition",
+      "personality",
+      "interaction-boundaries"
+    ]
+  },
+  "memory": {
+    "ownerRepository": "dave0875/myChat",
+    "scopeKey": ["authenticated_profile_id", "persona_id"],
+    "crossPersonaRecallAllowed": false,
+    "anonymousPrivateMemoryAllowed": false,
+    "fitnessPalsCopiesPrivateMemory": false,
+    "migrationRequiredBeforeActivation": true,
+    "migrationRule": "Use myChat's explicit migration-ledger mechanism once that mechanism is terminal-green on main; do not introduce an ad-hoc schema initializer."
+  },
+  "voice": {
+    "ownerRepository": "dave0875/myChat",
+    "distinctVoicePerActivatedPersona": true,
+    "voiceProfileKeyedByPersonaId": true,
+    "speakerRecognitionIsAuthentication": false,
+    "privateProfileUnlockAuthority": "myChat authentication boundary",
+    "microphoneAlwaysUserInitiated": true,
+    "autoplayVoice": false,
+    "bargeInStopRequired": true
+  },
+  "integration": {
+    "fitnessPalsRepository": "dave0875/fitness-pals.com",
+    "myChatRepository": "dave0875/myChat",
+    "path": [
+      "Fitness-Pals authenticated UI",
+      "Fitness-Pals same-origin pal adapter",
+      "separately deployed myChat service"
+    ],
+    "browserDirectPrivateServiceAccess": false,
+    "copyMyChatSourceIntoFitnessPals": false,
+    "copyProfiles": false,
+    "copyMemories": false,
+    "copyVoiceCredentials": false,
+    "copyBiometricMaterial": false,
+    "copyPasskeys": false,
+    "fallback": "Existing Fitness-Pals text Coach remains usable when persona service, voice, private profile, or myChat is unavailable."
+  },
+  "rollout": [
+    {
+      "slice": "2A",
+      "name": "Pal Identity Contract",
+      "repository": "dave0875/fitness-pals.com",
+      "purpose": "Freeze persona identity, ownership, isolation, and activation rules.",
+      "schemaChange": false
+    },
+    {
+      "slice": "2B",
+      "name": "Persona Registry and Model Renderer",
+      "repository": "dave0875/myChat",
+      "purpose": "Generalize Amanda's generated model definition into a persona registry and one generated model definition per activated pal.",
+      "dependsOn": ["myChat migration-ledger PASS"],
+      "schemaChange": false
+    },
+    {
+      "slice": "2C",
+      "name": "Persona Memory Namespace",
+      "repository": "dave0875/myChat",
+      "purpose": "Migrate long-term memory ownership from profile-only to profile-plus-persona without cross-persona recall.",
+      "dependsOn": ["2B", "myChat migration-ledger PASS"],
+      "schemaChange": true
+    },
+    {
+      "slice": "2D",
+      "name": "Distinct Living Voices",
+      "repository": "dave0875/myChat",
+      "purpose": "Bind independent voice profiles and speaking behavior to each activated persona.",
+      "dependsOn": ["2B"]
+    },
+    {
+      "slice": "2E",
+      "name": "Fitness-Pals Pal Adapter",
+      "repository": "dave0875/fitness-pals.com",
+      "purpose": "Expose versioned persona discovery and turn-taking through the same-origin adapter while preserving text Coach fallback.",
+      "dependsOn": ["2B", "2C"]
+    },
+    {
+      "slice": "2F",
+      "name": "Embodied Pal Selection",
+      "repository": "dave0875/fitness-pals.com",
+      "purpose": "Bind the approved finalist visuals to live persona sessions and user choice with accessible, responsive interaction.",
+      "dependsOn": ["2D", "2E", "all-five-canonical-finalist-identities"]
+    }
+  ],
+  "activationGates": {
+    "exactFiveFinalistsRequired": true,
+    "canonicalIdentityRequired": true,
+    "modelDefinitionRequired": true,
+    "distinctVoiceRequired": true,
+    "personaScopedMemoryRequired": true,
+    "textCoachFallbackRequired": true,
+    "terminalGreenRequired": true
+  },
+  "observedBaselines": {
+    "fitnessPalsMainSha": "47b56c547cd5578a301bb77ba1b522f6871398f5",
+    "fitnessPalsWorkflowRun": "36364349921",
+    "myChatObservedMainShaDuringDiscovery": "88f17a99983ba2be4d148fa572a56c4511a91c87",
+    "note": "The myChat SHA is discovery evidence, not a frozen implementation base. Slice 2B must re-read then-current terminal-green myChat main."
+  }
+}
