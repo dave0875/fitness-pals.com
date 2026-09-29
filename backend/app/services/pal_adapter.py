@@ -190,16 +190,41 @@ class PalAdapter:
         client = self._client or httpx.Client()
         close_client = self._client is None
         try:
-            response = client.request(
-                "POST",
-                f"{base}{path}",
-                headers=self._headers(),
-                json=payload,
-                timeout=self.voice_timeout_seconds,
-            )
-            response.raise_for_status()
-            audio = response.content
-            headers = {key.lower(): value for key, value in response.headers.items()}
+            for attempt in range(2):
+                response = client.request(
+                    "POST",
+                    f"{base}{path}",
+                    headers=self._headers(),
+                    json=payload,
+                    timeout=self.voice_timeout_seconds,
+                )
+                if response.status_code == 503:
+                    upstream_code = "upstream_503"
+                    try:
+                        body = response.json()
+                    except ValueError:
+                        body = None
+                    if (
+                        isinstance(body, dict)
+                        and body.get("contract_version") == UPSTREAM_CONTRACT_VERSION
+                        and isinstance(body.get("error"), str)
+                        and body["error"].strip()
+                    ):
+                        upstream_code = body["error"].strip()
+                    if attempt == 0:
+                        time.sleep(1.0)
+                        continue
+                    raise PalAdapterError(
+                        f"pal voice request failed after bounded retry ({upstream_code})"
+                    )
+                response.raise_for_status()
+                audio = response.content
+                headers = {key.lower(): value for key, value in response.headers.items()}
+                break
+            else:  # pragma: no cover - loop is intentionally bounded above
+                raise PalAdapterError("pal voice request failed after bounded retry")
+        except PalAdapterError:
+            raise
         except httpx.HTTPError as exc:
             raise PalAdapterError("pal voice request failed") from exc
         finally:
