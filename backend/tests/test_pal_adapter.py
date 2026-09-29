@@ -30,6 +30,8 @@ def settings(**overrides):
         "pal_service_token": None,
         "pal_service_allowed_hosts": "",
         "pal_service_timeout_seconds": 1.0,
+        "pal_turn_timeout_seconds": 180.0,
+        "pal_voice_timeout_seconds": 300.0,
         "pal_session_ttl_seconds": 3600,
     }
     values.update(overrides)

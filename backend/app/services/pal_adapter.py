@@ -104,6 +104,14 @@ class PalAdapter:
         return max(0.25, min(float(self.settings.pal_service_timeout_seconds), 5.0))
 
     @property
+    def turn_timeout_seconds(self) -> float:
+        return max(5.0, min(float(self.settings.pal_turn_timeout_seconds), 300.0))
+
+    @property
+    def voice_timeout_seconds(self) -> float:
+        return max(15.0, min(float(self.settings.pal_voice_timeout_seconds), 600.0))
+
+    @property
     def session_ttl_seconds(self) -> int:
         return max(60, min(int(self.settings.pal_session_ttl_seconds), 86400))
 
@@ -144,6 +152,7 @@ class PalAdapter:
         path: str,
         *,
         payload: dict[str, Any] | None = None,
+        timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
         base = self._upstream_base_url()
         if base is None:
@@ -156,7 +165,7 @@ class PalAdapter:
                 f"{base}{path}",
                 headers=self._headers(),
                 json=payload,
-                timeout=self.timeout_seconds,
+                timeout=timeout_seconds if timeout_seconds is not None else self.timeout_seconds,
             )
             response.raise_for_status()
             body = response.json()
@@ -186,7 +195,7 @@ class PalAdapter:
                 f"{base}{path}",
                 headers=self._headers(),
                 json=payload,
-                timeout=max(self.timeout_seconds, 30.0),
+                timeout=self.voice_timeout_seconds,
             )
             response.raise_for_status()
             audio = response.content
@@ -383,6 +392,7 @@ class PalAdapter:
                 "persona_id": session.persona_id,
                 "message": message,
             },
+            timeout_seconds=self.turn_timeout_seconds,
         )
         if (
             body.get("contract_version") != UPSTREAM_CONTRACT_VERSION

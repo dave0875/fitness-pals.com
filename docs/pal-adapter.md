@@ -46,6 +46,8 @@ The optional upstream is configured only by server operators:
 - `RUNTRAINER_PAL_SERVICE_TOKEN`
 - `RUNTRAINER_PAL_SERVICE_ALLOWED_HOSTS`
 - `RUNTRAINER_PAL_SERVICE_TIMEOUT_SECONDS`
+- `RUNTRAINER_PAL_TURN_TIMEOUT_SECONDS`
+- `RUNTRAINER_PAL_VOICE_TIMEOUT_SECONDS`
 - `RUNTRAINER_PAL_SESSION_TTL_SECONDS`
 
 Even when enabled, the URL must use HTTP(S), contain no embedded credentials, and resolve to a hostname explicitly present in `RUNTRAINER_PAL_SERVICE_ALLOWED_HOSTS`.
