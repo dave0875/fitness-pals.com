@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
@@ -41,6 +41,14 @@ class PalTurnRequest(BaseModel):
 
     session_token: str = Field(min_length=32, max_length=8192)
     message: str = Field(min_length=1, max_length=2000)
+
+
+class PalVoiceRequest(BaseModel):
+    """Render only the exact server-bound answer carried by an opaque Pal session."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_token: str = Field(min_length=32, max_length=8192)
 
 
 def get_pal_adapter() -> PalAdapter:
@@ -87,8 +95,43 @@ def start_pal_session(
         "requested_persona_id": session.persona_id,
         "active_persona_id": session.persona_id if is_pal else None,
         "speaker": public["display_name"] if is_pal else "Coach",
+        "voice": (
+            {
+                "voice_key": public["voice_key"],
+                "available": session.voice_available,
+                "autoplay": False,
+            }
+            if is_pal
+            else None
+        ),
         "fallback": _fallback_contract(reason) if not is_pal else None,
     }
+
+
+@router.post("/voice")
+def render_pal_voice(
+    body: PalVoiceRequest,
+    user: CurrentUserLike = Depends(get_current_user),
+    adapter: PalAdapter = Depends(get_pal_adapter),
+):
+    """Proxy explicit Pal voice playback without accepting browser-authored speech text."""
+    try:
+        session = adapter.decode_session(body.session_token, str(user.id))
+        audio, voice_key = adapter.submit_upstream_voice(session)
+    except InvalidPalSessionError as exc:
+        raise HTTPException(status_code=400, detail="Pal session is invalid or expired") from exc
+    except PalAdapterError as exc:
+        raise HTTPException(status_code=503, detail="Pal voice is unavailable") from exc
+
+    return Response(
+        content=audio,
+        media_type="audio/wav",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Pal-Persona-Id": session.persona_id,
+            "X-Pal-Voice-Key": voice_key,
+        },
+    )
 
 
 @router.post("/turns")
@@ -107,9 +150,14 @@ def submit_pal_turn(
     if session.mode == "pal":
         try:
             turn = adapter.submit_upstream_turn(session, body.message)
+            session, token = adapter.bind_voice_text(
+                session,
+                turn["answer"],
+                voice_available=turn["voice_available"],
+            )
             return {
                 "adapter_version": ADAPTER_VERSION,
-                "session_token": body.session_token,
+                "session_token": token,
                 "mode": "pal",
                 "requested_persona_id": session.persona_id,
                 "active_persona_id": session.persona_id,
@@ -117,7 +165,7 @@ def submit_pal_turn(
                 "answer": turn["answer"],
                 "voice": {
                     "voice_key": turn["voice_key"],
-                    "available": turn["voice_available"],
+                    "available": session.voice_available,
                     "autoplay": False,
                 },
                 "fallback": None,
