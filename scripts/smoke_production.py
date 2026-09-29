@@ -234,6 +234,12 @@ def production_probes(
             expected_json={"detail": "Credentials missing"},
         ),
         Probe(
+            name="unauthenticated Pal discovery",
+            url=f"{web}/api/pals/v1/personas",
+            expected_statuses=(401,),
+            expected_json={"detail": "Credentials missing"},
+        ),
+        Probe(
             name="unauthenticated Athlete State",
             url=f"{web}/api/athlete-state?days=14",
             expected_statuses=(401,),
@@ -424,6 +430,20 @@ def production_probes(
             required_json_keys=("threads",),
         ),
         Probe(
+            name="authenticated Pal discovery",
+            url=f"{web}/api/pals/v1/personas",
+            expected_statuses=(200,),
+            headers={"Authorization": f"Bearer {auth_token}"},
+            require_json_object=True,
+            required_json_keys=(
+                "adapter_version",
+                "upstream_contract_version",
+                "state",
+                "personas",
+                "fallback",
+            ),
+        ),
+        Probe(
             name="authenticated bounded Progress evidence",
             url=(
                 f"{web}/api/journey?window=30d&sport=all&goal=all"
@@ -600,6 +620,59 @@ def _validate_athlete_state_acceptance(
     }.get(str(hrv.get("status") or ""), "unknown")
     if metric_states.get("hrv_avg") != expected_hrv_state:
         raise ValueError("canonical metrics HRV state contradicts Athlete State")
+
+
+def _validate_pal_adapter_acceptance(
+    payloads: dict[str, object | None],
+) -> None:
+    """Verify the dark-launch Pal bridge is truthful and exposes no private authority."""
+    payload = _require_dict(
+        payloads.get("authenticated Pal discovery"),
+        "Pal discovery",
+    )
+    if payload.get("adapter_version") != "fitness-pals-pal-adapter-v1":
+        raise ValueError("Pal adapter version is missing or unexpected")
+    if payload.get("upstream_contract_version") != "mychat-pal-runtime-v1":
+        raise ValueError("Pal upstream contract version is missing or unexpected")
+    if payload.get("state") not in {"ready", "degraded"}:
+        raise ValueError("Pal adapter state must be ready or degraded")
+
+    personas = payload.get("personas")
+    if not isinstance(personas, list):
+        raise ValueError("Pal discovery personas must be a list")
+    expected_ids = [
+        "w16-golden-glow",
+        "w18-radiant-wellness",
+        "w21-confident-coaching",
+        "w24-fresh-momentum",
+        "w51-tokyo-strength",
+    ]
+    if [item.get("persona_id") for item in personas if isinstance(item, dict)] != expected_ids:
+        raise ValueError("Pal discovery canonical persona set drifted")
+    if any(
+        not isinstance(item, dict) or not isinstance(item.get("runtime_available"), bool)
+        for item in personas
+    ):
+        raise ValueError("Pal runtime availability must be explicit for every persona")
+
+    fallback = _require_dict(payload.get("fallback"), "Pal fallback")
+    if (
+        fallback.get("available") is not True
+        or fallback.get("mode") != "coach"
+        or fallback.get("href") != "/coach"
+    ):
+        raise ValueError("Pal discovery must preserve the Coach fallback")
+
+    serialized = json.dumps(payload, sort_keys=True).lower()
+    for forbidden in (
+        "profile_id",
+        "passkey",
+        "biometric",
+        "memory_rows",
+        "voice_credentials",
+    ):
+        if forbidden in serialized:
+            raise ValueError(f"Pal discovery leaked private field {forbidden!r}")
 
 
 def _validate_future_intent_acceptance(
@@ -942,6 +1015,11 @@ def verify_production(
         passed_journeys.update(probe.journeys)
 
     try:
+        _validate_pal_adapter_acceptance(payloads)
+    except ValueError as exc:
+        raise SystemExit(f"Pal adapter production acceptance failed: {exc}") from exc
+    print("PASS Pal adapter production acceptance: five canonical identities and Coach fallback are truthful")
+    try:
         _validate_athlete_state_acceptance(payloads)
     except ValueError as exc:
         raise SystemExit(f"Athlete State production acceptance failed: {exc}") from exc
@@ -989,6 +1067,7 @@ def verify_production(
         "goal_graph_contract": "pass",
         "decision_contract": "pass",
         "experience_contract": "pass",
+        "pal_adapter_contract": "pass",
     }
     print("Production acceptance report: " + json.dumps(report, sort_keys=True))
     return report
