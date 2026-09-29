@@ -104,6 +104,8 @@ class Settings(BaseSettings):
     pal_service_token: Optional[str] = None
     pal_service_allowed_hosts: str = ""
     pal_service_timeout_seconds: float = 2.0
+    pal_turn_timeout_seconds: float = 180.0
+    pal_voice_timeout_seconds: float = 300.0
     pal_session_ttl_seconds: int = 3600
 
     # --- Token encryption ---

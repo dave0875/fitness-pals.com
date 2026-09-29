@@ -9,18 +9,19 @@ const coach = fs.readFileSync(path.join(root, "pages", "coach.js"), "utf8");
 const css = fs.readFileSync(path.join(root, "styles", "AthletePages.module.css"), "utf8");
 
 const canonical = [
-  ["W16", "w16-golden-glow", "Golden Glow"],
-  ["W18", "w18-radiant-wellness", "Radiant Wellness"],
-  ["W21", "w21-confident-coaching", "Confident Coaching"],
-  ["W24", "w24-fresh-momentum", "Fresh Momentum"],
-  ["W51", "w51-tokyo-strength", "Tokyo Strength"],
+  ["W16", "w16-golden-glow", "Golden Glow", "w16-golden-glow-v1"],
+  ["W18", "w18-radiant-wellness", "Radiant Wellness", "w18-radiant-wellness-v1"],
+  ["W21", "w21-confident-coaching", "Confident Coaching", "w21-confident-coaching-v1"],
+  ["W24", "w24-fresh-momentum", "Fresh Momentum", "w24-fresh-momentum-v1"],
+  ["W51", "w51-tokyo-strength", "Tokyo Strength", "w51-tokyo-strength-v1"],
 ];
 
 test("Embodied selector pins the exact canonical five and approved local portraits", () => {
-  for (const [candidate, persona, name] of canonical) {
+  for (const [candidate, persona, name, voice] of canonical) {
     assert.ok(selector.includes(`candidate_id: "${candidate}"`));
     assert.ok(selector.includes(`persona_id: "${persona}"`));
     assert.ok(selector.includes(`display_name: "${name}"`));
+    assert.ok(selector.includes(`voice_key: "${voice}"`));
     const image = path.join(root, "public", "pals", `${persona}.webp`);
     assert.ok(fs.existsSync(image), `missing ${persona} portrait`);
     assert.ok(fs.statSync(image).size < 25_000, `${persona} portrait exceeds budget`);
@@ -39,6 +40,8 @@ test("Discovery is server authoritative and malformed persona manifests fail clo
   assert.ok(selector.includes("item.candidate_id !== expected.candidate_id"));
   assert.ok(selector.includes("item.display_name !== expected.display_name"));
   assert.ok(selector.includes('typeof item.runtime_available !== "boolean"'));
+  assert.ok(selector.includes('typeof item.voice_available !== "boolean"'));
+  assert.ok(selector.includes("item.voice_key !== expected.voice_key"));
   assert.ok(selector.includes("onSessionChange?.(null)"));
 });
 
@@ -49,6 +52,8 @@ test("Preview selection cannot create a Pal session and activation is explicit",
   assert.ok(selector.includes('data?.mode === "pal"'));
   assert.ok(selector.includes("data.active_persona_id === selected.persona_id"));
   assert.ok(selector.includes("data.speaker === selected.display_name"));
+  assert.ok(selector.includes("data.voice?.voice_key === selected.voice_key"));
+  assert.ok(selector.includes('typeof data.voice?.available === "boolean"'));
   assert.ok(selector.includes("disabled={!selected.runtime_available || busy}"));
   assert.ok(!selector.includes("profile_id"));
   assert.ok(!selector.includes("memory_namespace"));
@@ -78,6 +83,21 @@ test("Selector has no audio, microphone, or autoplay path", () => {
   ]) {
     assert.ok(!selector.includes(forbidden), `unexpected ${forbidden} in Pal selector`);
   }
+});
+
+test("Living Pal voice is explicit, exact-attributed, and never browser-authored", () => {
+  assert.ok(coach.includes('authenticatedFetch("/api/pals/v1/voice"'));
+  assert.ok(coach.includes("JSON.stringify({ session_token: turn.voiceSessionToken })"));
+  assert.ok(coach.includes('response.headers.get("x-pal-persona-id")'));
+  assert.ok(coach.includes('response.headers.get("x-pal-voice-key")'));
+  assert.ok(coach.includes("new Audio(objectUrl)"));
+  assert.ok(coach.includes("await audio.play()"));
+  assert.ok(coach.includes("Play ${turn.speaker} voice"));
+  assert.ok(coach.includes("stopPalVoice()"));
+  assert.ok(!coach.includes("getUserMedia"));
+  assert.ok(!coach.includes("speechSynthesis"));
+  assert.ok(!coach.includes("text: turn.answer"));
+  assert.ok(css.includes(".palVoiceButton:focus-visible"));
 });
 
 test("Embodied selection is keyboard-visible, responsive, and reduced-motion safe", () => {
