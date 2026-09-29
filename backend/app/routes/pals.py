@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -22,6 +23,8 @@ from app.services.pal_adapter import (
 )
 from app.types import CurrentUserLike
 
+
+LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/pals/v1", tags=["pals"])
 
@@ -121,6 +124,11 @@ def render_pal_voice(
     except InvalidPalSessionError as exc:
         raise HTTPException(status_code=400, detail="Pal session is invalid or expired") from exc
     except PalAdapterError as exc:
+        LOGGER.warning(
+            "Pal voice proxy failed for persona %s: %s",
+            session.persona_id,
+            exc,
+        )
         raise HTTPException(status_code=503, detail="Pal voice is unavailable") from exc
 
     return Response(
