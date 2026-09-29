@@ -447,6 +447,46 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
             )
         if url.endswith("/api/auth/session"):
             raise http_error(url, 401, {"detail": "Credentials missing"})
+        if url.endswith("/api/pals/v1/personas"):
+            if authorization is None:
+                raise http_error(url, 401, {"detail": "Credentials missing"})
+            assert authorization == f"Bearer {token}"
+            return FakeResponse(
+                200,
+                {
+                    "adapter_version": "fitness-pals-pal-adapter-v1",
+                    "upstream_contract_version": "mychat-pal-runtime-v1",
+                    "state": "degraded",
+                    "reason": "pal_runtime_unconfigured",
+                    "personas": [
+                        {
+                            "persona_id": "w16-golden-glow",
+                            "runtime_available": False,
+                        },
+                        {
+                            "persona_id": "w18-radiant-wellness",
+                            "runtime_available": False,
+                        },
+                        {
+                            "persona_id": "w21-confident-coaching",
+                            "runtime_available": False,
+                        },
+                        {
+                            "persona_id": "w24-fresh-momentum",
+                            "runtime_available": False,
+                        },
+                        {
+                            "persona_id": "w51-tokyo-strength",
+                            "runtime_available": False,
+                        },
+                    ],
+                    "fallback": {
+                        "available": True,
+                        "mode": "coach",
+                        "href": "/coach",
+                    },
+                },
+            )
         if url.endswith("/api/athlete-state?days=14"):
             if authorization is None:
                 raise http_error(url, 401, {"detail": "Credentials missing"})
@@ -587,19 +627,20 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         opener=opener,
     )
 
-    assert len(seen) == 28
-    assert sum(authorization is not None for _, authorization in seen) == 9
+    assert len(seen) == 30
+    assert sum(authorization is not None for _, authorization in seen) == 10
     assert report == {
         "release": release,
         "status": "pass",
         "journeys": list(smoke_production.PHASE8_JOURNEYS),
-        "probe_count": 28,
+        "probe_count": 30,
         "athlete_state_contract": "pass",
         "whole_training_contract": "pass",
         "future_intent_contract": "pass",
         "goal_graph_contract": "pass",
         "decision_contract": "pass",
         "experience_contract": "pass",
+        "pal_adapter_contract": "pass",
     }
     assert any(url.endswith("/api/onboarding/status") for url, _ in seen)
     assert any(url.endswith("/api/athlete-home") for url, _ in seen)
@@ -609,6 +650,7 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
     assert any(url.endswith("/api/intelligence") for url, _ in seen)
     assert any(url.endswith("/api/today-plan/context") for url, _ in seen)
     assert any(url.endswith("/api/chat/threads") for url, _ in seen)
+    assert sum(url.endswith("/api/pals/v1/personas") for url, _ in seen) == 2
     assert any(
         "/api/journey?window=30d&sport=all&goal=all"
         "&activity_page=1&activity_page_size=25" in url
