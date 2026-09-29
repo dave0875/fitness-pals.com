@@ -329,6 +329,7 @@ export default function Coach() {
         }
         throw new Error("Pal turn contract did not confirm the active Pal.");
       } catch (_requestError) {
+        stopPalVoice();
         setPalSession(null);
         setPalTurns([]);
         setError(
