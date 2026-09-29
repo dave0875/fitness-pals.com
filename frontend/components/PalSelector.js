@@ -6,6 +6,7 @@ import styles from "../styles/AthletePages.module.css";
 const PAL_VISUALS = Object.freeze([
   {
     persona_id: "w16-golden-glow",
+    voice_key: "w16-golden-glow-v1",
     candidate_id: "W16",
     display_name: "Golden Glow",
     visual_key: "W16",
@@ -15,6 +16,7 @@ const PAL_VISUALS = Object.freeze([
   },
   {
     persona_id: "w18-radiant-wellness",
+    voice_key: "w18-radiant-wellness-v1",
     candidate_id: "W18",
     display_name: "Radiant Wellness",
     visual_key: "W18",
@@ -24,6 +26,7 @@ const PAL_VISUALS = Object.freeze([
   },
   {
     persona_id: "w21-confident-coaching",
+    voice_key: "w21-confident-coaching-v1",
     candidate_id: "W21",
     display_name: "Confident Coaching",
     visual_key: "W21",
@@ -33,6 +36,7 @@ const PAL_VISUALS = Object.freeze([
   },
   {
     persona_id: "w24-fresh-momentum",
+    voice_key: "w24-fresh-momentum-v1",
     candidate_id: "W24",
     display_name: "Fresh Momentum",
     visual_key: "W24",
@@ -42,6 +46,7 @@ const PAL_VISUALS = Object.freeze([
   },
   {
     persona_id: "w51-tokyo-strength",
+    voice_key: "w51-tokyo-strength-v1",
     candidate_id: "W51",
     display_name: "Tokyo Strength",
     visual_key: "W51",
@@ -66,13 +71,16 @@ function normalizeDiscovery(payload) {
       item.candidate_id !== expected.candidate_id ||
       item.display_name !== expected.display_name ||
       item.visual_key !== expected.visual_key ||
-      typeof item.runtime_available !== "boolean"
+      item.voice_key !== expected.voice_key ||
+      typeof item.runtime_available !== "boolean" ||
+      typeof item.voice_available !== "boolean"
     ) {
       return null;
     }
     discovered.set(item.persona_id, {
       ...expected,
       runtime_available: item.runtime_available,
+      voice_available: item.voice_available,
     });
   }
   if (discovered.size !== PAL_VISUALS.length) return null;
@@ -82,7 +90,8 @@ function normalizeDiscovery(payload) {
 function availabilityCopy(discovery, selected) {
   if (!discovery) return "Checking Pal availability…";
   if (discovery.state !== "ready") return "Pals are in preview today. Coach is ready.";
-  if (selected?.runtime_available) return `${selected.display_name} is available to join this session.`;
+  if (selected?.runtime_available && selected?.voice_available) return `${selected.display_name} is available to talk and speak.`;
+  if (selected?.runtime_available) return `${selected.display_name} is available for text; voice is unavailable.`;
   return "This Pal is in preview right now. Coach is ready.";
 }
 
@@ -146,11 +155,17 @@ export default function PalSelector({ session = null, onSessionChange, onNotice 
         data?.mode === "pal" &&
         data.active_persona_id === selected.persona_id &&
         data.speaker === selected.display_name &&
+        data.voice?.voice_key === selected.voice_key &&
+        typeof data.voice?.available === "boolean" &&
         typeof data.session_token === "string" &&
         data.session_token.length >= 32
       ) {
         onSessionChange?.(data);
-        onNotice?.(`${selected.display_name} is active for this session.`);
+        onNotice?.(
+          data.voice.available
+            ? `${selected.display_name} is active. Voice plays only when you request it.`
+            : `${selected.display_name} is active for text; voice is unavailable.`
+        );
         return;
       }
       onSessionChange?.(null);
@@ -181,6 +196,7 @@ export default function PalSelector({ session = null, onSessionChange, onNotice 
     <section
       className={styles.palSelector}
       data-contract="embodied-pal-selection-v1"
+      data-voice-contract="living-pal-v1"
       data-pal-state={selectorState}
       aria-labelledby="pal-selector-title"
     >
@@ -242,7 +258,9 @@ export default function PalSelector({ session = null, onSessionChange, onNotice 
           <h3>{selected.display_name}</h3>
           <p>
             {selected.runtime_available
-              ? "Available to join after you choose this Pal."
+              ? selected.voice_available
+                ? "Available to join with exact Pal text and explicit voice playback after you choose this Pal."
+                : "Available to join for text. Voice is not available right now."
               : "You can preview this Pal now. The live Pal runtime is not available, so Coach remains your active conversation."}
           </p>
           {loadError && <p className={styles.palWarning} role="status">{loadError}</p>}
@@ -265,7 +283,8 @@ export default function PalSelector({ session = null, onSessionChange, onNotice 
           </div>
           <small className={styles.palBoundaryNote}>
             Selecting a portrait never starts audio or a microphone. A Pal is active only after
-            the authenticated Fitness-Pals adapter confirms it.
+            the authenticated Fitness-Pals adapter confirms it. Voice plays only from an explicit
+            Play voice control on a completed Pal response.
           </small>
         </div>
       </div>

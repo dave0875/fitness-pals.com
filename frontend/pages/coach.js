@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
 
 import AuthenticatedShell, { StatusNotice } from "../components/AuthenticatedShell";
 import AthleteOrbitStory from "../components/AthleteOrbitStory";
 import AmandaPresence from "../components/AmandaPresence";
 import PalSelector from "../components/PalSelector";
-import { authenticatedJson } from "../lib/authFetch.mjs";
+import { authenticatedFetch, authenticatedJson } from "../lib/authFetch.mjs";
 import styles from "../styles/AthletePages.module.css";
 
 function safeSourcePath(value) {
@@ -80,6 +80,10 @@ export default function Coach() {
   const [message, setMessage] = useState("");
   const [palSession, setPalSession] = useState(null);
   const [palTurns, setPalTurns] = useState([]);
+  const [voiceBusyId, setVoiceBusyId] = useState("");
+  const [voicePlayingId, setVoicePlayingId] = useState("");
+  const voiceAudioRef = useRef(null);
+  const voiceUrlRef = useRef("");
   const [sending, setSending] = useState(false);
   const [actionBusy, setActionBusy] = useState("");
   const [notice, setNotice] = useState("");
@@ -110,10 +114,26 @@ export default function Coach() {
     return data;
   }, []);
 
+  const stopPalVoice = useCallback(() => {
+    const audio = voiceAudioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute("src");
+      voiceAudioRef.current = null;
+    }
+    if (voiceUrlRef.current && typeof URL !== "undefined") {
+      URL.revokeObjectURL(voiceUrlRef.current);
+      voiceUrlRef.current = "";
+    }
+    setVoicePlayingId("");
+  }, []);
+
   const handlePalSessionChange = useCallback((nextSession) => {
+    stopPalVoice();
+    setVoiceBusyId("");
     setPalSession(nextSession);
     setPalTurns([]);
-  }, []);
+  }, [stopPalVoice]);
 
   const handlePalNotice = useCallback((nextNotice) => {
     setError("");
@@ -151,6 +171,17 @@ export default function Coach() {
     router.query.thread,
   ]);
 
+  useEffect(
+    () => () => {
+      const audio = voiceAudioRef.current;
+      if (audio) audio.pause();
+      if (voiceUrlRef.current && typeof URL !== "undefined") {
+        URL.revokeObjectURL(voiceUrlRef.current);
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     Promise.all([
       loadThreads(),
@@ -168,6 +199,58 @@ export default function Coach() {
         )
       );
   }, [loadThreads]);
+
+  async function playPalVoice(turn) {
+    if (!turn.voiceAvailable || !turn.voiceSessionToken || voiceBusyId) return;
+    if (voicePlayingId === turn.id) {
+      stopPalVoice();
+      return;
+    }
+
+    stopPalVoice();
+    setVoiceBusyId(turn.id);
+    setError("");
+    try {
+      const response = await authenticatedFetch("/api/pals/v1/voice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_token: turn.voiceSessionToken }),
+      });
+      if (!response.ok) {
+        throw new Error(`Pal voice request failed with status ${response.status}`);
+      }
+      if (
+        response.headers.get("x-pal-persona-id") !== turn.personaId ||
+        response.headers.get("x-pal-voice-key") !== turn.voiceKey
+      ) {
+        throw new Error("Pal voice attribution did not match the active response.");
+      }
+      const blob = await response.blob();
+      if (!blob.size || !blob.type.toLowerCase().startsWith("audio/wav")) {
+        throw new Error("Pal voice payload was not a WAV response.");
+      }
+      const objectUrl = URL.createObjectURL(blob);
+      const audio = new Audio(objectUrl);
+      voiceUrlRef.current = objectUrl;
+      voiceAudioRef.current = audio;
+      audio.addEventListener(
+        "ended",
+        () => {
+          if (voiceAudioRef.current === audio) stopPalVoice();
+        },
+        { once: true }
+      );
+      await audio.play();
+      setVoicePlayingId(turn.id);
+    } catch (_voiceError) {
+      stopPalVoice();
+      setNotice(
+        `${turn.speaker} voice is unavailable for this response. The text response remains active.`
+      );
+    } finally {
+      setVoiceBusyId("");
+    }
+  }
 
   async function send(event) {
     event.preventDefault();
@@ -193,9 +276,16 @@ export default function Coach() {
           typeof data.answer === "string" &&
           data.answer.trim()
         ) {
+          if (
+            data.voice?.available === true &&
+            data.voice?.voice_key !== palSession.voice?.voice_key
+          ) {
+            throw new Error("Pal voice attribution did not match the active Pal.");
+          }
           setPalSession((current) => ({
             ...current,
             session_token: data.session_token || current.session_token,
+            voice: data.voice || current.voice,
           }));
           setPalTurns((current) => [
             ...current,
@@ -204,6 +294,10 @@ export default function Coach() {
               question,
               answer: data.answer.trim(),
               speaker: data.speaker,
+              personaId: data.active_persona_id,
+              voiceAvailable: data.voice?.available === true,
+              voiceKey: data.voice?.voice_key || "",
+              voiceSessionToken: data.session_token,
             },
           ]);
           setMessage("");
@@ -212,6 +306,7 @@ export default function Coach() {
         }
         if (data?.mode === "coach-fallback" && data.coach?.thread?.id) {
           const requestedSpeaker = palSession.speaker;
+          stopPalVoice();
           setPalSession(null);
           setPalTurns([]);
           setThreadId(data.coach.thread.id);
@@ -392,6 +487,7 @@ export default function Coach() {
   }
 
   function startNewThread() {
+    stopPalVoice();
     setThreadId(null);
     setThread(null);
     setContext(null);
@@ -449,6 +545,7 @@ export default function Coach() {
                 className={styles.secondaryButton}
                 type="button"
                 onClick={() => {
+                  stopPalVoice();
                   setPalSession(null);
                   setPalTurns([]);
                   setNotice("Coach is active.");
@@ -727,6 +824,27 @@ export default function Coach() {
                           {turn.speaker} · Pal response
                         </span>
                         <p>{turn.answer}</p>
+                        <div className={styles.palVoiceRow}>
+                          {turn.voiceAvailable ? (
+                            <button
+                              className={styles.palVoiceButton}
+                              type="button"
+                              onClick={() => playPalVoice(turn)}
+                              disabled={Boolean(voiceBusyId) && voiceBusyId !== turn.id}
+                              aria-pressed={voicePlayingId === turn.id}
+                            >
+                              {voiceBusyId === turn.id
+                                ? "Preparing voice…"
+                                : voicePlayingId === turn.id
+                                  ? "Stop voice"
+                                  : `Play ${turn.speaker} voice`}
+                            </button>
+                          ) : (
+                            <small className={styles.palVoiceUnavailable}>
+                              Voice unavailable for this response.
+                            </small>
+                          )}
+                        </div>
                       </article>
                     </li>
                   ))}

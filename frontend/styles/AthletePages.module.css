@@ -1733,6 +1733,25 @@
   box-shadow: 0 0 0 8px rgba(156,255,87,.08), 0 0 24px rgba(156,255,87,.42);
 }
 .palConversation { border-color: #566a58 !important; }
+.palVoiceRow { display: flex; align-items: center; gap: .55rem; margin-top: .65rem; }
+.palVoiceButton {
+  padding: .52rem .78rem;
+  color: #eef7ed;
+  background: rgba(156,255,87,.08);
+  border: 1px solid #657665;
+  border-radius: var(--ef-radius-pill);
+  font: inherit;
+  font-size: .76rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.palVoiceButton:hover { border-color: var(--ef-color-electric); }
+.palVoiceButton:disabled { cursor: wait; opacity: .62; }
+.palVoiceButton:focus-visible {
+  outline: var(--ef-focus-ring);
+  outline-offset: var(--ef-focus-offset);
+}
+.palVoiceUnavailable { color: #93a097; }
 
 @keyframes palPresence {
   0%, 100% { transform: scale(1); }
