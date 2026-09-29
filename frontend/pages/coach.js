@@ -520,6 +520,7 @@ export default function Coach() {
   const latestAnswer = [...(thread?.turns || [])]
     .reverse()
     .find((turn) => turn.status !== "failed" && turn.answer)?.answer || "";
+  const latestPalTurn = palTurns.length ? palTurns[palTurns.length - 1] : null;
 
   return (
     <AuthenticatedShell active="coach" variant="electric" contentClassName={styles.electricCoach}>
@@ -542,6 +543,31 @@ export default function Coach() {
               <p className={styles.eyebrow}>Confirmed by the Fitness-Pals adapter</p>
               <h2>{palSession.speaker}</h2>
               <p>No audio or microphone starts automatically. Text remains available throughout.</p>
+              <div className={styles.palVoiceRow} aria-label="Latest Pal voice control">
+                <button
+                  className={styles.palVoiceButton}
+                  type="button"
+                  onClick={() => latestPalTurn && playPalVoice(latestPalTurn)}
+                  disabled={
+                    !latestPalTurn ||
+                    !latestPalTurn.voiceAvailable ||
+                    Boolean(voiceBusyId)
+                  }
+                  aria-pressed={Boolean(
+                    latestPalTurn && voicePlayingId === latestPalTurn.id
+                  )}
+                >
+                  {!latestPalTurn
+                    ? "Play voice after first reply"
+                    : !latestPalTurn.voiceAvailable
+                      ? "Voice unavailable for latest reply"
+                      : voiceBusyId === latestPalTurn.id
+                        ? "Preparing voice…"
+                        : voicePlayingId === latestPalTurn.id
+                          ? "Stop voice"
+                          : `Play ${latestPalTurn.speaker} voice`}
+                </button>
+              </div>
               <button
                 className={styles.secondaryButton}
                 type="button"
@@ -826,25 +852,21 @@ export default function Coach() {
                         </span>
                         <p>{turn.answer}</p>
                         <div className={styles.palVoiceRow}>
-                          {turn.voiceAvailable ? (
-                            <button
-                              className={styles.palVoiceButton}
-                              type="button"
-                              onClick={() => playPalVoice(turn)}
-                              disabled={Boolean(voiceBusyId) && voiceBusyId !== turn.id}
-                              aria-pressed={voicePlayingId === turn.id}
-                            >
-                              {voiceBusyId === turn.id
+                          <button
+                            className={styles.palVoiceButton}
+                            type="button"
+                            onClick={() => playPalVoice(turn)}
+                            disabled={!turn.voiceAvailable || Boolean(voiceBusyId)}
+                            aria-pressed={voicePlayingId === turn.id}
+                          >
+                            {!turn.voiceAvailable
+                              ? "Voice unavailable for this response"
+                              : voiceBusyId === turn.id
                                 ? "Preparing voice…"
                                 : voicePlayingId === turn.id
                                   ? "Stop voice"
                                   : `Play ${turn.speaker} voice`}
-                            </button>
-                          ) : (
-                            <small className={styles.palVoiceUnavailable}>
-                              Voice unavailable for this response.
-                            </small>
-                          )}
+                          </button>
                         </div>
                       </article>
                     </li>
