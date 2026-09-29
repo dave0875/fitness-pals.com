@@ -1,0 +1,116 @@
+name: Phase 2F Project Bootstrap
+
+on:
+  push:
+    branches:
+      - feat/vital-presence-embodied-pal-selection
+
+permissions:
+  contents: read
+  issues: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  add-issue-to-project:
+    name: Add Issue 300 to inherited Project
+    runs-on: [self-hosted, dev]
+    steps:
+      - name: Add Issue 300 to the same Project as Issue 298
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.PR_GOVERNANCE_TOKEN }}
+          script: |
+            const sourceNumber = 298;
+            const targetNumber = 300;
+
+            const query = `
+              query($owner: String!, $repo: String!, $source: Int!, $target: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  source: issue(number: $source) {
+                    projectItems(first: 20) {
+                      nodes {
+                        project {
+                          id
+                          title
+                          number
+                          url
+                        }
+                      }
+                    }
+                  }
+                  target: issue(number: $target) {
+                    id
+                    projectItems(first: 20) {
+                      nodes {
+                        project {
+                          id
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            `;
+
+            const data = await github.graphql(query, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              source: sourceNumber,
+              target: targetNumber,
+            });
+
+            const sourceProjects =
+              data?.repository?.source?.projectItems?.nodes
+                ?.map((node) => node?.project)
+                .filter(Boolean) || [];
+            if (!sourceProjects.length) {
+              core.setFailed(`Issue #${sourceNumber} is not in a GitHub Project.`);
+              return;
+            }
+
+            const targetIssueId = data?.repository?.target?.id;
+            if (!targetIssueId) {
+              core.setFailed(`Issue #${targetNumber} could not be resolved.`);
+              return;
+            }
+
+            const inheritedProject = sourceProjects[0];
+            const existing =
+              data?.repository?.target?.projectItems?.nodes
+                ?.map((node) => node?.project?.id)
+                .filter(Boolean) || [];
+
+            if (existing.includes(inheritedProject.id)) {
+              core.notice(
+                `Issue #${targetNumber} is already in ${inheritedProject.title}.`
+              );
+              return;
+            }
+
+            const mutation = `
+              mutation($projectId: ID!, $contentId: ID!) {
+                addProjectV2ItemById(
+                  input: {projectId: $projectId, contentId: $contentId}
+                ) {
+                  item {
+                    id
+                  }
+                }
+              }
+            `;
+
+            const result = await github.graphql(mutation, {
+              projectId: inheritedProject.id,
+              contentId: targetIssueId,
+            });
+
+            if (!result?.addProjectV2ItemById?.item?.id) {
+              core.setFailed("GitHub did not return a created Project item.");
+              return;
+            }
+
+            core.notice(
+              `Added Issue #${targetNumber} to ${inheritedProject.title} (${inheritedProject.url}).`
+            );
