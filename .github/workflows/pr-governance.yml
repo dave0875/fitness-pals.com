@@ -111,55 +111,6 @@ jobs:
               return;
             }
 
-            // Temporary Phase 2G repair bootstrap: enroll Issue #304 into the
-            // same open Project as Phase 2G Issue #302. Removed before merge.
-            if (issueNumber === 304) {
-              const bootstrapQuery = `
-                query($owner: String!, $repo: String!, $number: Int!, $anchor: Int!) {
-                  repository(owner: $owner, name: $repo) {
-                    target: issue(number: $number) {
-                      id
-                      projectItems(first: 10) { totalCount }
-                    }
-                    anchor: issue(number: $anchor) {
-                      projectItems(first: 10) {
-                        nodes { project { id title number closed } }
-                      }
-                    }
-                  }
-                }
-              `;
-              const bootstrapResult = await github.graphql(bootstrapQuery, {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                number: issueNumber,
-                anchor: 302
-              });
-              const target = bootstrapResult?.repository?.target;
-              if ((target?.projectItems?.totalCount ?? 0) < 1) {
-                const projects = (bootstrapResult?.repository?.anchor?.projectItems?.nodes || [])
-                  .map((node) => node?.project)
-                  .filter((project) => project && !project.closed);
-                const uniqueProjects = [...new Map(projects.map((project) => [project.id, project])).values()];
-                if (!target?.id || uniqueProjects.length !== 1) {
-                  core.setFailed("Unable to bootstrap Issue #304 into the canonical open Project.");
-                  return;
-                }
-                const project = uniqueProjects[0];
-                await github.graphql(
-                  `
-                    mutation($projectId: ID!, $contentId: ID!) {
-                      addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
-                        item { id }
-                      }
-                    }
-                  `,
-                  { projectId: project.id, contentId: target.id }
-                );
-                core.notice(`Added Issue #304 to Project #${project.number} (${project.title}).`);
-              }
-            }
-
             const query = `
               query($owner: String!, $repo: String!, $number: Int!) {
                 repository(owner: $owner, name: $repo) {
