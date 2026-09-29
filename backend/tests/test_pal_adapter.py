@@ -19,6 +19,7 @@ from app.services.pal_adapter import (
     InvalidPalSessionError,
     InvalidPersonaError,
     PalAdapter,
+    PalAdapterError,
 )
 
 
@@ -250,6 +251,74 @@ def test_compatible_upstream_can_start_and_return_only_allow_listed_turn_fields(
     assert audio.startswith(b"RIFF")
     assert voice_key == "w21-confident-coaching-v1"
     assert adapter.decode_session(token, owner).mode == "pal"
+
+
+def test_transient_voice_503_retries_once_and_recovers(monkeypatch):
+    attempts = {"voice": 0}
+
+    def transient(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/pals/v1/voice":
+            attempts["voice"] += 1
+            if attempts["voice"] == 1:
+                return httpx.Response(
+                    503,
+                    json={
+                        "contract_version": UPSTREAM_CONTRACT_VERSION,
+                        "error": "voice_render_failed",
+                    },
+                )
+        return ready_handler(request)
+
+    monkeypatch.setattr("app.services.pal_adapter.time.sleep", lambda _seconds: None)
+    adapter = PalAdapter(enabled_settings(), client=client(transient))
+    owner = str(uuid4())
+    session, _token, reason = adapter.start_session(owner, "w16-golden-glow")
+    assert reason is None
+    turn = adapter.submit_upstream_turn(session, "Recovery?")
+    resolved, _voice_token = adapter.bind_voice_text(
+        session,
+        turn["answer"],
+        voice_available=turn["voice_available"],
+    )
+
+    audio, voice_key = adapter.submit_upstream_voice(resolved)
+
+    assert attempts["voice"] == 2
+    assert audio.startswith(b"RIFF")
+    assert voice_key == "w16-golden-glow-v1"
+
+
+def test_persistent_voice_503_stops_after_one_retry(monkeypatch):
+    attempts = {"voice": 0}
+
+    def unavailable(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/pals/v1/voice":
+            attempts["voice"] += 1
+            return httpx.Response(
+                503,
+                json={
+                    "contract_version": UPSTREAM_CONTRACT_VERSION,
+                    "error": "voice_render_failed",
+                },
+            )
+        return ready_handler(request)
+
+    monkeypatch.setattr("app.services.pal_adapter.time.sleep", lambda _seconds: None)
+    adapter = PalAdapter(enabled_settings(), client=client(unavailable))
+    owner = str(uuid4())
+    session, _token, reason = adapter.start_session(owner, "w16-golden-glow")
+    assert reason is None
+    turn = adapter.submit_upstream_turn(session, "Recovery?")
+    resolved, _voice_token = adapter.bind_voice_text(
+        session,
+        turn["answer"],
+        voice_available=turn["voice_available"],
+    )
+
+    with pytest.raises(PalAdapterError, match="voice_render_failed"):
+        adapter.submit_upstream_voice(resolved)
+
+    assert attempts["voice"] == 2
 
 
 def test_timeout_degrades_to_coach_fallback_without_losing_session_creation():
