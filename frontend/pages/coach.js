@@ -4,6 +4,7 @@ import { useRouter } from "next/router";
 import AuthenticatedShell, { StatusNotice } from "../components/AuthenticatedShell";
 import AthleteOrbitStory from "../components/AthleteOrbitStory";
 import AmandaPresence from "../components/AmandaPresence";
+import PalSelector from "../components/PalSelector";
 import { authenticatedJson } from "../lib/authFetch.mjs";
 import styles from "../styles/AthletePages.module.css";
 
@@ -77,6 +78,8 @@ export default function Coach() {
   const [preferenceDraft, setPreferenceDraft] = useState("");
   const [preferenceBusy, setPreferenceBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [palSession, setPalSession] = useState(null);
+  const [palTurns, setPalTurns] = useState([]);
   const [sending, setSending] = useState(false);
   const [actionBusy, setActionBusy] = useState("");
   const [notice, setNotice] = useState("");
@@ -163,6 +166,74 @@ export default function Coach() {
     setSending(true);
     setError("");
     setNotice("");
+
+    if (palSession?.mode === "pal") {
+      try {
+        const data = await authenticatedJson("/api/pals/v1/turns", {
+          method: "POST",
+          json: {
+            session_token: palSession.session_token,
+            message: question,
+          },
+        });
+        if (
+          data?.mode === "pal" &&
+          data.active_persona_id === palSession.active_persona_id &&
+          data.speaker === palSession.speaker &&
+          typeof data.answer === "string" &&
+          data.answer.trim()
+        ) {
+          setPalSession((current) => ({
+            ...current,
+            session_token: data.session_token || current.session_token,
+          }));
+          setPalTurns((current) => [
+            ...current,
+            {
+              id: `pal-${current.length + 1}`,
+              question,
+              answer: data.answer.trim(),
+              speaker: data.speaker,
+            },
+          ]);
+          setMessage("");
+          setSending(false);
+          return;
+        }
+        if (data?.mode === "coach-fallback" && data.coach?.thread?.id) {
+          const requestedSpeaker = palSession.speaker;
+          setPalSession(null);
+          setPalTurns([]);
+          setThreadId(data.coach.thread.id);
+          setThread(data.coach.thread);
+          setContext(data.coach.thread.context || null);
+          setMessage("");
+          await loadThreads();
+          setNotice(
+            `${requestedSpeaker} became unavailable. Coach answered and saved this turn.`
+          );
+          if (router.query.thread !== data.coach.thread.id) {
+            await router.replace(
+              { pathname: "/coach", query: { thread: data.coach.thread.id } },
+              undefined,
+              { shallow: true }
+            );
+          }
+          setSending(false);
+          return;
+        }
+        throw new Error("Pal turn contract did not confirm the active Pal.");
+      } catch (_requestError) {
+        setPalSession(null);
+        setPalTurns([]);
+        setError(
+          "The Pal session could not complete this turn. Coach is active and your question remains in the composer."
+        );
+        setSending(false);
+        return;
+      }
+    }
+
     try {
       const data = await authenticatedJson("/api/chat", {
         method: "POST",
@@ -314,6 +385,8 @@ export default function Coach() {
     setThreadId(null);
     setThread(null);
     setContext(null);
+    setPalSession(null);
+    setPalTurns([]);
     setMessage("");
     setError("");
     setNotice("");
@@ -345,23 +418,60 @@ export default function Coach() {
     <AuthenticatedShell active="coach" variant="electric" contentClassName={styles.electricCoach}>
       <section className={styles.electricCoachHero} aria-labelledby="coach-title">
         <header className={styles.pageHeader}>
-          <p className={styles.eyebrow}>Amanda · your coach</p>
+          <p className={styles.eyebrow}>
+            {palSession?.mode === "pal" ? `${palSession.speaker} · active Pal` : "Amanda · your coach"}
+          </p>
           <h1 id="coach-title">Ask about your training</h1>
           <p className={styles.lede}>
-            Keep follow-ups, evidence, and saved training actions together, even when you
-            leave to inspect the underlying data and come back.
+            {palSession?.mode === "pal"
+              ? `${palSession.speaker} is active for this session. If that runtime becomes unavailable, Coach takes over and saves the turn.`
+              : "Keep follow-ups, evidence, and saved training actions together, even when you leave to inspect the underlying data and come back."}
           </p>
         </header>
-        <AmandaPresence
-          busy={sending}
-          latestAnswer={latestAnswer}
-          onTranscript={(transcript) =>
-            setMessage((current) =>
-              current.trim() ? current.trim() + " " + transcript : transcript
-            )
-          }
-        />
+        {palSession?.mode === "pal" ? (
+          <aside className={styles.activePalHero} role="status" aria-live="polite">
+            <span className={styles.palLiveSignal} aria-hidden="true" />
+            <div>
+              <p className={styles.eyebrow}>Confirmed by the Fitness-Pals adapter</p>
+              <h2>{palSession.speaker}</h2>
+              <p>No audio or microphone starts automatically. Text remains available throughout.</p>
+              <button
+                className={styles.secondaryButton}
+                type="button"
+                onClick={() => {
+                  setPalSession(null);
+                  setPalTurns([]);
+                  setNotice("Coach is active.");
+                }}
+              >
+                Return to Coach
+              </button>
+            </div>
+          </aside>
+        ) : (
+          <AmandaPresence
+            busy={sending}
+            latestAnswer={latestAnswer}
+            onTranscript={(transcript) =>
+              setMessage((current) =>
+                current.trim() ? current.trim() + " " + transcript : transcript
+              )
+            }
+          />
+        )}
       </section>
+
+      <PalSelector
+        session={palSession}
+        onSessionChange={(nextSession) => {
+          setPalSession(nextSession);
+          setPalTurns([]);
+        }}
+        onNotice={(nextNotice) => {
+          setError("");
+          setNotice(nextNotice);
+        }}
+      />
 
       <AthleteOrbitStory
         decision={intelligence?.decision || home?.decision}
@@ -594,10 +704,43 @@ export default function Coach() {
           {error && <StatusNotice tone="warning">{error}</StatusNotice>}
           {notice && <StatusNotice tone="neutral">{notice}</StatusNotice>}
 
+          {palSession?.mode === "pal" && (
+            <section
+              className={`${styles.messagePanel} ${styles.palConversation}`}
+              aria-label={`${palSession.speaker} conversation`}
+              aria-live="polite"
+            >
+              {palTurns.length ? (
+                <ol className={styles.messageList}>
+                  {palTurns.map((turn) => (
+                    <li key={turn.id}>
+                      <article className={styles.athleteMessage}>
+                        <span>You</span>
+                        <p>{turn.question}</p>
+                      </article>
+                      <article className={styles.coachMessage}>
+                        <span className={styles.interpretationBadge}>
+                          {turn.speaker} · Pal response
+                        </span>
+                        <p>{turn.answer}</p>
+                      </article>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <div className={styles.emptyConversation}>
+                  <h2>{palSession.speaker} is ready</h2>
+                  <p>This session is live only because the authenticated adapter confirmed that exact Pal.</p>
+                </div>
+              )}
+            </section>
+          )}
+
           <section
             className={styles.messagePanel}
             aria-label="Coach conversation"
             aria-live="polite"
+            hidden={palSession?.mode === "pal"}
           >
             {thread?.turns?.length ? (
               <ol className={styles.messageList}>
@@ -674,7 +817,7 @@ export default function Coach() {
             )}
           </section>
 
-          {thread?.actions?.length ? (
+          {palSession?.mode !== "pal" && thread?.actions?.length ? (
             <section
               className={styles.coachActions}
               aria-label="Saved training actions"
@@ -722,7 +865,9 @@ export default function Coach() {
               ))}
             </div>
             <form className={styles.chatForm} onSubmit={send}>
-              <label htmlFor="coach-question">Your question</label>
+              <label htmlFor="coach-question">
+                {palSession?.mode === "pal" ? `Your question for ${palSession.speaker}` : "Your question"}
+              </label>
               <textarea
                 id="coach-question"
                 value={message}
@@ -736,9 +881,11 @@ export default function Coach() {
               >
                 {sending
                   ? "Thinking…"
-                  : threadId
-                    ? "Send follow-up"
-                    : "Ask Coach"}
+                  : palSession?.mode === "pal"
+                    ? `Ask ${palSession.speaker}`
+                    : threadId
+                      ? "Send follow-up"
+                      : "Ask Coach"}
               </button>
             </form>
           </section>

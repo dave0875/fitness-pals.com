@@ -1554,3 +1554,213 @@
     animation: none !important;
   }
 }
+
+
+/* Vital Presence Phase 2F: Embodied Pal Selection */
+.palSelector {
+  display: grid;
+  gap: 1.1rem;
+  margin: 0 0 1.25rem;
+  padding: clamp(1rem, 3vw, 1.5rem);
+  color: #f2f7ef;
+  background:
+    radial-gradient(circle at 85% 12%, rgba(222,188,116,.11), transparent 26%),
+    linear-gradient(145deg, #0d140f, #080d0a 72%);
+  border: 1px solid #39463d;
+  border-radius: var(--ef-radius-xl);
+  box-shadow: var(--ef-shadow-cinematic);
+}
+
+.palSelectorHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: end;
+}
+
+.palSelectorHeader h2,
+.palStageCopy h3,
+.activePalHero h2 {
+  margin: 0;
+  font-family: var(--ef-font-display);
+  text-transform: uppercase;
+  letter-spacing: -.035em;
+}
+
+.palSelectorHeader h2 { font-size: clamp(2rem, 4vw, 3.4rem); }
+.palSelectorHeader > div > p:last-child,
+.palStageCopy > p,
+.activePalHero p {
+  color: #abb7ad;
+  line-height: 1.55;
+}
+
+.palStatePill {
+  max-width: 330px;
+  padding: .65rem .85rem;
+  color: #dbe5dd;
+  background: rgba(12, 18, 14, .82);
+  border: 1px solid #4a584d;
+  border-radius: var(--ef-radius-pill);
+  font-size: .76rem;
+  font-weight: 800;
+}
+
+.palRail {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: .6rem;
+}
+
+.palCard {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  color: #dce6de;
+  text-align: left;
+  background: #0a100c;
+  border: 1px solid #334036;
+  border-radius: var(--ef-radius-lg);
+  cursor: pointer;
+  transition:
+    transform var(--ef-motion-fast) var(--ef-ease-out),
+    border-color var(--ef-motion-fast) linear,
+    box-shadow var(--ef-motion-fast) linear;
+}
+
+.palCard:hover { transform: translateY(-2px); border-color: #647465; }
+.palCardSelected {
+  border-color: var(--ef-color-electric);
+  box-shadow: 0 0 0 1px rgba(156,255,87,.22), 0 18px 34px rgba(0,0,0,.24);
+}
+.palCard[data-active="true"] { border-color: #d7bd7d; }
+.palCard:focus-visible {
+  outline: var(--ef-focus-ring);
+  outline-offset: var(--ef-focus-offset);
+}
+
+.palPortrait {
+  display: block;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  background: #111813;
+}
+
+.palPortrait img,
+.palPreviewImage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.palCardMeta {
+  display: grid;
+  gap: .16rem;
+  padding: .7rem;
+}
+
+.palCardMeta small {
+  color: var(--ef-color-electric);
+  font-size: .62rem;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+
+.palCardMeta strong { font-size: .84rem; line-height: 1.2; }
+.palAvailability { color: #8f9b91; font-size: .68rem; }
+
+.palStage {
+  display: grid;
+  grid-template-columns: minmax(170px, .34fr) minmax(0, 1fr);
+  gap: clamp(1rem, 3vw, 1.6rem);
+  align-items: stretch;
+  padding: .9rem;
+  background: linear-gradient(125deg, rgba(156,255,87,.06), rgba(222,188,116,.045));
+  border: 1px solid #344137;
+  border-radius: var(--ef-radius-lg);
+}
+
+.palPreviewWrap {
+  min-height: 280px;
+  overflow: hidden;
+  border-radius: calc(var(--ef-radius-lg) - .2rem);
+  background: #0a0f0b;
+}
+
+.palPreviewImage {
+  object-position: 50% 38%;
+  animation: palPresence 4.8s var(--ef-ease-in-out) infinite;
+}
+
+.palStage[data-framing="upper-torso"] .palPreviewImage {
+  object-position: 50% 30%;
+}
+
+.palStageCopy {
+  display: grid;
+  gap: .65rem;
+  align-content: center;
+}
+
+.palStageCopy h3 { font-size: clamp(2.2rem, 5vw, 4.6rem); line-height: .9; }
+.palActionRow { display: flex; flex-wrap: wrap; gap: .6rem; }
+.palBoundaryNote { color: #829087; line-height: 1.5; }
+.palWarning { color: #ffcf9a !important; }
+
+.activePalHero {
+  min-height: 300px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 1rem;
+  align-items: center;
+  padding: clamp(1.2rem, 3vw, 1.8rem);
+  color: #f5f8f2;
+  background:
+    radial-gradient(circle at 18% 25%, rgba(156,255,87,.18), transparent 25%),
+    linear-gradient(150deg, #111913, #090e0b 72%);
+  border: 1px solid #425046;
+  border-radius: var(--ef-radius-xl);
+  box-shadow: var(--ef-shadow-cinematic);
+}
+
+.activePalHero h2 { font-size: clamp(2.4rem, 5vw, 4.8rem); line-height: .9; }
+.palLiveSignal {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: var(--ef-color-electric);
+  box-shadow: 0 0 0 8px rgba(156,255,87,.08), 0 0 24px rgba(156,255,87,.42);
+}
+.palConversation { border-color: #566a58 !important; }
+
+@keyframes palPresence {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.018); }
+}
+
+@media (max-width: 900px) {
+  .palSelectorHeader { grid-template-columns: 1fr; }
+  .palStatePill { max-width: none; width: fit-content; }
+  .palRail {
+    grid-template-columns: repeat(5, minmax(130px, 1fr));
+    overflow-x: auto;
+    padding-bottom: .25rem;
+    scroll-snap-type: x proximity;
+  }
+  .palCard { scroll-snap-align: start; }
+}
+
+@media (max-width: 620px) {
+  .palStage { grid-template-columns: 1fr; }
+  .palPreviewWrap { min-height: 340px; max-height: 62vh; }
+  .palActionRow { display: grid; }
+  .palActionRow button { width: 100%; }
+  .activePalHero { grid-template-columns: 1fr; min-height: 240px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .palPreviewImage { animation: none !important; }
+  .palCard { transition: none; }
+  .palCard:hover { transform: none; }
+}

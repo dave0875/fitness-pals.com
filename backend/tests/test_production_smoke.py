@@ -443,7 +443,7 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         ):
             return FakeResponse(
                 200,
-                '<html>Fitness Pals <section data-contract="human-heat-v1" data-art-direction="magnetic-service-v2"></section><section data-contract="athlete-orbit-story-v1"></section></html>',
+                '<html>Fitness Pals <section data-contract="human-heat-v1" data-art-direction="magnetic-service-v2"></section><section data-contract="athlete-orbit-story-v1"></section><section data-contract="embodied-pal-selection-v1"></section></html>',
             )
         if url.endswith("/api/auth/session"):
             raise http_error(url, 401, {"detail": "Credentials missing"})
@@ -627,13 +627,13 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         opener=opener,
     )
 
-    assert len(seen) == 30
+    assert len(seen) == 31
     assert sum(authorization is not None for _, authorization in seen) == 10
     assert report == {
         "release": release,
         "status": "pass",
         "journeys": list(smoke_production.PHASE8_JOURNEYS),
-        "probe_count": 30,
+        "probe_count": 31,
         "athlete_state_contract": "pass",
         "whole_training_contract": "pass",
         "future_intent_contract": "pass",
