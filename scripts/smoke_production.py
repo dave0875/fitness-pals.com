@@ -282,6 +282,14 @@ def production_probes(
             journeys=("returning_athlete", "training_decision"),
         ),
         Probe(
+            name="Coach embodied Pal selection route",
+            url=f"{web}/coach",
+            expected_statuses=(200,),
+            expected_text='data-contract="embodied-pal-selection-v1"',
+            route_contract=True,
+            journeys=("returning_athlete", "training_decision", "mobile"),
+        ),
+        Probe(
             name="Progress page route",
             url=f"{web}/progress",
             expected_statuses=(200,),
