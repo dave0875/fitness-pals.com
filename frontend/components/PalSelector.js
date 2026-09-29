@@ -109,9 +109,6 @@ export default function PalSelector({ session = null, onSessionChange, onNotice 
         setDiscovery(payload);
         setPersonas(normalized);
         setLoadError("");
-        if (!normalized.some((pal) => pal.persona_id === selectedId)) {
-          setSelectedId(normalized[0].persona_id);
-        }
       })
       .catch(() => {
         if (!active) return;
@@ -123,7 +120,7 @@ export default function PalSelector({ session = null, onSessionChange, onNotice 
     return () => {
       active = false;
     };
-  }, [onSessionChange, selectedId]);
+  }, [onSessionChange]);
 
   const selected = useMemo(
     () => (personas || PAL_VISUALS).find((pal) => pal.persona_id === selectedId) || PAL_VISUALS[0],

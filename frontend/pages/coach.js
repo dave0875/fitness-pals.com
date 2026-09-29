@@ -110,6 +110,16 @@ export default function Coach() {
     return data;
   }, []);
 
+  const handlePalSessionChange = useCallback((nextSession) => {
+    setPalSession(nextSession);
+    setPalTurns([]);
+  }, []);
+
+  const handlePalNotice = useCallback((nextNotice) => {
+    setError("");
+    setNotice(nextNotice);
+  }, []);
+
   useEffect(() => {
     if (!router.isReady) return;
     const requestedThread =
@@ -463,14 +473,8 @@ export default function Coach() {
 
       <PalSelector
         session={palSession}
-        onSessionChange={(nextSession) => {
-          setPalSession(nextSession);
-          setPalTurns([]);
-        }}
-        onNotice={(nextNotice) => {
-          setError("");
-          setNotice(nextNotice);
-        }}
+        onSessionChange={handlePalSessionChange}
+        onNotice={handlePalNotice}
       />
 
       <AthleteOrbitStory
