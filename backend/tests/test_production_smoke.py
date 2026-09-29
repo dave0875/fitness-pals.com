@@ -416,6 +416,8 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
     release = "abc123"
     seen: list[tuple[str, str | None]] = []
     state = athlete_state_payload()
+    pal_sessions: dict[str, str] = {}
+    pal_voice_sessions: dict[str, str] = {}
 
     def opener(request, timeout):
         del timeout
@@ -456,35 +458,111 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
                 {
                     "adapter_version": "fitness-pals-pal-adapter-v1",
                     "upstream_contract_version": "mychat-pal-runtime-v1",
-                    "state": "degraded",
-                    "reason": "pal_runtime_unconfigured",
+                    "state": "ready",
+                    "reason": None,
                     "personas": [
                         {
-                            "persona_id": "w16-golden-glow",
-                            "runtime_available": False,
-                        },
-                        {
-                            "persona_id": "w18-radiant-wellness",
-                            "runtime_available": False,
-                        },
-                        {
-                            "persona_id": "w21-confident-coaching",
-                            "runtime_available": False,
-                        },
-                        {
-                            "persona_id": "w24-fresh-momentum",
-                            "runtime_available": False,
-                        },
-                        {
-                            "persona_id": "w51-tokyo-strength",
-                            "runtime_available": False,
-                        },
+                            "persona_id": persona_id,
+                            "voice_key": voice_key,
+                            "runtime_available": True,
+                            "voice_available": True,
+                        }
+                        for persona_id, voice_key in (
+                            ("w16-golden-glow", "w16-golden-glow-v1"),
+                            ("w18-radiant-wellness", "w18-radiant-wellness-v1"),
+                            ("w21-confident-coaching", "w21-confident-coaching-v1"),
+                            ("w24-fresh-momentum", "w24-fresh-momentum-v1"),
+                            ("w51-tokyo-strength", "w51-tokyo-strength-v1"),
+                        )
                     ],
                     "fallback": {
                         "available": True,
                         "mode": "coach",
                         "href": "/coach",
                     },
+                },
+            )
+        if url.endswith("/api/pals/v1/sessions"):
+            assert authorization == f"Bearer {token}"
+            payload = json.loads(request.data or b"{}")
+            persona_id = payload["persona_id"]
+            speaker_by_persona = {
+                "w16-golden-glow": ("Golden Glow", "w16-golden-glow-v1"),
+                "w18-radiant-wellness": ("Radiant Wellness", "w18-radiant-wellness-v1"),
+                "w21-confident-coaching": ("Confident Coaching", "w21-confident-coaching-v1"),
+                "w24-fresh-momentum": ("Fresh Momentum", "w24-fresh-momentum-v1"),
+                "w51-tokyo-strength": ("Tokyo Strength", "w51-tokyo-strength-v1"),
+            }
+            speaker, voice_key = speaker_by_persona[persona_id]
+            session_token = ("session-" + persona_id + "-" + ("x" * 64))[:80]
+            pal_sessions[session_token] = persona_id
+            return FakeResponse(
+                200,
+                {
+                    "adapter_version": "fitness-pals-pal-adapter-v1",
+                    "session_token": session_token,
+                    "mode": "pal",
+                    "requested_persona_id": persona_id,
+                    "active_persona_id": persona_id,
+                    "speaker": speaker,
+                    "voice": {
+                        "voice_key": voice_key,
+                        "available": True,
+                        "autoplay": False,
+                    },
+                    "fallback": None,
+                },
+            )
+        if url.endswith("/api/pals/v1/turns"):
+            assert authorization == f"Bearer {token}"
+            payload = json.loads(request.data or b"{}")
+            persona_id = pal_sessions[payload["session_token"]]
+            speaker_by_persona = {
+                "w16-golden-glow": ("Golden Glow", "w16-golden-glow-v1"),
+                "w18-radiant-wellness": ("Radiant Wellness", "w18-radiant-wellness-v1"),
+                "w21-confident-coaching": ("Confident Coaching", "w21-confident-coaching-v1"),
+                "w24-fresh-momentum": ("Fresh Momentum", "w24-fresh-momentum-v1"),
+                "w51-tokyo-strength": ("Tokyo Strength", "w51-tokyo-strength-v1"),
+            }
+            speaker, voice_key = speaker_by_persona[persona_id]
+            voice_token = ("voice-" + persona_id + "-" + ("y" * 64))[:80]
+            pal_voice_sessions[voice_token] = persona_id
+            return FakeResponse(
+                200,
+                {
+                    "adapter_version": "fitness-pals-pal-adapter-v1",
+                    "session_token": voice_token,
+                    "mode": "pal",
+                    "requested_persona_id": persona_id,
+                    "active_persona_id": persona_id,
+                    "speaker": speaker,
+                    "answer": "Take an easy recovery walk and hydrate.",
+                    "voice": {
+                        "voice_key": voice_key,
+                        "available": True,
+                        "autoplay": False,
+                    },
+                    "fallback": None,
+                },
+            )
+        if url.endswith("/api/pals/v1/voice"):
+            assert authorization == f"Bearer {token}"
+            payload = json.loads(request.data or b"{}")
+            persona_id = pal_voice_sessions[payload["session_token"]]
+            voice_key = {
+                "w16-golden-glow": "w16-golden-glow-v1",
+                "w18-radiant-wellness": "w18-radiant-wellness-v1",
+                "w21-confident-coaching": "w21-confident-coaching-v1",
+                "w24-fresh-momentum": "w24-fresh-momentum-v1",
+                "w51-tokyo-strength": "w51-tokyo-strength-v1",
+            }[persona_id]
+            return FakeResponse(
+                200,
+                b"RIFF" + (b"\x00" * 256),
+                headers={
+                    "Content-Type": "audio/wav",
+                    "X-Pal-Persona-Id": persona_id,
+                    "X-Pal-Voice-Key": voice_key,
                 },
             )
         if url.endswith("/api/athlete-state?days=14"):
@@ -627,8 +705,8 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         opener=opener,
     )
 
-    assert len(seen) == 31
-    assert sum(authorization is not None for _, authorization in seen) == 10
+    assert len(seen) == 46
+    assert sum(authorization is not None for _, authorization in seen) == 25
     assert report == {
         "release": release,
         "status": "pass",
@@ -641,6 +719,7 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
         "decision_contract": "pass",
         "experience_contract": "pass",
         "pal_adapter_contract": "pass",
+        "pal_live_contract": "pass",
     }
     assert any(url.endswith("/api/onboarding/status") for url, _ in seen)
     assert any(url.endswith("/api/athlete-home") for url, _ in seen)
@@ -651,6 +730,9 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
     assert any(url.endswith("/api/today-plan/context") for url, _ in seen)
     assert any(url.endswith("/api/chat/threads") for url, _ in seen)
     assert sum(url.endswith("/api/pals/v1/personas") for url, _ in seen) == 2
+    assert sum(url.endswith("/api/pals/v1/sessions") for url, _ in seen) == 5
+    assert sum(url.endswith("/api/pals/v1/turns") for url, _ in seen) == 5
+    assert sum(url.endswith("/api/pals/v1/voice") for url, _ in seen) == 5
     assert any(
         "/api/journey?window=30d&sport=all&goal=all"
         "&activity_page=1&activity_page_size=25" in url

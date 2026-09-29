@@ -11,7 +11,7 @@ from cryptography.fernet import Fernet
 from pydantic import ValidationError
 
 from app.routes import pals as pal_routes
-from app.routes.pals import PalSessionRequest, PalTurnRequest
+from app.routes.pals import PalSessionRequest, PalTurnRequest, PalVoiceRequest
 from app.services.pal_adapter import (
     ADAPTER_VERSION,
     PUBLIC_PERSONAS,
@@ -46,9 +46,14 @@ def ready_handler(request: httpx.Request) -> httpx.Response:
             200,
             json={
                 "contract_version": UPSTREAM_CONTRACT_VERSION,
-                "capabilities": ["session", "turn"],
+                "capabilities": ["session", "turn", "voice"],
                 "personas": [
-                    {"persona_id": item["persona_id"], "runtime_available": True}
+                    {
+                        "persona_id": item["persona_id"],
+                        "voice_key": item["voice_key"],
+                        "runtime_available": True,
+                        "voice_available": True,
+                    }
                     for item in PUBLIC_PERSONAS
                 ],
             },
@@ -61,6 +66,8 @@ def ready_handler(request: httpx.Request) -> httpx.Response:
                 "contract_version": UPSTREAM_CONTRACT_VERSION,
                 "persona_id": body["persona_id"],
                 "session_id": "private-upstream-session",
+                "voice_key": next(item["voice_key"] for item in PUBLIC_PERSONAS if item["persona_id"] == body["persona_id"]),
+                "voice_available": True,
                 "profile_id": "must-never-leak",
             },
         )
@@ -72,9 +79,28 @@ def ready_handler(request: httpx.Request) -> httpx.Response:
                 "contract_version": UPSTREAM_CONTRACT_VERSION,
                 "persona_id": body["persona_id"],
                 "answer": "Measured response",
+                "voice_key": next(item["voice_key"] for item in PUBLIC_PERSONAS if item["persona_id"] == body["persona_id"]),
                 "voice_available": True,
                 "memory_rows": ["must-never-leak"],
                 "profile_id": "must-never-leak",
+            },
+        )
+    if request.url.path == "/api/pals/v1/voice":
+        body = __import__("json").loads(request.content)
+        assert body["text"] == "Measured response"
+        voice_key = next(
+            item["voice_key"]
+            for item in PUBLIC_PERSONAS
+            if item["persona_id"] == body["persona_id"]
+        )
+        return httpx.Response(
+            200,
+            content=b"RIFF" + (b"\x00" * 256),
+            headers={
+                "Content-Type": "audio/wav",
+                "X-MyChat-Contract-Version": UPSTREAM_CONTRACT_VERSION,
+                "X-Pal-Persona-Id": body["persona_id"],
+                "X-Pal-Voice-Key": voice_key,
             },
         )
     return httpx.Response(404)
@@ -184,6 +210,11 @@ def test_request_models_forbid_client_profile_or_private_authority_claims():
             message="Hello",
             passkey="claimed-passkey",
         )
+    with pytest.raises(ValidationError):
+        PalVoiceRequest(
+            session_token="x" * 64,
+            text="browser-authored speech must be rejected",
+        )
 
 
 def test_compatible_upstream_can_start_and_return_only_allow_listed_turn_fields():
@@ -204,6 +235,18 @@ def test_compatible_upstream_can_start_and_return_only_allow_listed_turn_fields(
     }
     assert "profile_id" not in turn
     assert "memory_rows" not in turn
+    assert session.voice_available is True
+
+    _bound, voice_token = adapter.bind_voice_text(
+        session,
+        turn["answer"],
+        voice_available=turn["voice_available"],
+    )
+    resolved = adapter.decode_session(voice_token, owner)
+    assert resolved.voice_text == "Measured response"
+    audio, voice_key = adapter.submit_upstream_voice(resolved)
+    assert audio.startswith(b"RIFF")
+    assert voice_key == "w21-confident-coaching-v1"
     assert adapter.decode_session(token, owner).mode == "pal"
 
 

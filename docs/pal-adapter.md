@@ -9,6 +9,7 @@ Fitness-Pals exposes three authenticated endpoints:
 - `GET /api/pals/v1/personas` — public persona discovery plus explicit runtime availability.
 - `POST /api/pals/v1/sessions` — create one opaque athlete-owned adapter session for a canonical `persona_id`.
 - `POST /api/pals/v1/turns` — submit one text turn through that session.
+- `POST /api/pals/v1/voice` — explicitly render the exact server-bound answer for a successful Pal turn.
 
 The canonical cast is:
 
@@ -51,7 +52,7 @@ Even when enabled, the URL must use HTTP(S), contain no embedded credentials, an
 
 Fitness-Pals expects upstream contract `mychat-pal-runtime-v1`. The upstream must advertise `session` and `turn` capabilities and may mark each canonical persona `runtime_available`. Unknown personas, malformed manifests, version drift, timeout, or transport failure degrade the bridge instead of activating a guessed runtime.
 
-The current myChat Phase 2D production runtime does not yet expose this HTTP contract. Therefore a normal Phase 2E production deployment is expected to be **dark-launched** unless operators deliberately configure a compatible runtime later.
+Phase 2G closes the former dark-launch boundary. The production myChat runtime now exposes `mychat-pal-runtime-v1`, and Fitness-Pals enables the adapter by default against `https://amanda.fitness-pals.com` while retaining the allow-list and optional server bearer. If the upstream contract becomes unavailable or incompatible, the adapter fails closed and Coach remains the truthful fallback.
 
 ## Coach fallback
 
@@ -63,7 +64,7 @@ No second coaching model, evidence pipeline, or persistence path is introduced.
 
 ## Voice boundary
 
-Phase 2E returns only the public persona `voice_key` and a boolean upstream availability signal for a successful Pal turn. It does not return source voice files, provider credentials, biometric templates, or private audio transport details. Voice never autoplays, and this phase introduces no microphone UI.
+The browser receives only the public persona `voice_key` and an availability signal. After a successful Pal turn, Fitness-Pals rotates the encrypted adapter session token with the exact server-produced answer. The browser cannot submit arbitrary speech text to `/voice`; it sends only that opaque token. Fitness-Pals then proxies the bound answer to myChat and validates the returned contract version, persona id, voice key, WAV type, and size before returning audio. Source voice files, provider credentials, biometric templates, upstream session ids, and private memory authority never cross the browser boundary. Voice never starts automatically and no Pal microphone UI is introduced.
 
 ## Phase 2F handoff
 

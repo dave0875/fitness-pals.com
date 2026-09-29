@@ -642,8 +642,8 @@ def _validate_pal_adapter_acceptance(
         raise ValueError("Pal adapter version is missing or unexpected")
     if payload.get("upstream_contract_version") != "mychat-pal-runtime-v1":
         raise ValueError("Pal upstream contract version is missing or unexpected")
-    if payload.get("state") not in {"ready", "degraded"}:
-        raise ValueError("Pal adapter state must be ready or degraded")
+    if payload.get("state") != "ready":
+        raise ValueError("Pal adapter must be ready in production")
 
     personas = payload.get("personas")
     if not isinstance(personas, list):
@@ -657,11 +657,22 @@ def _validate_pal_adapter_acceptance(
     ]
     if [item.get("persona_id") for item in personas if isinstance(item, dict)] != expected_ids:
         raise ValueError("Pal discovery canonical persona set drifted")
+    expected_voice_keys = [
+        "w16-golden-glow-v1",
+        "w18-radiant-wellness-v1",
+        "w21-confident-coaching-v1",
+        "w24-fresh-momentum-v1",
+        "w51-tokyo-strength-v1",
+    ]
+    if [item.get("voice_key") for item in personas if isinstance(item, dict)] != expected_voice_keys:
+        raise ValueError("Pal discovery voice identity set drifted")
     if any(
-        not isinstance(item, dict) or not isinstance(item.get("runtime_available"), bool)
+        not isinstance(item, dict)
+        or item.get("runtime_available") is not True
+        or item.get("voice_available") is not True
         for item in personas
     ):
-        raise ValueError("Pal runtime availability must be explicit for every persona")
+        raise ValueError("Every production Pal must expose live text and voice")
 
     fallback = _require_dict(payload.get("fallback"), "Pal fallback")
     if (
@@ -681,6 +692,100 @@ def _validate_pal_adapter_acceptance(
     ):
         if forbidden in serialized:
             raise ValueError(f"Pal discovery leaked private field {forbidden!r}")
+
+
+def _live_pal_acceptance(
+    *,
+    web_base_url: str,
+    auth_token: str,
+    opener: OpenUrl,
+    request_timeout_seconds: int,
+) -> None:
+    """Prove all five exact Pal session, turn, and explicit voice paths through Fitness-Pals."""
+    expected = [
+        ("w16-golden-glow", "Golden Glow", "w16-golden-glow-v1"),
+        ("w18-radiant-wellness", "Radiant Wellness", "w18-radiant-wellness-v1"),
+        ("w21-confident-coaching", "Confident Coaching", "w21-confident-coaching-v1"),
+        ("w24-fresh-momentum", "Fresh Momentum", "w24-fresh-momentum-v1"),
+        ("w51-tokyo-strength", "Tokyo Strength", "w51-tokyo-strength-v1"),
+    ]
+    base = web_base_url.rstrip("/")
+
+    def request(path: str, payload: dict[str, object], timeout: int) -> tuple[Any, bytes]:
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        http_request = urllib.request.Request(
+            f"{base}{path}",
+            data=body,
+            headers={
+                "User-Agent": DEFAULT_USER_AGENT,
+                "Authorization": f"Bearer {auth_token}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        status, headers, response_body = _read_response(opener, http_request, timeout)
+        if status != 200:
+            raise ValueError(f"{path} returned HTTP {status}")
+        return headers, response_body
+
+    for persona_id, speaker, voice_key in expected:
+        _headers, body = request(
+            "/api/pals/v1/sessions",
+            {"persona_id": persona_id},
+            max(request_timeout_seconds, 30),
+        )
+        session = _require_dict(json.loads(body), f"{persona_id} session")
+        if (
+            session.get("mode") != "pal"
+            or session.get("active_persona_id") != persona_id
+            or session.get("speaker") != speaker
+        ):
+            raise ValueError(f"{persona_id} session attribution failed")
+        voice = _require_dict(session.get("voice"), f"{persona_id} session voice")
+        if voice.get("voice_key") != voice_key or voice.get("available") is not True:
+            raise ValueError(f"{persona_id} session voice attribution failed")
+        session_token = session.get("session_token")
+        if not isinstance(session_token, str) or len(session_token) < 32:
+            raise ValueError(f"{persona_id} session token is invalid")
+
+        _headers, body = request(
+            "/api/pals/v1/turns",
+            {
+                "session_token": session_token,
+                "message": "Give one short practical recovery tip.",
+            },
+            max(request_timeout_seconds, 180),
+        )
+        turn = _require_dict(json.loads(body), f"{persona_id} turn")
+        if (
+            turn.get("mode") != "pal"
+            or turn.get("active_persona_id") != persona_id
+            or turn.get("speaker") != speaker
+            or not isinstance(turn.get("answer"), str)
+            or not str(turn.get("answer")).strip()
+        ):
+            raise ValueError(f"{persona_id} live turn attribution failed")
+        turn_voice = _require_dict(turn.get("voice"), f"{persona_id} turn voice")
+        if turn_voice.get("voice_key") != voice_key or turn_voice.get("available") is not True:
+            raise ValueError(f"{persona_id} live turn voice attribution failed")
+        voice_token = turn.get("session_token")
+        if not isinstance(voice_token, str) or len(voice_token) < 32:
+            raise ValueError(f"{persona_id} voice-bound session token is invalid")
+
+        headers, audio = request(
+            "/api/pals/v1/voice",
+            {"session_token": voice_token},
+            max(request_timeout_seconds, 300),
+        )
+        header_map = {str(key).lower(): str(value) for key, value in headers.items()}
+        if (
+            header_map.get("content-type", "").split(";", 1)[0].strip().lower() != "audio/wav"
+            or header_map.get("x-pal-persona-id") != persona_id
+            or header_map.get("x-pal-voice-key") != voice_key
+            or not audio.startswith(b"RIFF")
+            or len(audio) <= 100
+        ):
+            raise ValueError(f"{persona_id} explicit voice payload failed attribution")
 
 
 def _validate_future_intent_acceptance(
@@ -1026,7 +1131,17 @@ def verify_production(
         _validate_pal_adapter_acceptance(payloads)
     except ValueError as exc:
         raise SystemExit(f"Pal adapter production acceptance failed: {exc}") from exc
-    print("PASS Pal adapter production acceptance: five canonical identities and Coach fallback are truthful")
+    print("PASS Pal adapter production acceptance: five canonical identities, live text, exact voices, and Coach fallback are truthful")
+    try:
+        _live_pal_acceptance(
+            web_base_url=urls.get("web_base_url", "https://fitness-pals.com"),
+            auth_token=auth_token,
+            opener=opener,
+            request_timeout_seconds=request_timeout_seconds,
+        )
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"Living Pal production acceptance failed: {exc}") from exc
+    print("PASS Living Pal production acceptance: all five session/turn/voice paths are exact and live")
     try:
         _validate_athlete_state_acceptance(payloads)
     except ValueError as exc:
@@ -1076,6 +1191,7 @@ def verify_production(
         "decision_contract": "pass",
         "experience_contract": "pass",
         "pal_adapter_contract": "pass",
+        "pal_live_contract": "pass",
     }
     print("Production acceptance report: " + json.dumps(report, sort_keys=True))
     return report
