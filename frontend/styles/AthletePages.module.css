@@ -1746,7 +1746,8 @@
   cursor: pointer;
 }
 .palVoiceButton:hover { border-color: var(--ef-color-electric); }
-.palVoiceButton:disabled { cursor: wait; opacity: .62; }
+.palVoiceButton:disabled { cursor: not-allowed; opacity: .62; }
+.activePalHero .palVoiceRow { flex-wrap: wrap; margin: .8rem 0; }
 .palVoiceButton:focus-visible {
   outline: var(--ef-focus-ring);
   outline-offset: var(--ef-focus-offset);

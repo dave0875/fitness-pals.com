@@ -24,7 +24,15 @@ test("Embodied selector pins the exact canonical five and approved local portrai
     assert.ok(selector.includes(`voice_key: "${voice}"`));
     const image = path.join(root, "public", "pals", `${persona}.webp`);
     assert.ok(fs.existsSync(image), `missing ${persona} portrait`);
-    assert.ok(fs.statSync(image).size < 25_000, `${persona} portrait exceeds budget`);
+    const portrait = fs.readFileSync(image);
+    assert.equal(portrait.subarray(0, 4).toString("ascii"), "RIFF");
+    assert.equal(portrait.subarray(8, 12).toString("ascii"), "WEBP");
+    assert.equal(
+      portrait.readUInt32LE(4) + 8,
+      portrait.length,
+      `${persona} portrait has a truncated or malformed RIFF container`
+    );
+    assert.ok(portrait.length < 25_000, `${persona} portrait exceeds budget`);
   }
   const total = canonical.reduce(
     (sum, [, persona]) => sum + fs.statSync(path.join(root, "public", "pals", `${persona}.webp`)).size,
@@ -93,6 +101,9 @@ test("Living Pal voice is explicit, exact-attributed, and never browser-authored
   assert.ok(coach.includes("new Audio(objectUrl)"));
   assert.ok(coach.includes("await audio.play()"));
   assert.ok(coach.includes("Play ${turn.speaker} voice"));
+  assert.ok(coach.includes("Play voice after first reply"));
+  assert.ok(coach.includes("latestPalTurn && playPalVoice(latestPalTurn)"));
+  assert.ok(coach.includes("Voice unavailable for this response"));
   assert.ok(coach.includes("stopPalVoice()"));
   assert.ok(!coach.includes("getUserMedia"));
   assert.ok(!coach.includes("speechSynthesis"));
