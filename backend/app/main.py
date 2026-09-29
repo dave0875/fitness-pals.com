@@ -27,6 +27,7 @@ from app.routes.goal_graph import router as goal_graph_router
 from app.routes.intelligence import router as intelligence_router
 from app.routes.athlete_state import router as athlete_state_router
 from app.routes.ux_events import router as ux_events_router
+from app.routes.pals import router as pals_router
 from app.config import get_settings
 from app.db import engine
 
@@ -82,6 +83,7 @@ app.include_router(goal_graph_router)
 app.include_router(intelligence_router)
 app.include_router(athlete_state_router)
 app.include_router(ux_events_router)
+app.include_router(pals_router)
 
 
 @app.get("/health")

@@ -81,6 +81,7 @@ class Settings(BaseSettings):
         "web_oidc_redirect_uri",
         "microsoft_redirect_uri",
         "apple_redirect_uri",
+        "pal_service_url",
         mode="before",
     )
     @classmethod
@@ -96,6 +97,14 @@ class Settings(BaseSettings):
     # --- Influx + OpenAI ---
     influx_default_url: Optional[str] = None
     openai_api_key: Optional[str] = None
+
+    # --- Vital Presence Pal adapter ---
+    pal_adapter_enabled: bool = False
+    pal_service_url: Optional[AnyUrl] = None
+    pal_service_token: Optional[str] = None
+    pal_service_allowed_hosts: str = ""
+    pal_service_timeout_seconds: float = 2.0
+    pal_session_ttl_seconds: int = 3600
 
     # --- Token encryption ---
     fernet_key: str
