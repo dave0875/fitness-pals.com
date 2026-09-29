@@ -13,7 +13,7 @@ from cryptography.fernet import Fernet, InvalidToken
 
 ADAPTER_VERSION = "fitness-pals-pal-adapter-v1"
 UPSTREAM_CONTRACT_VERSION = "mychat-pal-runtime-v1"
-REQUIRED_UPSTREAM_CAPABILITIES = frozenset({"session", "turn"})
+REQUIRED_UPSTREAM_CAPABILITIES = frozenset({"session", "turn", "voice"})
 
 PUBLIC_PERSONAS: tuple[dict[str, str], ...] = (
     {
@@ -77,6 +77,8 @@ class PalSession:
     issued_at: int
     upstream_session_id: str | None = None
     coach_thread_id: str | None = None
+    voice_available: bool = False
+    voice_text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -84,6 +86,7 @@ class UpstreamState:
     """Validated myChat capability snapshot."""
 
     available_personas: frozenset[str]
+    voice_personas: frozenset[str]
     state: str
     reason: str | None = None
 
@@ -166,36 +169,83 @@ class PalAdapter:
             raise PalAdapterError("pal runtime returned a non-object payload")
         return body
 
+    def _request_audio(
+        self,
+        path: str,
+        *,
+        payload: dict[str, Any],
+    ) -> tuple[bytes, dict[str, str]]:
+        base = self._upstream_base_url()
+        if base is None:
+            raise PalAdapterError("pal runtime is not configured")
+        client = self._client or httpx.Client()
+        close_client = self._client is None
+        try:
+            response = client.request(
+                "POST",
+                f"{base}{path}",
+                headers=self._headers(),
+                json=payload,
+                timeout=max(self.timeout_seconds, 30.0),
+            )
+            response.raise_for_status()
+            audio = response.content
+            headers = {key.lower(): value for key, value in response.headers.items()}
+        except httpx.HTTPError as exc:
+            raise PalAdapterError("pal voice request failed") from exc
+        finally:
+            if close_client:
+                client.close()
+        content_type = headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        if content_type != "audio/wav" or not audio.startswith(b"RIFF") or len(audio) > 8_000_000:
+            raise PalAdapterError("pal voice contract mismatch")
+        return audio, headers
+
     @staticmethod
     def _validated_capabilities(body: dict[str, Any]) -> UpstreamState:
         if body.get("contract_version") != UPSTREAM_CONTRACT_VERSION:
-            return UpstreamState(frozenset(), "degraded", "contract_version_mismatch")
+            return UpstreamState(frozenset(), frozenset(), "degraded", "contract_version_mismatch")
         capabilities = body.get("capabilities")
         if not isinstance(capabilities, list) or not REQUIRED_UPSTREAM_CAPABILITIES.issubset(
             {value for value in capabilities if isinstance(value, str)}
         ):
-            return UpstreamState(frozenset(), "degraded", "capability_mismatch")
+            return UpstreamState(frozenset(), frozenset(), "degraded", "capability_mismatch")
         raw_personas = body.get("personas")
         if not isinstance(raw_personas, list):
-            return UpstreamState(frozenset(), "degraded", "persona_manifest_invalid")
+            return UpstreamState(frozenset(), frozenset(), "degraded", "persona_manifest_invalid")
         available: set[str] = set()
+        voice_available: set[str] = set()
+        seen: set[str] = set()
         for item in raw_personas:
             if not isinstance(item, dict):
-                return UpstreamState(frozenset(), "degraded", "persona_manifest_invalid")
+                return UpstreamState(frozenset(), frozenset(), "degraded", "persona_manifest_invalid")
             persona_id = item.get("persona_id")
-            if persona_id not in PERSONA_BY_ID:
-                return UpstreamState(frozenset(), "degraded", "persona_manifest_invalid")
+            if persona_id not in PERSONA_BY_ID or persona_id in seen:
+                return UpstreamState(frozenset(), frozenset(), "degraded", "persona_manifest_invalid")
+            seen.add(str(persona_id))
+            public = PERSONA_BY_ID[str(persona_id)]
+            if item.get("voice_key") != public["voice_key"]:
+                return UpstreamState(frozenset(), frozenset(), "degraded", "persona_manifest_invalid")
             if item.get("runtime_available") is True:
                 available.add(str(persona_id))
-        return UpstreamState(frozenset(available), "ready", None)
+                if item.get("voice_available") is True:
+                    voice_available.add(str(persona_id))
+        if seen != set(PERSONA_BY_ID):
+            return UpstreamState(frozenset(), frozenset(), "degraded", "persona_manifest_invalid")
+        return UpstreamState(
+            frozenset(available),
+            frozenset(voice_available),
+            "ready",
+            None,
+        )
 
     def upstream_state(self) -> UpstreamState:
         if self._upstream_base_url() is None:
-            return UpstreamState(frozenset(), "degraded", "pal_runtime_unconfigured")
+            return UpstreamState(frozenset(), frozenset(), "degraded", "pal_runtime_unconfigured")
         try:
             body = self._request_json("GET", "/api/pals/v1/capabilities")
         except PalAdapterError:
-            return UpstreamState(frozenset(), "degraded", "pal_runtime_unavailable")
+            return UpstreamState(frozenset(), frozenset(), "degraded", "pal_runtime_unavailable")
         return self._validated_capabilities(body)
 
     def discovery(self) -> dict[str, Any]:
@@ -204,6 +254,7 @@ class PalAdapter:
             {
                 **item,
                 "runtime_available": item["persona_id"] in upstream.available_personas,
+                "voice_available": item["persona_id"] in upstream.voice_personas,
             }
             for item in PUBLIC_PERSONAS
         ]
@@ -233,6 +284,8 @@ class PalAdapter:
             "issued_at": session.issued_at,
             "upstream_session_id": session.upstream_session_id,
             "coach_thread_id": session.coach_thread_id,
+            "voice_available": session.voice_available,
+            "voice_text": session.voice_text,
         }
         return self._fernet.encrypt(
             json.dumps(body, separators=(",", ":"), sort_keys=True).encode("utf-8")
@@ -270,6 +323,10 @@ class PalAdapter:
             coach_thread_id=(
                 str(body["coach_thread_id"]) if body.get("coach_thread_id") else None
             ),
+            voice_available=body.get("voice_available") is True,
+            voice_text=(
+                str(body["voice_text"]) if isinstance(body.get("voice_text"), str) else None
+            ),
         )
 
     def start_session(self, owner_id: str, persona_id: str) -> tuple[PalSession, str, str | None]:
@@ -291,6 +348,8 @@ class PalAdapter:
                     and body.get("persona_id") == persona_id
                     and isinstance(body.get("session_id"), str)
                     and body["session_id"].strip()
+                    and body.get("voice_key") == PERSONA_BY_ID[persona_id]["voice_key"]
+                    and isinstance(body.get("voice_available"), bool)
                 ):
                     session = PalSession(
                         owner_id=str(owner_id),
@@ -298,6 +357,7 @@ class PalAdapter:
                         mode="pal",
                         issued_at=int(time.time()),
                         upstream_session_id=body["session_id"].strip(),
+                        voice_available=body.get("voice_available") is True,
                     )
                     return session, self._encode(session), None
                 reason = "session_contract_mismatch"
@@ -329,6 +389,7 @@ class PalAdapter:
             or body.get("persona_id") != session.persona_id
             or not isinstance(body.get("answer"), str)
             or not body["answer"].strip()
+            or body.get("voice_key") != PERSONA_BY_ID[session.persona_id]["voice_key"]
         ):
             raise PalAdapterError("Pal turn contract mismatch")
         return {
@@ -337,6 +398,49 @@ class PalAdapter:
             "voice_key": PERSONA_BY_ID[session.persona_id]["voice_key"],
             "voice_available": body.get("voice_available") is True,
         }
+
+    def bind_voice_text(
+        self,
+        session: PalSession,
+        text: str,
+        *,
+        voice_available: bool,
+    ) -> tuple[PalSession, str]:
+        if session.mode != "pal" or not session.upstream_session_id:
+            raise PalAdapterError("Pal session is not upstream-backed")
+        updated = replace(
+            session,
+            voice_available=bool(voice_available),
+            voice_text=text.strip() if voice_available and text.strip() else None,
+            issued_at=int(time.time()),
+        )
+        return updated, self._encode(updated)
+
+    def submit_upstream_voice(self, session: PalSession) -> tuple[bytes, str]:
+        if (
+            session.mode != "pal"
+            or not session.upstream_session_id
+            or not session.voice_available
+            or not session.voice_text
+        ):
+            raise PalAdapterError("Pal voice is not available for this turn")
+        audio, headers = self._request_audio(
+            "/api/pals/v1/voice",
+            payload={
+                "contract_version": UPSTREAM_CONTRACT_VERSION,
+                "session_id": session.upstream_session_id,
+                "persona_id": session.persona_id,
+                "text": session.voice_text,
+            },
+        )
+        expected_voice = PERSONA_BY_ID[session.persona_id]["voice_key"]
+        if (
+            headers.get("x-mychat-contract-version") != UPSTREAM_CONTRACT_VERSION
+            or headers.get("x-pal-persona-id") != session.persona_id
+            or headers.get("x-pal-voice-key") != expected_voice
+        ):
+            raise PalAdapterError("Pal voice attribution mismatch")
+        return audio, expected_voice
 
     def fallback_session(
         self,
@@ -349,6 +453,8 @@ class PalAdapter:
             mode="coach-fallback",
             upstream_session_id=None,
             coach_thread_id=coach_thread_id or session.coach_thread_id,
+            voice_available=False,
+            voice_text=None,
             issued_at=int(time.time()),
         )
         return updated, self._encode(updated)
