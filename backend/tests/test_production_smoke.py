@@ -563,6 +563,7 @@ def test_production_smoke_proves_public_and_authenticated_contracts() -> None:
                     "Content-Type": "audio/wav",
                     "X-Pal-Persona-Id": persona_id,
                     "X-Pal-Voice-Key": voice_key,
+                    "X-Pal-Voice-Renderer": "chatterbox-turbo-amanda-grade-v1",
                 },
             )
         if url.endswith("/api/athlete-state?days=14"):

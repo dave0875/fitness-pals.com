@@ -82,6 +82,7 @@ export default function Coach() {
   const [palTurns, setPalTurns] = useState([]);
   const [voiceBusyId, setVoiceBusyId] = useState("");
   const [voicePlayingId, setVoicePlayingId] = useState("");
+  const [palVoiceModeEnabled, setPalVoiceModeEnabled] = useState(false);
   const voiceAudioRef = useRef(null);
   const voiceUrlRef = useRef("");
   const [sending, setSending] = useState(false);
@@ -131,6 +132,7 @@ export default function Coach() {
   const handlePalSessionChange = useCallback((nextSession) => {
     stopPalVoice();
     setVoiceBusyId("");
+    setPalVoiceModeEnabled(false);
     setPalSession(nextSession);
     setPalTurns([]);
   }, [stopPalVoice]);
@@ -139,6 +141,18 @@ export default function Coach() {
     setError("");
     setNotice(nextNotice);
   }, []);
+
+  function togglePalVoiceMode() {
+    if (palSession?.mode !== "pal" || palSession.voice?.available !== true) return;
+    if (palVoiceModeEnabled) {
+      setPalVoiceModeEnabled(false);
+      stopPalVoice();
+      setNotice(`${palSession.speaker} voice is off.`);
+      return;
+    }
+    setPalVoiceModeEnabled(true);
+    setNotice(`${palSession.speaker} voice is on. Future replies will speak automatically.`);
+  }
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -221,7 +235,8 @@ export default function Coach() {
       }
       if (
         response.headers.get("x-pal-persona-id") !== turn.personaId ||
-        response.headers.get("x-pal-voice-key") !== turn.voiceKey
+        response.headers.get("x-pal-voice-key") !== turn.voiceKey ||
+        response.headers.get("x-pal-voice-renderer") !== "chatterbox-turbo-amanda-grade-v1"
       ) {
         throw new Error("Pal voice attribution did not match the active response.");
       }
@@ -287,26 +302,28 @@ export default function Coach() {
             session_token: data.session_token || current.session_token,
             voice: data.voice || current.voice,
           }));
-          setPalTurns((current) => [
-            ...current,
-            {
-              id: `pal-${current.length + 1}`,
-              question,
-              answer: data.answer.trim(),
-              speaker: data.speaker,
-              personaId: data.active_persona_id,
-              voiceAvailable: data.voice?.available === true,
-              voiceKey: data.voice?.voice_key || "",
-              voiceSessionToken: data.session_token,
-            },
-          ]);
+          const nextTurn = {
+            id: `pal-${palTurns.length + 1}`,
+            question,
+            answer: data.answer.trim(),
+            speaker: data.speaker,
+            personaId: data.active_persona_id,
+            voiceAvailable: data.voice?.available === true,
+            voiceKey: data.voice?.voice_key || "",
+            voiceSessionToken: data.session_token,
+          };
+          setPalTurns((current) => [...current, nextTurn]);
           setMessage("");
           setSending(false);
+          if (palVoiceModeEnabled && nextTurn.voiceAvailable) {
+            void playPalVoice(nextTurn);
+          }
           return;
         }
         if (data?.mode === "coach-fallback" && data.coach?.thread?.id) {
           const requestedSpeaker = palSession.speaker;
           stopPalVoice();
+          setPalVoiceModeEnabled(false);
           setPalSession(null);
           setPalTurns([]);
           setThreadId(data.coach.thread.id);
@@ -330,6 +347,7 @@ export default function Coach() {
         throw new Error("Pal turn contract did not confirm the active Pal.");
       } catch (_requestError) {
         stopPalVoice();
+        setPalVoiceModeEnabled(false);
         setPalSession(null);
         setPalTurns([]);
         setError(
@@ -489,6 +507,7 @@ export default function Coach() {
 
   function startNewThread() {
     stopPalVoice();
+    setPalVoiceModeEnabled(false);
     setThreadId(null);
     setThread(null);
     setContext(null);
@@ -520,7 +539,6 @@ export default function Coach() {
   const latestAnswer = [...(thread?.turns || [])]
     .reverse()
     .find((turn) => turn.status !== "failed" && turn.answer)?.answer || "";
-  const latestPalTurn = palTurns.length ? palTurns[palTurns.length - 1] : null;
 
   return (
     <AuthenticatedShell active="coach" variant="electric" contentClassName={styles.electricCoach}>
@@ -543,36 +561,34 @@ export default function Coach() {
               <p className={styles.eyebrow}>Confirmed by the Fitness-Pals adapter</p>
               <h2>{palSession.speaker}</h2>
               <p>No audio or microphone starts automatically. Text remains available throughout.</p>
-              <div className={styles.palVoiceRow} aria-label="Latest Pal voice control">
+              <div className={styles.palVoiceMode} aria-label="Pal voice mode">
                 <button
                   className={styles.palVoiceButton}
                   type="button"
-                  onClick={() => latestPalTurn && playPalVoice(latestPalTurn)}
-                  disabled={
-                    !latestPalTurn ||
-                    !latestPalTurn.voiceAvailable ||
-                    Boolean(voiceBusyId)
-                  }
-                  aria-pressed={Boolean(
-                    latestPalTurn && voicePlayingId === latestPalTurn.id
-                  )}
+                  onClick={togglePalVoiceMode}
+                  disabled={palSession.voice?.available !== true}
+                  aria-pressed={palVoiceModeEnabled}
                 >
-                  {!latestPalTurn
-                    ? "Play voice after first reply"
-                    : !latestPalTurn.voiceAvailable
-                      ? "Voice unavailable for latest reply"
-                      : voiceBusyId === latestPalTurn.id
-                        ? "Preparing voice…"
-                        : voicePlayingId === latestPalTurn.id
-                          ? "Stop voice"
-                          : `Play ${latestPalTurn.speaker} voice`}
+                  {palSession.voice?.available !== true
+                    ? "Voice unavailable"
+                    : palVoiceModeEnabled
+                      ? "Turn voice off"
+                      : "Turn voice on"}
                 </button>
+                <small className={styles.palVoiceModeStatus}>
+                  {palSession.voice?.available !== true
+                    ? "Text conversation remains available."
+                    : palVoiceModeEnabled
+                      ? "Voice is on. Future Pal replies speak automatically."
+                      : "Voice is off until you explicitly turn it on."}
+                </small>
               </div>
               <button
                 className={styles.secondaryButton}
                 type="button"
                 onClick={() => {
                   stopPalVoice();
+                  setPalVoiceModeEnabled(false);
                   setPalSession(null);
                   setPalTurns([]);
                   setNotice("Coach is active.");

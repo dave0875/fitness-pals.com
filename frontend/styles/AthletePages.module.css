@@ -1748,6 +1748,12 @@
 .palVoiceButton:hover { border-color: var(--ef-color-electric); }
 .palVoiceButton:disabled { cursor: not-allowed; opacity: .62; }
 .activePalHero .palVoiceRow { flex-wrap: wrap; margin: .8rem 0; }
+.palVoiceMode { display: grid; gap: .42rem; justify-items: start; margin: .8rem 0; }
+.palVoiceModeStatus { color: #aab7ad; line-height: 1.45; }
+.palVoiceButton[aria-pressed="true"] {
+  border-color: var(--ef-color-electric);
+  background: rgba(156,255,87,.14);
+}
 .palVoiceButton:focus-visible {
   outline: var(--ef-focus-ring);
   outline-offset: var(--ef-focus-offset);

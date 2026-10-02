@@ -13,6 +13,7 @@ from cryptography.fernet import Fernet, InvalidToken
 
 ADAPTER_VERSION = "fitness-pals-pal-adapter-v1"
 UPSTREAM_CONTRACT_VERSION = "mychat-pal-runtime-v1"
+PREMIUM_VOICE_RENDERER = "chatterbox-turbo-amanda-grade-v1"
 REQUIRED_UPSTREAM_CAPABILITIES = frozenset({"session", "turn", "voice"})
 
 PUBLIC_PERSONAS: tuple[dict[str, str], ...] = (
@@ -451,7 +452,7 @@ class PalAdapter:
         )
         return updated, self._encode(updated)
 
-    def submit_upstream_voice(self, session: PalSession) -> tuple[bytes, str]:
+    def submit_upstream_voice(self, session: PalSession) -> tuple[bytes, str, str]:
         if (
             session.mode != "pal"
             or not session.upstream_session_id
@@ -473,9 +474,10 @@ class PalAdapter:
             headers.get("x-mychat-contract-version") != UPSTREAM_CONTRACT_VERSION
             or headers.get("x-pal-persona-id") != session.persona_id
             or headers.get("x-pal-voice-key") != expected_voice
+            or headers.get("x-pal-voice-renderer") != PREMIUM_VOICE_RENDERER
         ):
             raise PalAdapterError("Pal voice attribution mismatch")
-        return audio, expected_voice
+        return audio, expected_voice, PREMIUM_VOICE_RENDERER
 
     def fallback_session(
         self,

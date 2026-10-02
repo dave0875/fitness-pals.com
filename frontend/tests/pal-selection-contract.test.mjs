@@ -93,21 +93,30 @@ test("Selector has no audio, microphone, or autoplay path", () => {
   }
 });
 
-test("Living Pal voice is explicit, exact-attributed, and never browser-authored", () => {
-  assert.ok(coach.includes('authenticatedFetch("/api/pals/v1/voice"'));
+test("Living Pal voice requires premium attribution and explicit persistent Voice mode", () => {
+  assert.ok(coach.includes("authenticatedFetch"));
+  assert.ok(coach.includes("/api/pals/v1/voice"));
   assert.ok(coach.includes("JSON.stringify({ session_token: turn.voiceSessionToken })"));
   assert.ok(coach.includes('response.headers.get("x-pal-persona-id")'));
   assert.ok(coach.includes('response.headers.get("x-pal-voice-key")'));
+  assert.ok(coach.includes('response.headers.get("x-pal-voice-renderer")'));
+  assert.ok(coach.includes("chatterbox-turbo-amanda-grade-v1"));
   assert.ok(coach.includes("new Audio(objectUrl)"));
   assert.ok(coach.includes("await audio.play()"));
+  assert.ok(coach.includes("palVoiceModeEnabled"));
+  assert.ok(coach.includes("Turn voice on"));
+  assert.ok(coach.includes("Turn voice off"));
+  assert.ok(coach.includes("Future Pal replies speak automatically."));
+  assert.ok(coach.includes("if (palVoiceModeEnabled && nextTurn.voiceAvailable)"));
+  assert.ok(coach.includes("void playPalVoice(nextTurn)"));
   assert.ok(coach.includes("Play ${turn.speaker} voice"));
-  assert.ok(coach.includes("Play voice after first reply"));
-  assert.ok(coach.includes("latestPalTurn && playPalVoice(latestPalTurn)"));
+  assert.ok(coach.includes("setPalVoiceModeEnabled(false)"));
   assert.ok(coach.includes("Voice unavailable for this response"));
   assert.ok(coach.includes("stopPalVoice()"));
   assert.ok(!coach.includes("getUserMedia"));
   assert.ok(!coach.includes("speechSynthesis"));
   assert.ok(!coach.includes("text: turn.answer"));
+  assert.ok(css.includes('.palVoiceButton[aria-pressed="true"]'));
   assert.ok(css.includes(".palVoiceButton:focus-visible"));
 });
 

@@ -782,6 +782,7 @@ def _live_pal_acceptance(
             header_map.get("content-type", "").split(";", 1)[0].strip().lower() != "audio/wav"
             or header_map.get("x-pal-persona-id") != persona_id
             or header_map.get("x-pal-voice-key") != voice_key
+            or header_map.get("x-pal-voice-renderer") != "chatterbox-turbo-amanda-grade-v1"
             or not audio.startswith(b"RIFF")
             or len(audio) <= 100
         ):

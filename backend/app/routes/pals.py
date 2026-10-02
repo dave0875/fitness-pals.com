@@ -120,7 +120,7 @@ def render_pal_voice(
     """Proxy explicit Pal voice playback without accepting browser-authored speech text."""
     try:
         session = adapter.decode_session(body.session_token, str(user.id))
-        audio, voice_key = adapter.submit_upstream_voice(session)
+        audio, voice_key, voice_renderer = adapter.submit_upstream_voice(session)
     except InvalidPalSessionError as exc:
         raise HTTPException(status_code=400, detail="Pal session is invalid or expired") from exc
     except PalAdapterError as exc:
@@ -138,6 +138,7 @@ def render_pal_voice(
             "Cache-Control": "no-store",
             "X-Pal-Persona-Id": session.persona_id,
             "X-Pal-Voice-Key": voice_key,
+            "X-Pal-Voice-Renderer": voice_renderer,
         },
     )
 
