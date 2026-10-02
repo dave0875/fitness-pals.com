@@ -539,7 +539,6 @@ export default function Coach() {
   const latestAnswer = [...(thread?.turns || [])]
     .reverse()
     .find((turn) => turn.status !== "failed" && turn.answer)?.answer || "";
-  const latestPalTurn = palTurns.length ? palTurns[palTurns.length - 1] : null;
 
   return (
     <AuthenticatedShell active="coach" variant="electric" contentClassName={styles.electricCoach}>
