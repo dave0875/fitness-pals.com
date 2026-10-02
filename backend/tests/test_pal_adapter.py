@@ -14,6 +14,7 @@ from app.routes import pals as pal_routes
 from app.routes.pals import PalSessionRequest, PalTurnRequest, PalVoiceRequest
 from app.services.pal_adapter import (
     ADAPTER_VERSION,
+    PREMIUM_VOICE_RENDERER,
     PUBLIC_PERSONAS,
     UPSTREAM_CONTRACT_VERSION,
     InvalidPalSessionError,
@@ -104,6 +105,7 @@ def ready_handler(request: httpx.Request) -> httpx.Response:
                 "X-MyChat-Contract-Version": UPSTREAM_CONTRACT_VERSION,
                 "X-Pal-Persona-Id": body["persona_id"],
                 "X-Pal-Voice-Key": voice_key,
+                "X-Pal-Voice-Renderer": PREMIUM_VOICE_RENDERER,
             },
         )
     return httpx.Response(404)
@@ -247,9 +249,10 @@ def test_compatible_upstream_can_start_and_return_only_allow_listed_turn_fields(
     )
     resolved = adapter.decode_session(voice_token, owner)
     assert resolved.voice_text == "Measured response"
-    audio, voice_key = adapter.submit_upstream_voice(resolved)
+    audio, voice_key, voice_renderer = adapter.submit_upstream_voice(resolved)
     assert audio.startswith(b"RIFF")
     assert voice_key == "w21-confident-coaching-v1"
+    assert voice_renderer == PREMIUM_VOICE_RENDERER
     assert adapter.decode_session(token, owner).mode == "pal"
 
 
@@ -281,11 +284,40 @@ def test_transient_voice_503_retries_once_and_recovers(monkeypatch):
         voice_available=turn["voice_available"],
     )
 
-    audio, voice_key = adapter.submit_upstream_voice(resolved)
+    audio, voice_key, voice_renderer = adapter.submit_upstream_voice(resolved)
 
     assert attempts["voice"] == 2
     assert audio.startswith(b"RIFF")
     assert voice_key == "w16-golden-glow-v1"
+    assert voice_renderer == PREMIUM_VOICE_RENDERER
+
+
+def test_non_premium_voice_renderer_is_rejected():
+    def degraded_renderer(request: httpx.Request) -> httpx.Response:
+        response = ready_handler(request)
+        if request.url.path != "/api/pals/v1/voice":
+            return response
+        headers = dict(response.headers)
+        headers["X-Pal-Voice-Renderer"] = "legacy-or-fallback-renderer"
+        return httpx.Response(
+            response.status_code,
+            content=response.content,
+            headers=headers,
+        )
+
+    adapter = PalAdapter(enabled_settings(), client=client(degraded_renderer))
+    owner = str(uuid4())
+    session, _token, reason = adapter.start_session(owner, "w18-radiant-wellness")
+    assert reason is None
+    turn = adapter.submit_upstream_turn(session, "Recovery?")
+    resolved, _voice_token = adapter.bind_voice_text(
+        session,
+        turn["answer"],
+        voice_available=turn["voice_available"],
+    )
+
+    with pytest.raises(PalAdapterError, match="voice attribution mismatch"):
+        adapter.submit_upstream_voice(resolved)
 
 
 def test_persistent_voice_503_stops_after_one_retry(monkeypatch):
