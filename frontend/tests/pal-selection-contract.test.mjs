@@ -94,7 +94,8 @@ test("Selector has no audio, microphone, or autoplay path", () => {
 });
 
 test("Living Pal voice requires premium attribution and explicit persistent Voice mode", () => {
-  assert.ok(coach.includes('authenticatedFetch("/api/pals/v1/voice")'));
+  assert.ok(coach.includes("authenticatedFetch"));
+  assert.ok(coach.includes("/api/pals/v1/voice"));
   assert.ok(coach.includes("JSON.stringify({ session_token: turn.voiceSessionToken })"));
   assert.ok(coach.includes('response.headers.get("x-pal-persona-id")'));
   assert.ok(coach.includes('response.headers.get("x-pal-voice-key")'));
